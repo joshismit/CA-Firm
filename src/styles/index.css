@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ============================================================
+   TAILWIND CSS v4 — Theme Configuration
+   All tokens sourced from CSS custom properties
+   ============================================================ */
+
+@import "tailwindcss";
+@import "./globals.css";
+
+@theme {
+  /* ─── Fonts ─────────────────────────────────── */
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  /* ─── Colors: Brand ─────────────────────────── */
+  --color-primary:             var(--color-primary-600);
+  --color-primary-foreground:  #ffffff;
+  --color-primary-hover:       var(--color-primary-700);
+  --color-primary-active:      var(--color-primary-800);
+
+  /* ─── Colors: Surfaces ──────────────────────── */
+  --color-background:          var(--color-bg);
+  --color-foreground:          var(--color-text-body);
+  --color-card:                var(--color-card);
+  --color-card-foreground:     var(--color-text-body);
+  --color-sidebar:             var(--color-sidebar);
+  --color-surface:             var(--color-surface);
+  --color-surface-2:           var(--color-surface-2);
+  --color-muted:               var(--color-muted);
+  --color-muted-foreground:    var(--color-text-muted);
+
+  /* ─── Colors: Borders ───────────────────────── */
+  --color-border:              var(--color-border);
+  --color-border-strong:       var(--color-border-strong);
+  --color-ring:                var(--color-border-focus);
+  --color-input:               var(--color-border);
+
+  /* ─── Colors: Semantic ──────────────────────── */
+  --color-success:             var(--color-success);
+  --color-success-bg:          var(--color-success-bg);
+  --color-success-fg:          var(--color-success-fg);
+  --color-warning:             var(--color-warning);
+  --color-warning-bg:          var(--color-warning-bg);
+  --color-warning-fg:          var(--color-warning-fg);
+  --color-destructive:         var(--color-danger);
+  --color-destructive-bg:      var(--color-danger-bg);
+  --color-destructive-fg:      var(--color-danger-fg);
+  --color-info:                var(--color-info);
+  --color-info-bg:             var(--color-info-bg);
+  --color-info-fg:             var(--color-info-fg);
+
+  /* ─── Colors: Interactive ───────────────────── */
+  --color-hover:               var(--color-hover);
+  --color-active:              var(--color-active);
+  --color-disabled:            var(--color-disabled);
+
+  /* ─── Colors: Text ──────────────────────────── */
+  --color-heading:             var(--color-text-heading);
+  --color-secondary:           var(--color-text-secondary);
+  --color-link:                var(--color-text-link);
+
+  /* ─── Border Radius ─────────────────────────── */
+  --radius-xs:   var(--radius-xs);
+  --radius-sm:   var(--radius-sm);
+  --radius-md:   var(--radius-md);
+  --radius:      var(--radius-md);
+  --radius-lg:   var(--radius-lg);
+  --radius-xl:   var(--radius-xl);
+  --radius-2xl:  var(--radius-2xl);
+  --radius-full: var(--radius-full);
+
+  /* ─── Shadows ───────────────────────────────── */
+  --shadow-xs:   var(--shadow-xs);
+  --shadow-sm:   var(--shadow-sm);
+  --shadow-md:   var(--shadow-md);
+  --shadow-lg:   var(--shadow-lg);
+  --shadow-xl:   var(--shadow-xl);
+
+  /* ─── Transitions ───────────────────────────── */
+  --ease-fast:   var(--transition-fast);
+  --ease-base:   var(--transition-base);
+  --ease-slow:   var(--transition-slow);
+  --ease-layout: var(--transition-layout);
+}

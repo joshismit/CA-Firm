@@ -1,0 +1,192 @@
+// src/layouts/AppLayout/Header.tsx
+import { Link, useLocation } from 'react-router-dom'
+import { cn } from '@/lib/utils'
+import { useTheme } from '@/contexts/ThemeContext'
+import { NAV_GROUPS } from '@/constants/navigation'
+import {
+  Search,
+  Sun,
+  Moon,
+  Bell,
+  ChevronRight,
+  Settings,
+  LogOut,
+  User,
+  HelpCircle,
+} from 'lucide-react'
+
+function useBreadcrumbs() {
+  const location = useLocation()
+  const parts = location.pathname.split('/').filter(Boolean)
+
+  const crumbs: { label: string; path: string }[] = [
+    { label: 'Home', path: '/' },
+  ]
+
+  let accumulated = ''
+  for (const part of parts) {
+    accumulated += `/${part}`
+    // Find matching nav item label
+    let label = part.charAt(0).toUpperCase() + part.slice(1)
+    for (const group of NAV_GROUPS) {
+      const found = group.items.find(i => i.path === accumulated)
+      if (found) { label = found.label; break }
+    }
+    crumbs.push({ label, path: accumulated })
+  }
+
+  return crumbs
+}
+
+export function Header() {
+  const { resolvedTheme, toggleTheme } = useTheme()
+  const crumbs = useBreadcrumbs()
+  const pageTitle = crumbs.length > 1 ? crumbs[crumbs.length - 1].label : 'Dashboard'
+
+  return (
+    <header
+      className={cn(
+        'flex items-center gap-4 px-6 h-14 shrink-0',
+        'bg-[var(--color-sidebar)] border-b border-[var(--color-border)]',
+        'sticky top-0 z-[var(--z-sticky)]'
+      )}
+    >
+      {/* Breadcrumb */}
+      <div className="flex-1 flex items-center min-w-0">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5">
+          {crumbs.map((crumb, i) => (
+            <span key={crumb.path} className="flex items-center gap-1.5 text-[12px]">
+              {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />}
+              {i === crumbs.length - 1 ? (
+                <span className="font-medium text-[var(--color-text-heading)]" aria-current="page">
+                  {crumb.label}
+                </span>
+              ) : (
+                <Link
+                  to={crumb.path}
+                  className="text-[var(--color-text-muted)] hover:text-[var(--color-text-heading)] transition-colors"
+                >
+                  {crumb.label}
+                </Link>
+              )}
+            </span>
+          ))}
+        </nav>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1.5">
+        {/* Search trigger */}
+        <button
+          className={cn(
+            'flex items-center gap-2 h-8 px-3 rounded-[var(--radius-md)]',
+            'text-[12px] text-[var(--color-text-muted)] border border-[var(--color-border)]',
+            'hover:bg-[var(--color-hover)] hover:text-[var(--color-text-body)]',
+            'transition-colors duration-100'
+          )}
+          aria-label="Open search (Ctrl+K)"
+        >
+          <Search className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">Search...</span>
+          <kbd className="hidden md:inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] font-mono rounded bg-[var(--color-surface)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+            ⌘K
+          </kbd>
+        </button>
+
+        {/* Theme toggle */}
+        <button
+          onClick={toggleTheme}
+          className={cn(
+            'flex items-center justify-center w-8 h-8 rounded-[var(--radius-md)]',
+            'text-[var(--color-text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-text-body)]',
+            'transition-colors duration-100'
+          )}
+          aria-label={`Switch to ${resolvedTheme === 'light' ? 'dark' : 'light'} mode`}
+        >
+          {resolvedTheme === 'light' ? (
+            <Moon className="w-4 h-4" />
+          ) : (
+            <Sun className="w-4 h-4" />
+          )}
+        </button>
+
+        {/* Notifications */}
+        <button
+          className={cn(
+            'relative flex items-center justify-center w-8 h-8 rounded-[var(--radius-md)]',
+            'text-[var(--color-text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-text-body)]',
+            'transition-colors duration-100'
+          )}
+          aria-label="Notifications (2 unread)"
+        >
+          <Bell className="w-4 h-4" />
+          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[var(--color-danger)] border-2 border-[var(--color-sidebar)]" />
+        </button>
+
+        {/* Divider */}
+        <div className="w-px h-5 bg-[var(--color-border)] mx-1" />
+
+        {/* User menu */}
+        <div className="relative group">
+          <button
+            className={cn(
+              'flex items-center gap-2 h-8 pl-1 pr-2 rounded-[var(--radius-md)]',
+              'hover:bg-[var(--color-hover)] transition-colors duration-100'
+            )}
+            aria-label="User menu"
+          >
+            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[var(--color-primary-500)] to-[var(--color-primary-700)] flex items-center justify-center shrink-0">
+              <span className="text-[10px] font-semibold text-white">AK</span>
+            </div>
+            <div className="hidden md:flex flex-col items-start">
+              <span className="text-[12px] font-medium text-[var(--color-text-body)] leading-tight">
+                Amit Kumar
+              </span>
+              <span className="text-[10px] text-[var(--color-text-muted)] leading-tight">
+                Admin
+              </span>
+            </div>
+          </button>
+
+          {/* Dropdown */}
+          <div className={cn(
+            'absolute right-0 top-full mt-1 w-48 py-1',
+            'bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-lg)]',
+            'shadow-[var(--shadow-lg)]',
+            'opacity-0 invisible group-hover:opacity-100 group-hover:visible',
+            'transition-all duration-150 z-[var(--z-dropdown)]'
+          )}>
+            {[
+              { icon: User, label: 'Profile' },
+              { icon: Settings, label: 'Settings' },
+              { icon: HelpCircle, label: 'Help & Support' },
+            ].map(({ icon: Icon, label }) => (
+              <button
+                key={label}
+                className={cn(
+                  'flex items-center gap-2.5 w-full px-3 py-2 text-[13px]',
+                  'text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] hover:text-[var(--color-text-body)]',
+                  'transition-colors duration-100'
+                )}
+              >
+                <Icon className="w-4 h-4" />
+                {label}
+              </button>
+            ))}
+            <div className="my-1 border-t border-[var(--color-border)]" />
+            <button
+              className={cn(
+                'flex items-center gap-2.5 w-full px-3 py-2 text-[13px]',
+                'text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]',
+                'transition-colors duration-100'
+              )}
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+  )
+}
