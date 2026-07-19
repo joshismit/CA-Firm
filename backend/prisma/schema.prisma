@@ -1,0 +1,1205 @@
+// =============================================================================
+// CA Firm ERP — Prisma Schema
+// Foundation Module: Tenant + Authentication + RBAC
+// =============================================================================
+//
+// Architecture Version  : 2.0 (Approved)
+// Schema Version        : 1.0.0
+// Target Database       : PostgreSQL 16+
+// ORM                   : Prisma 5.x
+// Backend               : Node.js + Express + TypeScript
+//
+// Modules in this file (Foundation Layer):
+//   1. Tenant       — Tenant, TenantSettings, TenantBranding, TenantDomain
+//   2. Auth         — User, UserSession, RefreshToken, OtpCode, MfaConfig,
+//                     UserInvitation, LoginHistory
+//   3. RBAC         — Permission, PermissionGroup, Role, RolePermission,
+//                     UserRole, ResourceAccessPolicy
+//
+// NOT in this file (generated separately):
+//   Businesses, Clients, Contacts, CRM, Documents, Tasks, Projects,
+//   Billing, Notifications, Audit, Reports, Settings, Integrations
+//
+// DB Naming Convention:
+//   Tables   → snake_case  (via @@map)
+//   Columns  → snake_case  (via @map)
+//   Prisma   → camelCase   (model fields)
+//
+// Critical Architecture Rules (from v2.0 review):
+//   • All tenant-scoped writes MUST call SET LOCAL "app.current_tenant_id"
+//     inside a Prisma transaction via BaseRepository.withTenant()
+//   • Refresh token rotation uses family tracking — reuse = revoke entire family
+//   • LoginHistory is IMMUTABLE — DB trigger prevents UPDATE/DELETE
+//   • UserSession token stored as SHA-256 hash only — never plaintext
+//   • OTP codes stored as bcrypt hash — never plaintext
+//   • MFA TOTP secrets stored AES-256-GCM encrypted
+//
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [
+    uuidOssp(map: "uuid-ossp"), // gen_random_uuid() used by @default(uuid())
+    pgTrgm(map: "pg_trgm"),     // Trigram indexes for fuzzy text search
+    ltree                        // Hierarchical path type for document folders
+  ]
+}
+
+// =============================================================================
+// SECTION 1 — SHARED ENUMS
+// =============================================================================
+
+/// Lifecycle status of a CA Firm tenant on the platform.
+enum TenantStatus {
+  ACTIVE       // Fully operational
+  TRIAL        // In 14/30-day free trial
+  SUSPENDED    // Payment failed — read-only access
+  DEACTIVATED  // Intentionally closed by firm owner
+
+  @@map("tenant_status")
+}
+
+/// Status of a tenant's paid subscription.
+/// Denormalized onto Tenant.subscriptionStatus for O(1) access.
+enum SubscriptionStatus {
+  TRIAL        // Still in trial
+  ACTIVE       // Paid and current
+  PAST_DUE     // Payment failed, grace period active
+  SUSPENDED    // Grace period expired, access restricted
+  CANCELLED    // Explicitly cancelled, access until period end
+  EXPIRED      // Period ended with no renewal
+
+  @@map("subscription_status")
+}
+
+/// Lifecycle status of an individual user account.
+enum UserStatus {
+  ACTIVE     // Can log in and use the system
+  INACTIVE   // Temporarily disabled by admin
+  INVITED    // Invitation sent, account not yet activated
+  SUSPENDED  // Security hold — account locked
+  DELETED    // Soft-deleted (deletedAt IS NOT NULL)
+
+  @@map("user_status")
+}
+
+/// Device category for a user session.
+enum SessionDeviceType {
+  WEB
+  MOBILE_IOS
+  MOBILE_ANDROID
+  DESKTOP
+  API_KEY // API key-based sessions (no browser)
+
+  @@map("session_device_type")
+}
+
+/// Reason an active session was explicitly revoked.
+enum SessionRevokeReason {
+  LOGOUT              // User-initiated logout
+  PASSWORD_CHANGE     // All sessions revoked on password change
+  ADMIN_REVOKE        // Revoked by tenant admin
+  MFA_DISABLED        // MFA removed — sessions invalidated as precaution
+  SESSION_EXPIRED     // TTL exceeded (cleaned by job)
+  SUSPICIOUS_ACTIVITY // Flagged by anomaly detection
+  DEVICE_REMOVED      // User removed a trusted device
+
+  @@map("session_revoke_reason")
+}
+
+/// Purpose / use case of a one-time password.
+enum OtpPurpose {
+  EMAIL_VERIFY    // Verify email address at signup
+  PHONE_VERIFY    // Verify phone number
+  TWO_FACTOR      // 2FA step during login
+  PASSWORD_RESET  // Forgot password flow
+
+  @@map("otp_purpose")
+}
+
+/// Reason a refresh token was explicitly revoked.
+enum RefreshTokenRevokeReason {
+  LOGOUT             // Normal logout — revoke all family tokens
+  FAMILY_COMPROMISED // Reuse detected — revoke entire family (theft prevention)
+  PASSWORD_CHANGE    // Password changed — all tokens invalid
+  SESSION_REVOKED    // Parent session was revoked
+  ADMIN_REVOKE       // Revoked by admin
+  EXPIRED            // TTL exceeded
+
+  @@map("refresh_token_revoke_reason")
+}
+
+/// Lifecycle status of a user invitation.
+enum InvitationStatus {
+  PENDING  // Sent, awaiting acceptance
+  ACCEPTED // User accepted and created their account
+  EXPIRED  // 7-day TTL exceeded without acceptance
+  REVOKED  // Revoked by inviter or admin before acceptance
+
+  @@map("invitation_status")
+}
+
+/// Action type encoded in a system permission.
+/// Permission code format: "{module}:{action}" e.g. "clients:read"
+enum PermissionAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  EXPORT
+  SHARE
+  APPROVE
+  ASSIGN
+  MANAGE // Admin-level: grants full access to a module
+
+  @@map("permission_action")
+}
+
+/// Type of authentication/security event recorded in LoginHistory.
+enum LoginEventType {
+  LOGIN
+  LOGOUT
+  FAILED_LOGIN
+  TOKEN_REFRESH
+  PASSWORD_RESET
+  MFA_SUCCESS
+  MFA_FAILED
+  ACCOUNT_LOCKED
+  ACCOUNT_UNLOCKED
+
+  @@map("login_event_type")
+}
+
+/// Outcome of an authentication event.
+enum LoginEventStatus {
+  SUCCESS
+  FAILURE
+
+  @@map("login_event_status")
+}
+
+/// Role Type classification
+enum RoleType {
+  SYSTEM
+  CUSTOM
+
+  @@map("role_type")
+}
+
+/// Session status
+enum SessionStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+
+  @@map("session_status")
+}
+
+/// MFA Method Type
+enum OtpType {
+  TOTP
+  SMS
+  EMAIL
+
+  @@map("otp_type")
+}
+
+/// Access level granted by a resource-level policy override.
+/// Overrides role-based permissions for specific records.
+enum ResourceAccessLevel {
+  NONE  // Explicitly deny access (overrides any role permission)
+  READ
+  WRITE
+  ADMIN
+
+  @@map("resource_access_level")
+}
+
+/// SSL certificate provisioning status for a tenant's custom domain.
+enum DomainSslStatus {
+  PENDING      // SSL certificate not yet provisioned
+  PROVISIONED  // Certificate active
+  FAILED       // Provisioning failed (usually DNS misconfiguration)
+  EXPIRING     // Certificate expires within 30 days
+
+  @@map("domain_ssl_status")
+}
+
+// =============================================================================
+// SECTION 2 — TENANT MODULE
+// =============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: Tenant
+//
+// Purpose:
+//   The root entity of the entire multi-tenant system. Every CA Firm is one
+//   Tenant. Every piece of data in the system — users, clients, documents,
+//   tasks, invoices — is owned by a Tenant and filtered by tenant_id.
+//
+//   Contains a denormalized subscription cache (subscriptionStatus, planCode,
+//   max* limits) updated by a BullMQ worker on every payment webhook event.
+//   This eliminates a 4-table JOIN from the tenant middleware hot path
+//   (called on every authenticated API request).
+//
+// RLS:
+//   The tenant table itself has NO RLS policy — it is a global table.
+//   All other tables have RLS enforced via SET LOCAL "app.current_tenant_id".
+// ─────────────────────────────────────────────────────────────────────────────
+model Tenant {
+  id   String @id @default(uuid()) @db.Uuid
+  slug String @unique @db.VarChar(100) // URL-safe identifier: "sharma-associates"
+  name String @db.VarChar(255) // Full firm name: "Sharma & Associates LLP"
+
+  // ── Locale & Regional Settings ────────────────────────────────────────
+  country         String @default("IN")           @db.Char(2)      @map("country")
+  timezone        String @default("Asia/Kolkata")  @db.VarChar(100) @map("timezone")
+  locale          String @default("en-IN")         @db.VarChar(20)  @map("locale")
+  defaultCurrency String @default("INR")           @db.Char(3)      @map("default_currency")
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────
+  status TenantStatus @default(TRIAL) @map("status")
+
+  // ── Subscription Cache (denormalized — DO NOT update from application code)
+  // These columns are updated ONLY by the BullMQ subscription sync worker
+  // when payment gateway webhooks fire. Never update via business logic.
+  // Purpose: Eliminates the subscriptions → billing_plans → plan_features JOIN
+  // on every API request.
+  subscriptionStatus    SubscriptionStatus @default(TRIAL) @map("subscription_status")
+  subscriptionExpiresAt DateTime?          @db.Timestamptz @map("subscription_expires_at")
+  planCode              String?            @db.VarChar(50) @map("plan_code") // "STARTER" | "PRO" | "ENTERPRISE"
+  maxUsers              Int?               @map("max_users") // NULL = unlimited
+  maxClients            Int?               @map("max_clients")
+  maxStorageGb          Int?               @map("max_storage_gb")
+  maxDocuments          Int?               @map("max_documents")
+
+  // ── Onboarding ────────────────────────────────────────────────────────
+  onboardingCompletedAt DateTime? @db.Timestamptz @map("onboarding_completed_at")
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime  @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
+  deletedAt DateTime?                 @db.Timestamptz @map("deleted_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  // One-to-one
+  settings     TenantSettings?
+  branding     TenantBranding?
+  customDomain TenantDomain?
+
+  // One-to-many
+  users           User[]
+  roles           Role[]
+  userInvitations UserInvitation[]
+
+  @@index([status],            name: "idx_tenants_status")
+  @@index([subscriptionStatus], name: "idx_tenants_subscription_status")
+  @@index([planCode],          name: "idx_tenants_plan_code")
+  @@index([deletedAt],         name: "idx_tenants_soft_delete")
+  @@map("tenants")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: TenantSettings
+//
+// Purpose:
+//   Operational configuration for a single tenant. One row per tenant.
+//   Contains security policies, session config, password rules, feature flags,
+//   and notification routing. Explicitly typed columns for all known settings.
+//   JSONB overflow column for future or custom settings.
+//
+// Access:
+//   Read by every request (tenant middleware). Cache in Redis.
+//   Write only by tenant owners/admins.
+// ─────────────────────────────────────────────────────────────────────────────
+model TenantSettings {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @unique @db.Uuid @map("tenant_id")
+
+  // ── Locale & Display ──────────────────────────────────────────────────
+  timezone        String @default("Asia/Kolkata") @db.VarChar(100) @map("timezone")
+  dateFormat      String @default("DD/MM/YYYY")   @db.VarChar(30)  @map("date_format")
+  currency        String @default("INR")           @db.Char(3)      @map("currency")
+  fiscalYearStart Int    @default(4)                                @map("fiscal_year_start")
+  // ^ Month number: 4 = April (standard Indian Financial Year starts April 1)
+  language        String @default("en")            @db.VarChar(10)  @map("language")
+
+  // ── Session & Auth Security ───────────────────────────────────────────
+  maxLoginAttempts   Int @default(5)   @map("max_login_attempts")
+  sessionTimeoutMins Int @default(480) @map("session_timeout_mins") // Default: 8 hours
+
+  // ── MFA Policy ────────────────────────────────────────────────────────
+  requireMfa Boolean @default(false) @map("require_mfa")
+  // ^ If true, users without MFA configured are blocked from accessing the app
+
+  // ── Password Policy ───────────────────────────────────────────────────
+  passwordMinLength     Int     @default(8)     @map("password_min_length")
+  passwordRequireUpper  Boolean @default(true)  @map("password_require_upper")
+  passwordRequireNumber Boolean @default(true)  @map("password_require_number")
+  passwordRequireSymbol Boolean @default(false) @map("password_require_symbol")
+  passwordExpiryDays    Int?    @map("password_expiry_days") // NULL = never expires
+
+  // ── Feature Flags ─────────────────────────────────────────────────────
+  allowClientPortal  Boolean @default(false) @map("allow_client_portal")
+  watermarkDocuments Boolean @default(false) @map("watermark_documents")
+  enableWebhooks     Boolean @default(false) @map("enable_webhooks")
+  enableApiAccess    Boolean @default(false) @map("enable_api_access")
+  enableOcr          Boolean @default(false) @map("enable_ocr")
+
+  // ── Notification Routing ──────────────────────────────────────────────
+  defaultNotificationEmail String? @db.VarChar(255) @map("default_notification_email")
+
+  // ── Overflow for future/custom settings ──────────────────────────────
+  // Use typed columns for known settings. Only add here for truly ad-hoc needs.
+  extraSettings Json? @db.JsonB @map("extra_settings")
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@map("tenant_settings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: TenantBranding
+//
+// Purpose:
+//   White-label branding configuration per tenant. Stores S3/R2 object keys
+//   for logos (NOT full URLs — presigned URLs are generated on demand).
+//   Colors stored as 7-char hex (#RRGGBB). Custom CSS is sanitized server-side
+//   before storage (allowlisted properties only) to prevent CSS injection.
+// ─────────────────────────────────────────────────────────────────────────────
+model TenantBranding {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @unique @db.Uuid @map("tenant_id")
+
+  // ── Identity ──────────────────────────────────────────────────────────
+  firmName String? @db.VarChar(255) @map("firm_name") // Display name, may differ from Tenant.name
+
+  // ── Storage Keys (S3/R2 object keys — NOT full URLs) ─────────────────
+  // These are resolved to presigned URLs by the application on demand.
+  logoStorageKey     String? @db.VarChar(500) @map("logo_storage_key")     // Light mode logo
+  logoDarkStorageKey String? @db.VarChar(500) @map("logo_dark_storage_key") // Dark mode logo
+  faviconStorageKey  String? @db.VarChar(500) @map("favicon_storage_key")
+  loginBgStorageKey  String? @db.VarChar(500) @map("login_bg_storage_key")  // Login page background
+
+  // ── Colors (format: "#RRGGBB" 7 chars) ───────────────────────────────
+  primaryColor     String? @default("#1a73e8") @db.Char(7) @map("primary_color")
+  secondaryColor   String? @db.Char(7)                     @map("secondary_color")
+  accentColor      String? @db.Char(7)                     @map("accent_color")
+  backgroundColor  String? @db.Char(7)                     @map("background_color")
+  emailHeaderColor String? @db.Char(7)                     @map("email_header_color")
+
+  // ── Typography ───────────────────────────────────────────────────────
+  fontFamily String? @default("Inter") @db.VarChar(100) @map("font_family")
+
+  // ── Custom CSS ────────────────────────────────────────────────────────
+  // SECURITY: Must be sanitized using a CSS allowlist before storage.
+  // Never inject raw custom_css into shared admin interfaces.
+  customCss String? @db.Text @map("custom_css")
+
+  // ── Email Branding ────────────────────────────────────────────────────
+  emailFooterText String? @db.Text @map("email_footer_text")
+
+  // ── Support Contact ───────────────────────────────────────────────────
+  footerText   String? @db.VarChar(500) @map("footer_text")
+  supportEmail String? @db.VarChar(255) @map("support_email")
+  supportPhone String? @db.VarChar(30)  @map("support_phone")
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@map("tenant_branding")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: TenantDomain
+//
+// Purpose:
+//   Custom domain and SSL configuration for white-label deployments.
+//   Each tenant may configure exactly one custom domain (e.g., "erp.sharma.com").
+//   Verification uses DNS TXT record. SSL is provisioned via Let's Encrypt/ACM.
+//
+// DNS verification flow:
+//   1. Tenant sets domain → system generates verificationToken
+//   2. Tenant adds TXT record: _cafirm-verify.{domain} = {verificationToken}
+//   3. Background worker polls DNS and sets isVerified = true on success
+//   4. SSL provisioning triggers after verification
+// ─────────────────────────────────────────────────────────────────────────────
+model TenantDomain {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @unique @db.Uuid @map("tenant_id")
+
+  // ── Domain ────────────────────────────────────────────────────────────
+  domain    String  @unique @db.VarChar(253) @map("domain")
+  // ^ Max domain length per RFC 1035. Unique globally.
+  subdomain String? @unique @db.VarChar(100) @map("subdomain")
+  // ^ Auto-generated from tenant slug: "sharma-associates.cafirm.app"
+
+  // ── DNS Verification ──────────────────────────────────────────────────
+  verificationToken String    @db.VarChar(255) @map("verification_token")
+  isVerified        Boolean   @default(false)  @map("is_verified")
+  verifiedAt        DateTime? @db.Timestamptz  @map("verified_at")
+
+  // ── SSL Certificate ───────────────────────────────────────────────────
+  sslStatus    DomainSslStatus @default(PENDING) @map("ssl_status")
+  sslExpiresAt DateTime?       @db.Timestamptz   @map("ssl_expires_at")
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([domain],    name: "idx_tenant_domains_domain")
+  @@index([subdomain], name: "idx_tenant_domains_subdomain")
+  @@index([isVerified, sslStatus], name: "idx_tenant_domains_ssl_status")
+  @@map("tenant_domains")
+}
+
+// =============================================================================
+// SECTION 3 — AUTHENTICATION MODULE
+// =============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: User
+//
+// Purpose:
+//   Core identity entity. Every person who logs into a tenant is a User.
+//   Users are scoped to exactly one tenant (email unique within tenant only).
+//   The same email can belong to users in different tenants simultaneously.
+//
+// Security notes:
+//   • passwordHash: bcrypt (cost ≥ 12). NULL for OAuth-only or pending invites.
+//   • phone: encrypted at application layer before storage (AES-256-GCM).
+//   • Soft delete via deletedAt — deleted users retain all their audit history.
+//   • createdBy / deletedBy self-referential FKs for full ownership tracking.
+//
+// Unique constraint:
+//   (tenantId, email) — same email can exist in different tenants.
+// ─────────────────────────────────────────────────────────────────────────────
+model User {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+
+  // ── Identity ──────────────────────────────────────────────────────────
+  email        String @db.VarChar(255) @map("email")
+  passwordHash String? @db.Text        @map("password_hash")
+  // ^ NULL = OAuth-only user or pending invitation (no password set yet)
+  firstName    String @db.VarChar(100) @map("first_name")
+  lastName     String @db.VarChar(100) @map("last_name")
+  phone        String? @db.VarChar(30) @map("phone") // Encrypted (AES-256-GCM) before storage
+
+  // ── Status & Flags ────────────────────────────────────────────────────
+  status  UserStatus @default(INVITED) @map("status")
+  isOwner Boolean    @default(false)   @map("is_owner") // Founding partner / firm owner
+
+  // ── Profile ───────────────────────────────────────────────────────────
+  avatarStorageKey String? @db.VarChar(500) @map("avatar_storage_key") // S3/R2 object key
+  jobTitle         String? @db.VarChar(100) @map("job_title")
+  bio              String? @db.Text         @map("bio")
+
+  // ── Verification Tracking ─────────────────────────────────────────────
+  emailVerifiedAt DateTime? @db.Timestamptz @map("email_verified_at")
+  phoneVerifiedAt DateTime? @db.Timestamptz @map("phone_verified_at")
+
+  // ── Security Tracking ─────────────────────────────────────────────────
+  lastLoginAt       DateTime? @db.Timestamptz @map("last_login_at")
+  passwordChangedAt DateTime? @db.Timestamptz @map("password_changed_at")
+
+  // ── Audit ─────────────────────────────────────────────────────────────
+  createdBy String?   @db.Uuid        @map("created_by")
+  createdAt DateTime  @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
+  deletedAt DateTime?                 @db.Timestamptz @map("deleted_at")
+  deletedBy String?   @db.Uuid        @map("deleted_by")
+
+  // ── Relations: Parent ─────────────────────────────────────────────────
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  // ── Relations: Self-referential (Audit chain) ──────────────────────────
+  // Who created this user?
+  createdByUser User?  @relation("UserCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  createdUsers  User[] @relation("UserCreatedBy")
+  // Who soft-deleted this user?
+  deletedByUser User?  @relation("UserDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+  deletedUsers  User[] @relation("UserDeletedBy")
+
+  // ── Relations: Auth ───────────────────────────────────────────────────
+  sessions           UserSession[]
+  refreshTokens      RefreshToken[]
+  otpCodes           OtpCode[]
+  mfaConfig          MfaConfig?
+
+  // ── Relations: Invitations ────────────────────────────────────────────
+  sentInvitations    UserInvitation[] @relation("InvitedByUser")
+  // ^ All invitations this user sent as the inviter
+  acceptedInvitation UserInvitation?  @relation("AcceptedUser")
+  // ^ The invitation that created this user account (1:1, set on acceptance)
+
+  // ── Relations: RBAC ──────────────────────────────────────────────────
+  userRoles               UserRole[]             @relation("UserRoleUser")
+  assignedUserRoles       UserRole[]             @relation("UserRoleAssignedBy")
+  // ^ Roles this user assigned to other users
+  resourceAccessPolicies  ResourceAccessPolicy[] @relation("PolicyUser")
+  // ^ Resource policies where this user IS the subject
+  grantedResourcePolicies ResourceAccessPolicy[] @relation("PolicyGrantedBy")
+  // ^ Resource policies this user granted to others
+  grantedRolePermissions  RolePermission[]       @relation("RolePermissionGrantedBy")
+  createdRoles            Role[]                 @relation("RoleCreatedBy")
+
+  @@unique([tenantId, email], name: "uq_users_tenant_email")
+  @@index([tenantId, status],    name: "idx_users_tenant_status")
+  @@index([tenantId, deletedAt], name: "idx_users_soft_delete")
+  @@index([tenantId, isOwner],   name: "idx_users_tenant_owner")
+  @@index([tenantId, email],     name: "idx_users_email_lookup")
+  @@index([lastLoginAt],         name: "idx_users_last_login")
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: UserSession
+//
+// Purpose:
+//   Tracks every active login session across all devices and browsers.
+//   A session is created on successful login and revoked on logout, password
+//   change, or expiry. Supports the "Manage Devices" UI.
+//
+// Token storage:
+//   The actual session token (JWT or opaque token) is NEVER stored.
+//   tokenHash = SHA-256(token) stored as 64-char hex string.
+//   Token is validated by: hash input → compare against tokenHash.
+//
+// PgBouncer safety:
+//   This table uses tenantId as a plain UUID field (no Prisma relation to Tenant).
+//   The FK constraint is enforced at the DB level via raw SQL migration.
+//   This avoids bloating the Tenant model with back-references.
+//
+// Cleanup:
+//   BullMQ daily job: DELETE WHERE expiresAt < now() AND isActive = false
+// ─────────────────────────────────────────────────────────────────────────────
+model UserSession {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id") // FK → tenants.id (enforced at DB level)
+  userId   String @db.Uuid @map("user_id")
+
+  // ── Token ─────────────────────────────────────────────────────────────
+  tokenHash String @unique @db.VarChar(64) @map("token_hash")
+  // SHA-256 hex of the session token. Lookup: WHERE token_hash = sha256(input)
+
+  // ── Device Information ────────────────────────────────────────────────
+  deviceType        SessionDeviceType @default(WEB)    @map("device_type")
+  deviceName        String?           @db.VarChar(255) @map("device_name")
+  // ^ Human-readable: "iPhone 15 Pro", "Chrome on Windows 11"
+  deviceFingerprint String?           @db.VarChar(255) @map("device_fingerprint")
+  // ^ Browser fingerprint hash (canvas, fonts, WebGL)
+  browser           String?           @db.VarChar(100) @map("browser") // "Chrome 126"
+  os                String?           @db.VarChar(100) @map("os")      // "Windows 11", "iOS 17"
+
+  // ── Network ───────────────────────────────────────────────────────────
+  ipAddress String? @db.VarChar(45) @map("ip_address") // Supports IPv6 (max 45 chars)
+  userAgent String? @db.Text        @map("user_agent")
+
+  // ── Geolocation (resolved from IP — best effort, non-critical) ────────
+  locationCity    String? @db.VarChar(100) @map("location_city")
+  locationCountry String? @db.Char(2)     @map("location_country")
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────
+  status       SessionStatus        @default(ACTIVE) @map("status")
+  expiresAt    DateTime             @db.Timestamptz @map("expires_at")   // Hard TTL
+  lastActiveAt DateTime             @default(now()) @db.Timestamptz @map("last_active_at")
+  revokedAt    DateTime?            @db.Timestamptz @map("revoked_at")
+  revokeReason SessionRevokeReason? @map("revoke_reason")
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+  // ^ All refresh tokens issued for this session
+
+  @@index([userId, status],          name: "idx_sessions_user_active")
+  @@index([tenantId, userId],        name: "idx_sessions_tenant_user")
+  @@index([expiresAt, status],       name: "idx_sessions_cleanup_job")
+  @@map("user_sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: RefreshToken
+//
+// Purpose:
+//   JWT refresh tokens with family-based rotation and theft detection.
+//   Built on the RFC-compliant refresh token rotation pattern.
+//
+// Rotation flow:
+//   1. Client presents refresh token
+//   2. If isUsed = true → THEFT DETECTED → revoke entire family, force re-login
+//   3. If isUsed = false → mark isUsed = true, issue new token in same familyId
+//   4. Store rotatedToId = new token's ID for chain traceability
+//
+// Family concept:
+//   All tokens derived from a single login share a familyId.
+//   Token 1 (sequence=1) → rotated → Token 2 (sequence=2) → rotated → Token 3...
+//   If Token 1 is presented after rotation → familyId compromised → revoke all.
+//
+// Security note:
+//   tokenHash = SHA-256(token). Never store plaintext. Verification by hash.
+// ─────────────────────────────────────────────────────────────────────────────
+model RefreshToken {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @db.Uuid @map("tenant_id") // FK → tenants.id (enforced at DB level)
+  userId    String @db.Uuid @map("user_id")
+  sessionId String @db.Uuid @map("session_id")
+
+  // ── Token ─────────────────────────────────────────────────────────────
+  tokenHash String @unique @db.VarChar(64) @map("token_hash")
+  // SHA-256 hex of the refresh token value
+
+  // ── Rotation Chain ────────────────────────────────────────────────────
+  familyId    String    @db.Uuid       @map("family_id")
+  // ^ Groups all tokens from the same login session family.
+  // Created once at initial login: familyId = gen_random_uuid()
+  sequence    Int       @default(1)    @map("sequence")
+  // ^ Position in family: 1 (initial), 2 (first rotation), 3 (second)...
+  isUsed      Boolean   @default(false) @map("is_used")
+  // ^ Set to true when this token is consumed during rotation
+  usedAt      DateTime? @db.Timestamptz @map("used_at")
+  rotatedToId String?   @unique @db.Uuid @map("rotated_to_id")
+  // ^ ID of the next token in the chain. Unique: one token can only become one next token.
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────
+  expiresAt    DateTime                  @db.Timestamptz @map("expires_at") // 7 days default
+  revokedAt    DateTime?                 @db.Timestamptz @map("revoked_at")
+  revokeReason RefreshTokenRevokeReason? @map("revoke_reason")
+
+  // ── Device Context (captured at issuance for traceability) ────────────
+  ipAddress String? @db.VarChar(45) @map("ip_address")
+  userAgent String? @db.Text        @map("user_agent")
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session UserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  // Self-referential rotation chain (one-to-one optional)
+  rotatedTo   RefreshToken?  @relation("TokenRotationChain", fields: [rotatedToId], references: [id])
+  rotatedFrom RefreshToken?  @relation("TokenRotationChain")
+
+  @@index([familyId, isUsed],   name: "idx_refresh_tokens_family")
+  @@index([userId, expiresAt],  name: "idx_refresh_tokens_user_expiry")
+  @@index([tenantId, userId],   name: "idx_refresh_tokens_tenant_user")
+  @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: OtpCode
+//
+// Purpose:
+//   One-time passwords for 2FA, email/phone verification, and password reset.
+//   NEVER store the plaintext OTP. codeHash = bcrypt(otp).
+//
+//   Brute-force protection:
+//     - attemptCount incremented on every wrong guess
+//     - If attemptCount >= maxAttempts → OTP is invalidated (treated as used)
+//     - Account lockout logic in application layer via LoginHistory
+//
+//   Auto-cleanup:
+//     BullMQ job: DELETE WHERE expiresAt < now() - INTERVAL '24 hours'
+// ─────────────────────────────────────────────────────────────────────────────
+model OtpCode {
+  id       String  @id @default(uuid()) @db.Uuid
+  tenantId String  @db.Uuid @map("tenant_id") // FK → tenants.id (enforced at DB level)
+  userId   String? @db.Uuid @map("user_id")
+  // ^ NULL for pre-auth OTPs (email not yet verified, user account may not exist)
+  email    String? @db.VarChar(255) @map("email")
+  // ^ Stored for pre-auth OTPs where userId is not yet known
+
+  // ── OTP Config ────────────────────────────────────────────────────────
+  purpose  OtpPurpose @map("purpose")
+  type     OtpType    @default(EMAIL) @map("type")
+  codeHash String     @db.VarChar(255) @map("code_hash") // bcrypt(otp) — never plaintext
+
+  // ── Attempt Tracking ──────────────────────────────────────────────────
+  attemptCount Int @default(0) @map("attempt_count")
+  maxAttempts  Int @default(5) @map("max_attempts")
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────
+  isUsed    Boolean   @default(false) @map("is_used")
+  usedAt    DateTime? @db.Timestamptz @map("used_at")
+  expiresAt DateTime  @db.Timestamptz @map("expires_at") // 10 minutes default
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, expiresAt], name: "idx_otp_active_user")
+  @@index([email, purpose, expiresAt],  name: "idx_otp_active_email")
+  @@map("otp_codes")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: MfaConfig
+//
+// Purpose:
+//   Multi-factor authentication configuration per user. Exactly one row per user
+//   (UNIQUE on userId). Supports TOTP (authenticator apps) and SMS OTP.
+//
+// Security:
+//   • totpSecretEncrypted: AES-256-GCM encrypted. Key stored in AWS KMS.
+//     encryptionKeyVersion stores the KMS key alias for rotation tracking.
+//   • smsPhone: Encrypted (AES-256-GCM) before storage (phone = PII).
+//   • backupCodes: Array of bcrypt-hashed backup codes (8 codes).
+//     Plaintext codes shown to user ONCE at generation time, never stored.
+//
+// Setup flow:
+//   1. Generate TOTP secret → encrypt → store in totpSecretEncrypted
+//   2. User scans QR code in authenticator app
+//   3. User submits a valid TOTP code → totpVerifiedAt is set → totpEnabled = true
+// ─────────────────────────────────────────────────────────────────────────────
+model MfaConfig {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id") // FK → tenants.id (enforced at DB level)
+  userId   String @unique @db.Uuid @map("user_id")
+
+  // ── TOTP (Time-based OTP — Google Authenticator, Authy, 1Password) ───
+  totpSecretEncrypted String?   @db.Text        @map("totp_secret_encrypted")
+  totpEnabled         Boolean   @default(false) @map("totp_enabled")
+  totpVerifiedAt      DateTime? @db.Timestamptz @map("totp_verified_at")
+
+  // ── SMS OTP ───────────────────────────────────────────────────────────
+  smsEnabled Boolean @default(false) @map("sms_enabled")
+  smsPhone   String? @db.VarChar(30) @map("sms_phone") // AES-256-GCM encrypted
+
+  // ── Backup Codes ──────────────────────────────────────────────────────
+  // Array of bcrypt-hashed one-time backup codes.
+  // Regenerating backup codes invalidates all previous codes.
+  backupCodes            String[]  @default([]) @map("backup_codes")
+  backupCodesGeneratedAt DateTime? @db.Timestamptz @map("backup_codes_generated_at")
+  backupCodesUsedCount   Int       @default(0)     @map("backup_codes_used_count")
+
+  // ── Usage Tracking ────────────────────────────────────────────────────
+  lastUsedAt DateTime? @db.Timestamptz @map("last_used_at")
+  lastMethod String?   @db.VarChar(20) @map("last_method") // "TOTP" | "SMS" | "BACKUP"
+
+  // ── Encryption Metadata ───────────────────────────────────────────────
+  encryptionKeyVersion String? @db.VarChar(100) @map("encryption_key_version")
+  // ^ AWS KMS key alias version for TOTP secret re-encryption on key rotation
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], name: "idx_mfa_configs_tenant")
+  @@map("mfa_configs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: UserInvitation
+//
+// Purpose:
+//   Manages the invite-to-join flow for new staff members. An invitation is
+//   created by a tenant admin and sent via email with a tokenized link.
+//   When accepted, a User account is created and roleIds are assigned.
+//
+// Security:
+//   tokenHash = SHA-256(invitationToken). Plaintext token in email link only.
+//   Tokens expire after 7 days. One pending invitation per email per tenant
+//   enforced via PARTIAL UNIQUE INDEX (see migration note).
+//
+// NOTE — Partial unique index:
+//   Prisma does not support partial indexes natively. Add via raw SQL migration:
+//     CREATE UNIQUE INDEX uq_invitation_pending
+//     ON user_invitations (tenant_id, email)
+//     WHERE status = 'PENDING';
+// ─────────────────────────────────────────────────────────────────────────────
+model UserInvitation {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+
+  // ── Target ────────────────────────────────────────────────────────────
+  email     String  @db.VarChar(255) @map("email")
+  firstName String? @db.VarChar(100) @map("first_name") // Pre-filled on acceptance form
+  lastName  String? @db.VarChar(100) @map("last_name")
+
+  // ── Inviter ───────────────────────────────────────────────────────────
+  invitedById String @db.Uuid @map("invited_by_id")
+
+  // ── Roles to assign on acceptance ─────────────────────────────────────
+  roleIds String[] @map("role_ids")
+  // ^ Array of Role UUIDs. Applied via UserRole junction on acceptance.
+
+  // ── Token ─────────────────────────────────────────────────────────────
+  tokenHash String @unique @db.VarChar(64) @map("token_hash")
+  // SHA-256 hex of the invitation link token. Never store plaintext.
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────
+  status    InvitationStatus @default(PENDING) @map("status")
+  expiresAt DateTime         @db.Timestamptz   @map("expires_at") // now() + 7 days
+
+  // ── Acceptance ────────────────────────────────────────────────────────
+  acceptedAt   DateTime? @db.Timestamptz @map("accepted_at")
+  acceptedById String?   @db.Uuid        @map("accepted_by_id")
+  // ^ FK → users.id of the newly created user on invitation acceptance
+
+  // ── Optional Message ──────────────────────────────────────────────────
+  message String? @db.Text @map("message") // Personal note from inviter
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime  @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
+  revokedAt DateTime?                 @db.Timestamptz @map("revoked_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy  User   @relation("InvitedByUser", fields: [invitedById], references: [id], onDelete: Restrict)
+  acceptedBy User?  @relation("AcceptedUser",  fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, email],   name: "idx_invitations_tenant_email")
+  @@index([expiresAt, status], name: "idx_invitations_expiry_status")
+  @@map("user_invitations")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: LoginHistory
+//
+// Purpose:
+//   Immutable chronological log of all authentication events per user.
+//   Records: logins (success/failure), logouts, MFA events, account locks.
+//
+//   Required for:
+//     • Security alerts (failed logins from new IPs)
+//     • ICAI compliance (access audit trail for CA firm data)
+//     • Anomaly detection (impossible travel, credential stuffing)
+//     • DPDPA 2023 breach investigation evidence
+//
+// IMMUTABILITY:
+//   This model has NO updatedAt field by design.
+//   A PostgreSQL trigger (fn_audit_immutable) prevents UPDATE and DELETE.
+//   The app_writer role has UPDATE and DELETE REVOKED on this table.
+//   Writes are INSERT-only via the audit_writer DB role.
+//
+// tenantId is nullable to support:
+//   • Pre-tenant events (login attempt before tenant is resolved)
+//   • Platform-level master admin events
+// ─────────────────────────────────────────────────────────────────────────────
+model LoginHistory {
+  id       String  @id @default(uuid()) @db.Uuid
+  tenantId String? @db.Uuid @map("tenant_id") // FK → tenants.id (DB level, nullable)
+  userId   String? @db.Uuid @map("user_id")   // NULL if user account doesn't exist
+
+  // ── Identity at Event Time ────────────────────────────────────────────
+  // Stored separately so history is preserved even if user is deleted.
+  email String @db.VarChar(255) @map("email")
+
+  // ── Event Classification ──────────────────────────────────────────────
+  eventType LoginEventType   @map("event_type")
+  status    LoginEventStatus @map("status")
+
+  // ── Network ───────────────────────────────────────────────────────────
+  ipAddress String? @db.VarChar(45) @map("ip_address")
+  userAgent String? @db.Text        @map("user_agent")
+
+  // ── Geolocation ───────────────────────────────────────────────────────
+  country String? @db.Char(2)      @map("country")
+  city    String? @db.VarChar(100) @map("city")
+
+  // ── Session Reference ─────────────────────────────────────────────────
+  sessionId String? @db.Uuid @map("session_id") // FK → user_sessions.id (informational)
+
+  // ── Failure Details ───────────────────────────────────────────────────
+  failureReason String? @db.VarChar(500) @map("failure_reason")
+  // e.g., "INVALID_PASSWORD", "ACCOUNT_LOCKED", "MFA_CODE_EXPIRED"
+
+  // ── Timestamp (immutable — no updatedAt) ─────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+
+  @@index([tenantId, userId, createdAt(sort: Desc)],    name: "idx_login_history_user_timeline")
+  @@index([tenantId, eventType, createdAt(sort: Desc)], name: "idx_login_history_events")
+  @@index([email, createdAt(sort: Desc)],               name: "idx_login_history_email")
+  @@index([tenantId, createdAt(sort: Desc)],            name: "idx_login_history_tenant")
+  @@index([ipAddress, createdAt(sort: Desc)],           name: "idx_login_history_ip")
+  @@map("login_history")
+}
+
+// =============================================================================
+// SECTION 4 — RBAC MODULE
+// =============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: Permission
+//
+// Purpose:
+//   System-defined, globally shared permission registry. No tenant_id.
+//   Seeded by the platform at deployment. Tenants cannot create permissions —
+//   they create Roles and assign permissions to them.
+//
+//   Code format: "{module}:{action}" e.g.:
+//     "clients:read"      "clients:create"    "clients:delete"
+//     "documents:approve" "documents:share"   "documents:export"
+//     "billing:manage"    "users:invite"      "reports:read"
+//
+//   Permissions marked isSensitive=true trigger enhanced audit logging
+//   in the audit_logs table (field-level change tracking, not just entity-level).
+// ─────────────────────────────────────────────────────────────────────────────
+model Permission {
+  id      String  @id @default(uuid()) @db.Uuid
+  groupId String? @db.Uuid @map("group_id") // Logical group for UI display
+
+  // ── Identity ──────────────────────────────────────────────────────────
+  code        String  @unique @db.VarChar(100) @map("code") // "clients:read"
+  name        String  @db.VarChar(255)          @map("name") // "View Clients"
+  description String? @db.Text                  @map("description")
+
+  // ── Categorization ────────────────────────────────────────────────────
+  module   String           @db.VarChar(100) @map("module")   // "clients", "documents"
+  action   PermissionAction @map("action")
+  resource String           @db.VarChar(100) @map("resource") // Resource type name
+
+  // ── Sensitive Flag ────────────────────────────────────────────────────
+  isSensitive Boolean @default(false) @map("is_sensitive")
+  // ^ true = enhanced audit: logs old/new field values on every write
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  group           PermissionGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  rolePermissions RolePermission[]
+
+  @@index([module],         name: "idx_permissions_module")
+  @@index([module, action], name: "idx_permissions_module_action")
+  @@index([isSensitive],    name: "idx_permissions_sensitive")
+  @@map("permissions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: PermissionGroup
+//
+// Purpose:
+//   Logical groupings of permissions for the admin UI permission matrix.
+//   Example groups: "Client Management", "Document Management", "Billing & Invoices"
+//   Purely organizational — no functional impact on permission resolution.
+// ─────────────────────────────────────────────────────────────────────────────
+model PermissionGroup {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique @db.VarChar(255) @map("name")   // "Client Management"
+  description String? @db.Text                 @map("description")
+  module      String  @db.VarChar(100)          @map("module") // Maps to Permission.module
+  displayOrder Int    @default(0)               @map("display_order") // UI sort order
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  permissions Permission[]
+
+  @@index([module],       name: "idx_permission_groups_module")
+  @@index([displayOrder], name: "idx_permission_groups_order")
+  @@map("permission_groups")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: Role
+//
+// Purpose:
+//   Named collection of permissions, scoped to a tenant. Seeded system roles
+//   (isSystem=true) cannot be deleted but can be assigned custom permissions.
+//   Tenants can create unlimited custom roles.
+//
+//   Default system roles (seeded at tenant creation):
+//     • "Firm Owner"  — all permissions (type=SYSTEM)
+//     • "Manager"     — most permissions, no billing (type=SYSTEM)
+//     • "Staff"       — client/task/document read+write (type=SYSTEM)
+//     • "Viewer"      — read-only across all modules (type=SYSTEM)
+//
+//   Permission resolution:
+//     User effective permissions = UNION of permissions from ALL assigned roles.
+//     Cached in Redis as "perms:{tenantId}:{userId}" with 5-minute TTL.
+// ─────────────────────────────────────────────────────────────────────────────
+model Role {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+
+  // ── Identity ──────────────────────────────────────────────────────────
+  name        String  @db.VarChar(100) @map("name")
+  description String? @db.Text         @map("description")
+  color       String? @db.Char(7)      @map("color") // Hex for badge in role management UI
+
+  // ── Type Flags ────────────────────────────────────────────────────────
+  type     RoleType @default(CUSTOM) @map("type") // SYSTEM = seeded by platform, cannot delete
+  isActive Boolean  @default(true)   @map("is_active")
+
+  // ── Audit ─────────────────────────────────────────────────────────────
+  createdById String?   @db.Uuid        @map("created_by_id")
+  createdAt   DateTime  @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt   DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
+  deletedAt   DateTime?                 @db.Timestamptz @map("deleted_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  createdBy       User?            @relation("RoleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([tenantId, name], name: "uq_roles_tenant_name")
+  @@index([tenantId, isActive], name: "idx_roles_tenant_active")
+  @@index([tenantId, type],     name: "idx_roles_type")
+  @@index([tenantId, deletedAt], name: "idx_roles_soft_delete")
+  @@map("roles")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: RolePermission
+//
+// Purpose:
+//   Many-to-many junction: Role ↔ Permission.
+//   Determines which permissions a role grants to its holders.
+//   System roles have their role_permissions seeded at platform bootstrap.
+//   Tenant admins can add/remove permissions from custom roles.
+//
+// ON DELETE CASCADE on both sides:
+//   • Deleting a role → its role_permissions are deleted (Cascade)
+//   • Deleting a permission (system-level) → revokes from all roles (Cascade)
+// ─────────────────────────────────────────────────────────────────────────────
+model RolePermission {
+  id           String @id @default(uuid()) @db.Uuid
+  roleId       String @db.Uuid @map("role_id")
+  permissionId String @db.Uuid @map("permission_id")
+
+  // ── Grant Metadata ────────────────────────────────────────────────────
+  grantedById String?   @db.Uuid        @map("granted_by_id") // NULL = seeded by system
+  grantedAt   DateTime  @default(now()) @db.Timestamptz @map("granted_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  grantedBy  User?      @relation("RolePermissionGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@unique([roleId, permissionId], name: "uq_role_permission")
+  @@index([roleId],       name: "idx_role_permissions_by_role")
+  @@index([permissionId], name: "idx_role_permissions_by_permission")
+  @@map("role_permissions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: UserRole
+//
+// Purpose:
+//   Many-to-many junction: User ↔ Role (tenant-scoped).
+//   A user can hold multiple roles simultaneously.
+//   Supports temporary role assignments via expiresAt (NULL = permanent).
+//
+//   Permission resolution (called on every API request via Redis cache):
+//     1. SELECT role_id FROM user_roles WHERE user_id = ? AND tenant_id = ?
+//        AND (expires_at IS NULL OR expires_at > now())
+//     2. SELECT permission_id FROM role_permissions WHERE role_id IN (above)
+//     3. Union all permission codes → cache in Redis for 5 min
+//
+//   ON DELETE rules:
+//     • user deleted → UserRole CASCADE (no orphaned assignments)
+//     • role deleted → UserRole RESTRICT (must reassign users first)
+// ─────────────────────────────────────────────────────────────────────────────
+model UserRole {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  userId   String @db.Uuid @map("user_id")
+  roleId   String @db.Uuid @map("role_id")
+
+  // ── Assignment Metadata ───────────────────────────────────────────────
+  assignedById String    @db.Uuid        @map("assigned_by_id")
+  assignedAt   DateTime  @default(now()) @db.Timestamptz @map("assigned_at")
+  expiresAt    DateTime? @db.Timestamptz @map("expires_at")
+  // ^ NULL = permanent. Set for temporary role grants (e.g., "cover for 2 weeks")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  user       User @relation("UserRoleUser",       fields: [userId],       references: [id], onDelete: Cascade)
+  role       Role @relation(                      fields: [roleId],       references: [id], onDelete: Restrict)
+  assignedBy User @relation("UserRoleAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, userId, roleId], name: "uq_user_role")
+  @@index([tenantId, userId],          name: "idx_user_roles_resolution")
+  @@index([roleId],                    name: "idx_user_roles_by_role")
+  @@index([expiresAt],                 name: "idx_user_roles_expiry")
+  @@map("user_roles")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model: ResourceAccessPolicy
+//
+// Purpose:
+//   Resource-level access control that OVERRIDES role-based permissions for
+//   specific entity records. Implements the "ceiling" rule on top of the RBAC
+//   "floor" rule.
+//
+//   Use case: A CA firm has 200 clients. A junior associate should only see
+//   their 5 assigned clients, not all 200. RBAC grants "clients:read" at the
+//   role level. ResourceAccessPolicy with NONE access overrides it for all
+//   clients except the 5 assigned.
+//
+//   Resolution algorithm (in PermissionMiddleware):
+//     1. Check role-based permission (RBAC) via Redis → if no permission → DENY
+//     2. If resource-scoped → lookup ResourceAccessPolicy
+//     3. If policy.accessLevel = NONE → DENY (overrides role permission)
+//     4. If policy.accessLevel ≠ NONE → ALLOW with stated level
+//     5. If no policy exists → ALLOW (role permission is sufficient)
+//
+//   resourceType examples: "client", "business", "document_folder", "project"
+// ─────────────────────────────────────────────────────────────────────────────
+model ResourceAccessPolicy {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  userId   String @db.Uuid @map("user_id")
+
+  // ── Target Resource ───────────────────────────────────────────────────
+  resourceType String @db.VarChar(100) @map("resource_type")
+  // ^ "client" | "business" | "document_folder" | "project" | "task"
+  resourceId   String @db.Uuid         @map("resource_id")
+  // ^ PK of the target entity (e.g., clients.id)
+
+  // ── Policy ────────────────────────────────────────────────────────────
+  accessLevel ResourceAccessLevel @map("access_level")
+  // NONE = explicit deny. READ, WRITE, ADMIN = grant with level.
+
+  // ── Grant Metadata ────────────────────────────────────────────────────
+  grantedById String    @db.Uuid        @map("granted_by_id")
+  grantedAt   DateTime  @default(now()) @db.Timestamptz @map("granted_at")
+  expiresAt   DateTime? @db.Timestamptz @map("expires_at") // NULL = permanent
+  reason      String?   @db.Text        @map("reason")
+
+  // ── Timestamps ───────────────────────────────────────────────────────
+  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+
+  // ── Relations ─────────────────────────────────────────────────────────
+  user      User @relation("PolicyUser",      fields: [userId],      references: [id], onDelete: Cascade)
+  grantedBy User @relation("PolicyGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, userId, resourceType, resourceId], name: "uq_resource_policy")
+  @@index([tenantId, userId, resourceType],              name: "idx_resource_policy_user_type")
+  @@index([tenantId, resourceType, resourceId],          name: "idx_resource_policy_by_resource")
+  @@index([expiresAt],                                   name: "idx_resource_policy_expiry")
+  @@map("resource_access_policies")
+}
