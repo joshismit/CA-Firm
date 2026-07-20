@@ -30,6 +30,6 @@
       "@utils/*": ["src/shared/utils/*"]
     }
   },
-  "include": ["src/**/*", "prisma/seeds/**/*", "scripts/**/*"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"]
 }

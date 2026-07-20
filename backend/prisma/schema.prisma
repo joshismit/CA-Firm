@@ -61,6 +61,8 @@ enum SessionDeviceType {
 enum SessionRevokeReason {
   LOGOUT
   PASSWORD_CHANGE
+  EMAIL_CHANGE
+  ACCOUNT_LOCKED
   ADMIN_REVOKE
   MFA_DISABLED
   SESSION_EXPIRED
@@ -118,11 +120,14 @@ enum LoginEventType {
   LOGOUT
   FAILED_LOGIN
   TOKEN_REFRESH
-  PASSWORD_RESET
+  PASSWORD_RESET_REQUEST
+  PASSWORD_RESET_SUCCESS
   MFA_SUCCESS
   MFA_FAILED
   ACCOUNT_LOCKED
   ACCOUNT_UNLOCKED
+  SESSION_REVOKED
+  EMAIL_CHANGED
   @@map("login_event_type")
 }
 
@@ -283,7 +288,8 @@ model TenantSettings {
   maxLoginAttempts   Int @default(5)   @map("max_login_attempts")
   sessionTimeoutMins Int @default(480) @map("session_timeout_mins")
 
-  requireMfa Boolean @default(false) @map("require_mfa")
+  requireMfa               Boolean @default(false) @map("require_mfa")
+  requireEmailVerification Boolean @default(true)  @map("require_email_verification")
 
   passwordMinLength     Int     @default(8)     @map("password_min_length")
   passwordRequireUpper  Boolean @default(true)  @map("password_require_upper")
@@ -382,8 +388,10 @@ model User {
   lastName     String @db.VarChar(100) @map("last_name")
   phone        String? @db.VarChar(30) @map("phone")
 
-  status  UserStatus @default(INVITED) @map("status")
-  isOwner Boolean    @default(false)   @map("is_owner")
+  status           UserStatus @default(INVITED) @map("status")
+  isOwner          Boolean    @default(false)   @map("is_owner")
+  failedLoginCount Int        @default(0)       @map("failed_login_count")
+  lockedUntil      DateTime?  @db.Timestamptz   @map("locked_until")
 
   avatarStorageKey String? @db.VarChar(500) @map("avatar_storage_key")
   jobTitle         String? @db.VarChar(100) @map("job_title")
@@ -412,6 +420,7 @@ model User {
   refreshTokens      RefreshToken[]
   otpCodes           OtpCode[]
   mfaConfig          MfaConfig?
+  passwordHistory    UserPasswordHistory[]
 
   sentInvitations    UserInvitation[] @relation("InvitedByUser")
   acceptedInvitation UserInvitation?  @relation("AcceptedUser")
@@ -632,6 +641,20 @@ model LoginHistory {
   @@index([tenantId, createdAt(sort: Desc)],            name: "idx_login_history_tenant")
   @@index([ipAddress, createdAt(sort: Desc)],           name: "idx_login_history_ip")
   @@map("login_history")
+}
+
+model UserPasswordHistory {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  userId   String @db.Uuid @map("user_id")
+
+  passwordHash String   @db.Text @map("password_hash")
+  createdAt    DateTime @default(now()) @db.Timestamptz @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, createdAt(sort: Desc)], name: "idx_password_history_user")
+  @@map("user_password_history")
 }
 
 // =============================================================================

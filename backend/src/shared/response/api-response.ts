@@ -23,11 +23,11 @@ import type { ApiResponse, PaginationMeta } from '@shared/types';
  *
  * ─────────────────────────────────────────────────────────────────────────────
  */
-export const ApiResponseHelper = {
+export class ApiResponseHelper {
   /**
    * Helper to extract standard metadata from the Express Request
    */
-  private getRequestMeta(req?: Request) {
+  private static getRequestMeta(req?: Request) {
     const timestamp = new Date().toISOString();
     if (!req) return { timestamp };
 
@@ -37,60 +37,60 @@ export const ApiResponseHelper = {
       correlationId: req.correlationId,
       durationMs,
     };
-  },
+  }
 
   /**
    * Generic success response with data
    */
-  success<T>(req: Request, data: T, message: string = MESSAGES.SUCCESS): ApiResponse<T> {
+  static success<T>(req: Request, data: T, message: string = MESSAGES.SUCCESS): ApiResponse<T> {
     return {
       success: true,
       message,
       data,
       ...this.getRequestMeta(req),
     };
-  },
+  }
 
   /**
    * Resource created successfully (201)
    */
-  created<T>(req: Request, data: T, message: string = MESSAGES.CREATED): ApiResponse<T> {
+  static created<T>(req: Request, data: T, message: string = MESSAGES.CREATED): ApiResponse<T> {
     return {
       success: true,
       message,
       data,
       ...this.getRequestMeta(req),
     };
-  },
+  }
 
   /**
    * Resource updated successfully (200)
    */
-  updated<T>(req: Request, data: T, message: string = MESSAGES.UPDATED): ApiResponse<T> {
+  static updated<T>(req: Request, data: T, message: string = MESSAGES.UPDATED): ApiResponse<T> {
     return {
       success: true,
       message,
       data,
       ...this.getRequestMeta(req),
     };
-  },
+  }
 
   /**
    * Resource deleted successfully (200)
    */
-  deleted<T>(req: Request, data?: T, message: string = MESSAGES.DELETED): ApiResponse<T> {
+  static deleted<T>(req: Request, data?: T, message: string = MESSAGES.DELETED): ApiResponse<T> {
     return {
       success: true,
       message,
       data,
       ...this.getRequestMeta(req),
     };
-  },
+  }
 
   /**
    * Success response for paginated data
    */
-  paginated<T>(
+  static paginated<T>(
     req: Request,
     data: T[],
     meta: PaginationMeta,
@@ -103,23 +103,23 @@ export const ApiResponseHelper = {
       meta,
       ...this.getRequestMeta(req),
     };
-  },
+  }
 
   /**
    * Success response with no data payload
    */
-  noContent(req: Request, message: string = MESSAGES.SUCCESS): ApiResponse<null> {
+  static noContent(req: Request, message: string = MESSAGES.SUCCESS): ApiResponse<null> {
     return {
       success: true,
       message,
       ...this.getRequestMeta(req),
     };
-  },
+  }
 
   /**
    * Error response (usually called by the global error middleware)
    */
-  error(
+  static error(
     req: Request | undefined,
     message: string,
     code: string,
@@ -131,12 +131,12 @@ export const ApiResponseHelper = {
       error: { code, details },
       ...this.getRequestMeta(req),
     };
-  },
+  }
 
   /**
    * Build pagination meta from query params and total count
    */
-  buildPaginationMeta(page: number, limit: number, total: number): PaginationMeta {
+  static buildPaginationMeta(page: number, limit: number, total: number): PaginationMeta {
     const totalPages = Math.ceil(total / limit);
     return {
       page,
@@ -146,5 +146,5 @@ export const ApiResponseHelper = {
       hasNextPage: page < totalPages,
       hasPrevPage: page > 1,
     };
-  },
-};
+  }
+}
