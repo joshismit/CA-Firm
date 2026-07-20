@@ -10,12 +10,7 @@ generator client {
 
 datasource db {
   provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  extensions = [
-    uuidOssp(map: "uuid-ossp"), // gen_random_uuid() used by @default(uuid())
-    pgTrgm(map: "pg_trgm"),     // Trigram indexes for fuzzy text search
-    ltree                        // Hierarchical path type for document folders
-  ]
+  extensions = [uuidOssp(map: "uuid-ossp"), pgTrgm(map: "pg_trgm"), ltree]
 }
 
 // =============================================================================
@@ -23,58 +18,211 @@ datasource db {
 // =============================================================================
 
 /// Lifecycle status of a CA Firm tenant on the platform.
-enum TenantStatus { ACTIVE TRIAL SUSPENDED DEACTIVATED @@map("tenant_status") }
+enum TenantStatus {
+  ACTIVE
+  TRIAL
+  SUSPENDED
+  DEACTIVATED
+  @@map("tenant_status")
+}
 
 /// Status of a tenant's paid subscription.
-enum SubscriptionStatus { TRIAL ACTIVE PAST_DUE SUSPENDED CANCELLED EXPIRED @@map("subscription_status") }
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+  EXPIRED
+  @@map("subscription_status")
+}
 
 /// Lifecycle status of an individual user account.
-enum UserStatus { ACTIVE INACTIVE INVITED SUSPENDED DELETED @@map("user_status") }
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  INVITED
+  SUSPENDED
+  DELETED
+  @@map("user_status")
+}
 
 /// Device category for a user session.
-enum SessionDeviceType { WEB MOBILE_IOS MOBILE_ANDROID DESKTOP API_KEY @@map("session_device_type") }
+enum SessionDeviceType {
+  WEB
+  MOBILE_IOS
+  MOBILE_ANDROID
+  DESKTOP
+  API_KEY
+  @@map("session_device_type")
+}
 
 /// Reason an active session was explicitly revoked.
-enum SessionRevokeReason { LOGOUT PASSWORD_CHANGE ADMIN_REVOKE MFA_DISABLED SESSION_EXPIRED SUSPICIOUS_ACTIVITY DEVICE_REMOVED @@map("session_revoke_reason") }
+enum SessionRevokeReason {
+  LOGOUT
+  PASSWORD_CHANGE
+  ADMIN_REVOKE
+  MFA_DISABLED
+  SESSION_EXPIRED
+  SUSPICIOUS_ACTIVITY
+  DEVICE_REMOVED
+  @@map("session_revoke_reason")
+}
 
 /// Purpose / use case of a one-time password.
-enum OtpPurpose { EMAIL_VERIFY PHONE_VERIFY TWO_FACTOR PASSWORD_RESET @@map("otp_purpose") }
+enum OtpPurpose {
+  EMAIL_VERIFY
+  PHONE_VERIFY
+  TWO_FACTOR
+  PASSWORD_RESET
+  @@map("otp_purpose")
+}
 
 /// Reason a refresh token was explicitly revoked.
-enum RefreshTokenRevokeReason { LOGOUT FAMILY_COMPROMISED PASSWORD_CHANGE SESSION_REVOKED ADMIN_REVOKE EXPIRED @@map("refresh_token_revoke_reason") }
+enum RefreshTokenRevokeReason {
+  LOGOUT
+  FAMILY_COMPROMISED
+  PASSWORD_CHANGE
+  SESSION_REVOKED
+  ADMIN_REVOKE
+  EXPIRED
+  @@map("refresh_token_revoke_reason")
+}
 
 /// Lifecycle status of a user invitation.
-enum InvitationStatus { PENDING ACCEPTED EXPIRED REVOKED @@map("invitation_status") }
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+  @@map("invitation_status")
+}
 
 /// Action type encoded in a system permission.
-enum PermissionAction { CREATE READ UPDATE DELETE EXPORT SHARE APPROVE ASSIGN MANAGE @@map("permission_action") }
+enum PermissionAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  EXPORT
+  SHARE
+  APPROVE
+  ASSIGN
+  MANAGE
+  @@map("permission_action")
+}
 
 /// Type of authentication/security event recorded in LoginHistory.
-enum LoginEventType { LOGIN LOGOUT FAILED_LOGIN TOKEN_REFRESH PASSWORD_RESET MFA_SUCCESS MFA_FAILED ACCOUNT_LOCKED ACCOUNT_UNLOCKED @@map("login_event_type") }
+enum LoginEventType {
+  LOGIN
+  LOGOUT
+  FAILED_LOGIN
+  TOKEN_REFRESH
+  PASSWORD_RESET
+  MFA_SUCCESS
+  MFA_FAILED
+  ACCOUNT_LOCKED
+  ACCOUNT_UNLOCKED
+  @@map("login_event_type")
+}
 
 /// Outcome of an authentication event.
-enum LoginEventStatus { SUCCESS FAILURE @@map("login_event_status") }
+enum LoginEventStatus {
+  SUCCESS
+  FAILURE
+  @@map("login_event_status")
+}
 
 /// Role Type classification
-enum RoleType { SYSTEM CUSTOM @@map("role_type") }
+enum RoleType {
+  SYSTEM
+  CUSTOM
+  @@map("role_type")
+}
 
 /// Session status
-enum SessionStatus { ACTIVE EXPIRED REVOKED @@map("session_status") }
+enum SessionStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  @@map("session_status")
+}
 
 /// MFA Method Type
-enum OtpType { TOTP SMS EMAIL @@map("otp_type") }
+enum OtpType {
+  TOTP
+  SMS
+  EMAIL
+  @@map("otp_type")
+}
 
 /// Access level granted by a resource-level policy override.
-enum ResourceAccessLevel { NONE READ WRITE ADMIN @@map("resource_access_level") }
+enum ResourceAccessLevel {
+  NONE
+  READ
+  WRITE
+  ADMIN
+  @@map("resource_access_level")
+}
 
 /// SSL certificate provisioning status for a tenant's custom domain.
-enum DomainSslStatus { PENDING PROVISIONED FAILED EXPIRING @@map("domain_ssl_status") }
+enum DomainSslStatus {
+  PENDING
+  PROVISIONED
+  FAILED
+  EXPIRING
+  @@map("domain_ssl_status")
+}
 
-enum BusinessStatus { ACTIVE INACTIVE DORMANT STRUCK_OFF DISSOLVED @@map("business_status") }
-enum AddressType { REGISTERED CORPORATE BRANCH FACTORY RESIDENTIAL OTHER @@map("address_type") }
-enum ContactRoleType { OWNER DIRECTOR PARTNER AUTHORIZED_SIGNATORY ACCOUNTANT AUDITOR EMPLOYEE CLIENT_REPRESENTATIVE EMERGENCY_CONTACT OTHER @@map("contact_role_type") }
-enum ClientStatus { ACTIVE INACTIVE SUSPENDED FORMER @@map("client_status") }
-enum ActivityType { CALL MEETING EMAIL WHATSAPP SYSTEM_LOG @@map("activity_type") }
+enum BusinessStatus {
+  ACTIVE
+  INACTIVE
+  DORMANT
+  STRUCK_OFF
+  DISSOLVED
+  @@map("business_status")
+}
+
+enum AddressType {
+  REGISTERED
+  CORPORATE
+  BRANCH
+  FACTORY
+  RESIDENTIAL
+  OTHER
+  @@map("address_type")
+}
+
+enum ContactRoleType {
+  OWNER
+  DIRECTOR
+  PARTNER
+  AUTHORIZED_SIGNATORY
+  ACCOUNTANT
+  AUDITOR
+  EMPLOYEE
+  CLIENT_REPRESENTATIVE
+  EMERGENCY_CONTACT
+  OTHER
+  @@map("contact_role_type")
+}
+
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  FORMER
+  @@map("client_status")
+}
+
+enum ActivityType {
+  CALL
+  MEETING
+  EMAIL
+  WHATSAPP
+  SYSTEM_LOG
+  @@map("activity_type")
+}
 
 
 // =============================================================================
@@ -440,7 +588,7 @@ model UserInvitation {
   expiresAt DateTime         @db.Timestamptz   @map("expires_at")
 
   acceptedAt   DateTime? @db.Timestamptz @map("accepted_at")
-  acceptedById String?   @db.Uuid        @map("accepted_by_id")
+  acceptedById String?   @unique @db.Uuid        @map("accepted_by_id")
 
   message String? @db.Text @map("message")
 
