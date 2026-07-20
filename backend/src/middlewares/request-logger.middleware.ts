@@ -1,5 +1,6 @@
 import pinoHttp from 'pino-http';
 import { logger } from '@config/logger';
+import { Request } from 'express';
 
 /**
  * Request Logger Middleware.
@@ -10,7 +11,7 @@ import { logger } from '@config/logger';
  */
 export const requestLoggerMiddleware = pinoHttp({
   logger,
-  genReqId: (req) => req.correlationId,
+  genReqId: (req) => (req as Request).correlationId,
   customLogLevel: (_req, res, err) => {
     if (err || res.statusCode >= 500) return 'error';
     if (res.statusCode >= 400) return 'warn';
@@ -22,12 +23,13 @@ export const requestLoggerMiddleware = pinoHttp({
     `${req.method} ${req.url} → ${res.statusCode} [${err.message}]`,
   serializers: {
     req(req) {
+      const expressReq = req.raw as Request;
       return {
         method: req.method,
         url: req.url,
-        correlationId: req.raw?.correlationId,
-        userId: req.raw?.user?.id,
-        tenantId: req.raw?.user?.tenantId,
+        correlationId: expressReq.correlationId,
+        userId: expressReq.user?.id,
+        tenantId: expressReq.tenant?.id,
       };
     },
     res(res) {

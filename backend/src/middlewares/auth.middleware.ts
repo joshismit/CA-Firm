@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { jwtConfig } from '@config/jwt';
 import { UnauthorizedError } from '@shared/errors';
+import { UserRole } from '@shared/enums';
 
 /**
  * JWT payload shape — must match what we sign at login.
@@ -9,7 +10,7 @@ import { UnauthorizedError } from '@shared/errors';
 export interface JwtPayload {
   sub: string;      // userId
   email: string;
-  role: string;
+  role: UserRole;
   tenantId: string;
   permissions: string[];
   iat?: number;
@@ -44,7 +45,7 @@ export function authMiddleware(
       email: payload.email,
       role: payload.role,
       tenantId: payload.tenantId,
-      permissions: payload.permissions || [],
+      permissions: payload.permissions ?? [],
     };
 
     next();
@@ -83,7 +84,7 @@ export function optionalAuthMiddleware(
       email: payload.email,
       role: payload.role,
       tenantId: payload.tenantId,
-      permissions: payload.permissions || [],
+      permissions: payload.permissions ?? [],
     };
   } catch {
     // Silently ignore — user remains undefined

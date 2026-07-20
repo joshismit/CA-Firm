@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '@config/database';
 import { ForbiddenError, NotFoundError } from '@shared/errors';
 import { MESSAGES } from '@shared/constants';
+import { TenantStatus } from '@shared/enums';
 
 /**
  * Tenant Middleware.
@@ -31,8 +32,8 @@ export async function tenantMiddleware(
       id: true,
       slug: true,
       name: true,
-      plan: true,
-      isActive: true,
+      planCode: true,
+      status: true,
     },
   });
 
@@ -40,11 +41,19 @@ export async function tenantMiddleware(
     throw new NotFoundError('Tenant');
   }
 
-  if (!tenant.isActive) {
+  const isActive = tenant.status === TenantStatus.ACTIVE;
+
+  if (!isActive) {
     throw new ForbiddenError(MESSAGES.TENANT_INACTIVE);
   }
 
-  req.tenant = tenant;
+  req.tenant = {
+    id: tenant.id,
+    slug: tenant.slug,
+    name: tenant.name,
+    planCode: tenant.planCode,
+    isActive,
+  };
 
   next();
 }

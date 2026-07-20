@@ -1,3 +1,7 @@
+/**
+ * shared/errors — Barrel Export
+ * Import from '@shared/errors' everywhere — never from individual error files.
+ */
 export { AppError } from './app.error';
 export {
   BadRequestError,
@@ -5,6 +9,7 @@ export {
   ForbiddenError,
   NotFoundError,
   ConflictError,
+  GoneError,
   ValidationError,
   TooManyRequestsError,
   InternalServerError,

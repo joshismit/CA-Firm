@@ -1,49 +1,89 @@
-import { HTTP_STATUS } from '@shared/constants/http-status';
+import { Request } from 'express';
+import { MESSAGES } from '@shared/constants';
+import type { ApiResponse, PaginationMeta } from '@shared/types';
 
 /**
- * Standardized API response wrapper.
- * ALL responses from this API use this format — success and error.
- */
-
-export interface ApiResponse<T = null> {
-  success: boolean;
-  message: string;
-  data?: T;
-  meta?: PaginationMeta;
-  error?: ApiErrorDetail;
-  correlationId?: string;
-  timestamp: string;
-}
-
-export interface PaginationMeta {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPrevPage: boolean;
-}
-
-export interface ApiErrorDetail {
-  code: string;
-  details?: unknown;
-}
-
-/**
- * Response helper functions.
- * Use these in controllers to return consistent responses.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * API Response Helper
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * PURPOSE:
+ *   Provides static factory methods for creating standardized API responses.
+ *   Controllers MUST use these methods to return data to the client.
+ *
+ * RESPONSIBILITIES:
+ *   - Enforces the `ApiResponse<T>` contract
+ *   - Automatically computes `durationMs` if the Express Request is provided
+ *   - Extracts `correlationId` from the request
+ *   - Centralises standard success messages (created, updated, deleted)
+ *
+ * USAGE:
+ *   res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, data));
+ *   res.status(HTTP_STATUS.CREATED).json(ApiResponseHelper.created(req, data));
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 export const ApiResponseHelper = {
   /**
-   * Success response with data
+   * Helper to extract standard metadata from the Express Request
    */
-  success<T>(message: string, data: T, correlationId?: string): ApiResponse<T> {
+  private getRequestMeta(req?: Request) {
+    const timestamp = new Date().toISOString();
+    if (!req) return { timestamp };
+
+    const durationMs = req.requestStartTime ? Date.now() - req.requestStartTime : undefined;
+    return {
+      timestamp,
+      correlationId: req.correlationId,
+      durationMs,
+    };
+  },
+
+  /**
+   * Generic success response with data
+   */
+  success<T>(req: Request, data: T, message: string = MESSAGES.SUCCESS): ApiResponse<T> {
     return {
       success: true,
       message,
       data,
-      timestamp: new Date().toISOString(),
-      correlationId,
+      ...this.getRequestMeta(req),
+    };
+  },
+
+  /**
+   * Resource created successfully (201)
+   */
+  created<T>(req: Request, data: T, message: string = MESSAGES.CREATED): ApiResponse<T> {
+    return {
+      success: true,
+      message,
+      data,
+      ...this.getRequestMeta(req),
+    };
+  },
+
+  /**
+   * Resource updated successfully (200)
+   */
+  updated<T>(req: Request, data: T, message: string = MESSAGES.UPDATED): ApiResponse<T> {
+    return {
+      success: true,
+      message,
+      data,
+      ...this.getRequestMeta(req),
+    };
+  },
+
+  /**
+   * Resource deleted successfully (200)
+   */
+  deleted<T>(req: Request, data?: T, message: string = MESSAGES.DELETED): ApiResponse<T> {
+    return {
+      success: true,
+      message,
+      data,
+      ...this.getRequestMeta(req),
     };
   },
 
@@ -51,48 +91,45 @@ export const ApiResponseHelper = {
    * Success response for paginated data
    */
   paginated<T>(
-    message: string,
+    req: Request,
     data: T[],
     meta: PaginationMeta,
-    correlationId?: string,
+    message: string = MESSAGES.FETCHED,
   ): ApiResponse<T[]> {
     return {
       success: true,
       message,
       data,
       meta,
-      timestamp: new Date().toISOString(),
-      correlationId,
+      ...this.getRequestMeta(req),
     };
   },
 
   /**
-   * Success response with no data (204-like)
+   * Success response with no data payload
    */
-  noContent(message: string, correlationId?: string): ApiResponse<null> {
+  noContent(req: Request, message: string = MESSAGES.SUCCESS): ApiResponse<null> {
     return {
       success: true,
       message,
-      timestamp: new Date().toISOString(),
-      correlationId,
+      ...this.getRequestMeta(req),
     };
   },
 
   /**
-   * Error response
+   * Error response (usually called by the global error middleware)
    */
   error(
+    req: Request | undefined,
     message: string,
     code: string,
     details?: unknown,
-    correlationId?: string,
   ): ApiResponse<null> {
     return {
       success: false,
       message,
       error: { code, details },
-      timestamp: new Date().toISOString(),
-      correlationId,
+      ...this.getRequestMeta(req),
     };
   },
 

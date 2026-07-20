@@ -1,12 +1,25 @@
 import pino from 'pino';
 import { env } from './environment';
+import type { Request } from 'express';
 
 /**
- * Pino logger singleton.
- * Structured JSON logging with sensitive field redaction.
- * In development: pretty-printed with colors.
- * In production: JSON output for log aggregators (Datadog, CloudWatch, etc.)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Pino Logger
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * PURPOSE:
+ *   Structured JSON logging for the entire application.
+ *   - Development: Pretty-printed console output with colors
+ *   - Production: Pure JSON for Datadog / CloudWatch / ELK
+ *
+ * RESPONSIBILITIES:
+ *   - Automatic redaction of sensitive data (passwords, tokens, PII)
+ *   - Standardized error serialization
+ *   - Context binding (auto-injecting tenantId, userId, correlationId)
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
  */
+
 export const logger = pino({
   level: env.LOG_LEVEL,
   ...(env.NODE_ENV === 'development'
@@ -36,6 +49,7 @@ export const logger = pino({
       '*.password',
       '*.token',
       '*.secret',
+      '*.otp',
       'req.headers.authorization',
       'req.headers.cookie',
     ],
@@ -53,3 +67,20 @@ export const logger = pino({
 });
 
 export type Logger = typeof logger;
+
+/**
+ * Creates a child logger bound to the current request context.
+ * Always use this in services and controllers to ensure every log entry
+ * contains the correlation ID, tenant ID, and user ID.
+ *
+ * @param req - The Express request object
+ * @param context - The class or module name (e.g., 'AuthService')
+ */
+export function createContextLogger(req: Request, context: string): Logger {
+  return logger.child({
+    context,
+    correlationId: req.correlationId,
+    tenantId: req.tenant?.id,
+    userId: req.user?.id,
+  });
+}
