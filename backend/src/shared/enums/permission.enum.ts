@@ -24,6 +24,7 @@ export enum PermissionResource {
   CONTACTS = 'contacts',
   DOCUMENTS = 'documents',
   TASKS = 'tasks',
+  PROJECTS = 'projects',
   CRM = 'crm',
   BILLING = 'billing',
   REPORTS = 'reports',

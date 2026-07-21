@@ -449,6 +449,11 @@ model User {
   deletedProjects       Project[]               @relation("ProjectDeletedBy")
   managedProjects       Project[]               @relation("ProjectManager")
 
+  // ── Relations: Tasks ───────────────────────────────────────────────────
+  assignedTasks         Task[]                  @relation("TaskAssignee")
+  createdTasks          Task[]                  @relation("TaskCreatedBy")
+  deletedTasks          Task[]                  @relation("TaskDeletedBy")
+
   @@unique([tenantId, email], name: "uq_users_tenant_email")
   @@index([tenantId, status],    name: "idx_users_tenant_status")
   @@index([tenantId, deletedAt], name: "idx_users_soft_delete")
@@ -1300,6 +1305,7 @@ model Project {
   manager       User?  @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
   createdByUser User?  @relation("ProjectCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
   deletedByUser User?  @relation("ProjectDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+  tasks         Task[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
@@ -1318,4 +1324,56 @@ enum ProjectStatus {
   ARCHIVED
   CANCELLED
   @@map("project_status")
+}
+
+// =============================================================================
+// SECTION 10 — TASKS MODULE
+// =============================================================================
+//
+// Deliberately minimal, matching the same scope discipline used for Project:
+// no TaskAssignment/TaskDependency/TaskLabel satellite tables, and per explicit
+// instruction, no milestones, comments, notifications, activities, or time
+// tracking. `assigneeId` is a single nullable FK (mirrors Project.managerId)
+// rather than a many-to-many assignment join table.
+
+model Task {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String     @db.Uuid @map("tenant_id")
+  projectId   String?    @db.Uuid @map("project_id")
+  assigneeId  String?    @db.Uuid @map("assignee_id")
+
+  title       String     @db.VarChar(255)
+  description String?    @db.Text
+  status      TaskStatus @default(TODO)
+
+  startDate   DateTime?  @db.Date @map("start_date")
+  dueDate     DateTime?  @db.Date @map("due_date")
+  completedAt DateTime?  @db.Timestamptz @map("completed_at")
+
+  createdAt   DateTime   @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt   DateTime   @updatedAt      @db.Timestamptz @map("updated_at")
+  deletedAt   DateTime?                 @db.Timestamptz @map("deleted_at")
+  createdBy   String?    @db.Uuid @map("created_by")
+  deletedBy   String?    @db.Uuid @map("deleted_by")
+
+  project       Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  assignee      User?    @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdByUser User?    @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  deletedByUser User?    @relation("TaskDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, projectId])
+  @@index([tenantId, assigneeId])
+  @@index([tenantId, dueDate])
+  @@index([tenantId, deletedAt])
+  @@map("tasks")
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  CANCELLED
+  @@map("task_status")
 }

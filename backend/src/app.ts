@@ -7,6 +7,9 @@ import { correlationIdMiddleware } from '@middlewares/correlation-id.middleware'
 import { requestLoggerMiddleware } from '@middlewares/request-logger.middleware';
 import { errorMiddleware } from '@middlewares/error.middleware';
 import { ApiResponseHelper } from '@shared/response/api-response';
+import { API } from '@shared/constants';
+import { projectRoutes } from '@modules/projects';
+import { taskRoutes } from '@modules/tasks';
 
 const app: Application = express();
 
@@ -29,7 +32,8 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // 4. API Routes
-// TODO: Mount v1 router here
+app.use(`${API.PREFIX}/projects`, projectRoutes);
+app.use(`${API.PREFIX}/tasks`, taskRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

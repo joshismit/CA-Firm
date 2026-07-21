@@ -1,0 +1,183 @@
+import { PrismaClient, PermissionAction as PrismaPermissionAction } from '@prisma/client';
+import { PermissionAction, PermissionResource } from '../../src/shared/enums';
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Permission Seed — Projects & Tasks Modules
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * IMPORTANT — pre-existing enum drift (found while writing this seed, not
+ * introduced by it):
+ *
+ *   `shared/enums/permission.enum.ts`'s `PermissionAction` and the Prisma
+ *   schema's `enum PermissionAction` are NOT the same values despite sharing
+ *   a name and despite the shared enum's own doc comment claiming they
+ *   "MUST mirror the Prisma schema enum values exactly":
+ *
+ *     shared/enums   CREATE = 'create' (lowercase) — no SHARE, no ASSIGN, has IMPORT
+ *     Prisma schema  CREATE = 'CREATE' (uppercase) — has SHARE, ASSIGN, no IMPORT
+ *
+ *   `Permission.code` (e.g. "projects:create") must stay lowercase because
+ *   that's what `requirePermission()` checks against `req.user.permissions`
+ *   everywhere in the app — so `code` is built from `shared/enums`.
+ *   `Permission.action` is a real Prisma enum column, so it must use Prisma's
+ *   generated `PermissionAction` — hence both enums are imported and used
+ *   deliberately below, one per concern. This file does not attempt to
+ *   reconcile the drift itself; that's a cross-cutting decision beyond a
+ *   permission-seed script.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+interface PermissionDefinition {
+  /** shared/enums action — determines the lowercase `code` suffix (e.g. "create"). */
+  action: PermissionAction;
+  /** Prisma's generated action enum — stored in the `Permission.action` DB column. */
+  dbAction: PrismaPermissionAction;
+  name: string;
+  description: string;
+  isSensitive?: boolean;
+}
+
+const PROJECT_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.CREATE,
+    dbAction: PrismaPermissionAction.CREATE,
+    name: 'Create Projects',
+    description: 'Create new projects (engagements).',
+  },
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Projects',
+    description: 'View project details and lists.',
+  },
+  {
+    action: PermissionAction.UPDATE,
+    dbAction: PrismaPermissionAction.UPDATE,
+    name: 'Update Projects',
+    description: 'Edit project details and transition project status.',
+  },
+  {
+    action: PermissionAction.DELETE,
+    dbAction: PrismaPermissionAction.DELETE,
+    name: 'Delete Projects',
+    description: 'Soft-delete projects.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Projects',
+    description: 'Full control over projects, including archive and restore.',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.APPROVE,
+    dbAction: PrismaPermissionAction.APPROVE,
+    name: 'Approve Projects',
+    description: 'Approve project-level actions requiring sign-off (e.g. engagement completion).',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.EXPORT,
+    dbAction: PrismaPermissionAction.EXPORT,
+    name: 'Export Projects',
+    description: 'Export project lists and reports.',
+  },
+];
+
+const TASK_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.CREATE,
+    dbAction: PrismaPermissionAction.CREATE,
+    name: 'Create Tasks',
+    description: 'Create new tasks (standalone or under a project).',
+  },
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Tasks',
+    description: 'View task details and lists.',
+  },
+  {
+    action: PermissionAction.UPDATE,
+    dbAction: PrismaPermissionAction.UPDATE,
+    name: 'Update Tasks',
+    description: 'Edit task details and transition task status.',
+  },
+  {
+    action: PermissionAction.DELETE,
+    dbAction: PrismaPermissionAction.DELETE,
+    name: 'Delete Tasks',
+    description: 'Soft-delete tasks.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Tasks',
+    description: 'Full control over tasks, including restoring soft-deleted tasks.',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.APPROVE,
+    dbAction: PrismaPermissionAction.APPROVE,
+    name: 'Approve Tasks',
+    description: 'Approve task-level actions requiring sign-off (e.g. review completion).',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.EXPORT,
+    dbAction: PrismaPermissionAction.EXPORT,
+    name: 'Export Tasks',
+    description: 'Export task lists and reports.',
+  },
+];
+
+/**
+ * Upserts every permission for a single resource, keyed on the unique `code`
+ * column. Safe to run any number of times — never creates duplicates.
+ */
+async function upsertResourcePermissions(
+  prisma: PrismaClient,
+  resource: PermissionResource,
+  definitions: PermissionDefinition[],
+): Promise<void> {
+  for (const def of definitions) {
+    const code = `${resource}:${def.action}`;
+
+    await prisma.permission.upsert({
+      where: { code },
+      update: {
+        name: def.name,
+        description: def.description,
+        module: resource,
+        action: def.dbAction,
+        resource,
+        isSensitive: def.isSensitive ?? false,
+      },
+      create: {
+        code,
+        name: def.name,
+        description: def.description,
+        module: resource,
+        action: def.dbAction,
+        resource,
+        isSensitive: def.isSensitive ?? false,
+      },
+    });
+  }
+}
+
+/**
+ * Seeds all `Permission` records for the Projects and Tasks modules.
+ * Idempotent — re-running upserts on the unique `code` column instead of
+ * inserting duplicates. Does not touch `Role`, `PermissionGroup`, or
+ * `RolePermission` — role/grant seeding is explicitly out of scope here.
+ */
+export async function seedPermissions(prisma: PrismaClient): Promise<void> {
+  await upsertResourcePermissions(
+    prisma,
+    PermissionResource.PROJECTS,
+    PROJECT_PERMISSION_DEFINITIONS,
+  );
+  await upsertResourcePermissions(prisma, PermissionResource.TASKS, TASK_PERMISSION_DEFINITIONS);
+}
