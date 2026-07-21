@@ -444,6 +444,11 @@ model User {
   assignedLeads         LeadAssignment[]        @relation("LeadAssignedUser")
   leadConversions       LeadConversion[]        @relation("LeadConvertedBy")
 
+  // ── Relations: Projects ───────────────────────────────────────────────
+  createdProjects       Project[]               @relation("ProjectCreatedBy")
+  deletedProjects       Project[]               @relation("ProjectDeletedBy")
+  managedProjects       Project[]               @relation("ProjectManager")
+
   @@unique([tenantId, email], name: "uq_users_tenant_email")
   @@index([tenantId, status],    name: "idx_users_tenant_status")
   @@index([tenantId, deletedAt], name: "idx_users_soft_delete")
@@ -1077,6 +1082,7 @@ model Client {
   assignments    ClientAssignment[]
   tags           ClientTagAssignment[]
   conversion     LeadConversion?
+  projects       Project[]
 
   @@index([tenantId, status])
   @@index([tenantId, categoryId])
@@ -1263,4 +1269,53 @@ model LeadConversion {
   convertedBy  User     @relation("LeadConvertedBy", fields: [convertedById], references: [id], onDelete: Restrict)
 
   @@map("lead_conversions")
+}
+
+// =============================================================================
+// SECTION 9 — PROJECTS MODULE
+// =============================================================================
+
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  tenantId    String        @db.Uuid @map("tenant_id")
+  clientId    String        @db.Uuid @map("client_id")
+  managerId   String?       @db.Uuid @map("manager_id")
+
+  code        String        @db.VarChar(50)
+  name        String        @db.VarChar(255)
+  status      ProjectStatus @default(DRAFT)
+
+  startDate   DateTime?     @db.Date @map("start_date")
+  dueDate     DateTime?     @db.Date @map("due_date")
+  completedAt DateTime?     @db.Timestamptz @map("completed_at")
+  archivedAt  DateTime?     @db.Timestamptz @map("archived_at")
+
+  createdAt   DateTime      @default(now()) @db.Timestamptz @map("created_at")
+  updatedAt   DateTime      @updatedAt      @db.Timestamptz @map("updated_at")
+  deletedAt   DateTime?                     @db.Timestamptz @map("deleted_at")
+  createdBy   String?       @db.Uuid @map("created_by")
+  deletedBy   String?       @db.Uuid @map("deleted_by")
+
+  client        Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  manager       User?  @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
+  createdByUser User?  @relation("ProjectCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  deletedByUser User?  @relation("ProjectDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@index([tenantId, clientId])
+  @@index([tenantId, dueDate])
+  @@index([tenantId, deletedAt])
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  DRAFT
+  PLANNED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+  CANCELLED
+  @@map("project_status")
 }
