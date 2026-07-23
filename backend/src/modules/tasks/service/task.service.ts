@@ -26,10 +26,10 @@ import {
  * `CANCELLED` is terminal (no outgoing transitions).
  */
 const ALLOWED_TRANSITIONS: Partial<Record<TaskStatus, TaskStatus[]>> = {
-  [TaskStatus.TODO]:        [TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED],
+  [TaskStatus.TODO]: [TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED],
   [TaskStatus.IN_PROGRESS]: [TaskStatus.REVIEW, TaskStatus.CANCELLED],
-  [TaskStatus.REVIEW]:      [TaskStatus.IN_PROGRESS, TaskStatus.COMPLETED, TaskStatus.CANCELLED],
-  [TaskStatus.COMPLETED]:   [TaskStatus.IN_PROGRESS], // reopen only
+  [TaskStatus.REVIEW]: [TaskStatus.IN_PROGRESS, TaskStatus.COMPLETED, TaskStatus.CANCELLED],
+  [TaskStatus.COMPLETED]: [TaskStatus.IN_PROGRESS], // reopen only
   // CANCELLED has no outgoing transitions (terminal).
 };
 
@@ -99,14 +99,14 @@ export class TaskService extends BaseService {
     // commit atomically.
     const task = await this.taskRepository.create(
       {
-        projectId:   dto.projectId   ?? null,
-        assigneeId:  dto.assigneeId  ?? null,
-        title:       dto.title,
+        projectId: dto.projectId ?? null,
+        assigneeId: dto.assigneeId ?? null,
+        title: dto.title,
         description: dto.description ?? null,
-        startDate:   dto.startDate   ?? null,
-        dueDate:     dto.dueDate     ?? null,
-        status:      TaskStatus.TODO,
-        createdBy:   this.userId     ?? null,
+        startDate: dto.startDate ?? null,
+        dueDate: dto.dueDate ?? null,
+        status: TaskStatus.TODO,
+        createdBy: this.userId ?? null,
       },
       { tenantId: this.tenantId },
     );
@@ -120,7 +120,7 @@ export class TaskService extends BaseService {
     this.validateExists(existing, 'Task');
 
     const nextStartDate = dto.startDate !== undefined ? dto.startDate : existing.startDate;
-    const nextDueDate   = dto.dueDate   !== undefined ? dto.dueDate   : existing.dueDate;
+    const nextDueDate = dto.dueDate !== undefined ? dto.dueDate : existing.dueDate;
     this.assertValidDateRange(nextStartDate, nextDueDate);
 
     this.logger.info({ taskId: id }, 'Updating task');
@@ -170,7 +170,7 @@ export class TaskService extends BaseService {
 
   async restoreTask(id: string): Promise<Task> {
     const existing = await this.taskRepository.findById(id, {
-      tenantId:        this.tenantId,
+      tenantId: this.tenantId,
       ignoreSoftDelete: true,
     });
     this.validateExists(existing, 'Task');
@@ -222,17 +222,17 @@ export class TaskService extends BaseService {
   async listTasks(query: ListTasksQueryDto): Promise<{ data: Task[]; meta: PaginationMeta }> {
     return this.taskRepository.search(
       {
-        status:     query.status,
-        projectId:  query.projectId,
+        status: query.status,
+        projectId: query.projectId,
         assigneeId: query.assigneeId,
-        dueBefore:  query.dueBefore,
-        dueAfter:   query.dueAfter,
-        search:     query.search,
+        dueBefore: query.dueBefore,
+        dueAfter: query.dueAfter,
+        search: query.search,
       },
       {
-        page:      query.page,
-        limit:     query.limit,
-        sortBy:    query.sortBy,
+        page: query.page,
+        limit: query.limit,
+        sortBy: query.sortBy,
         sortOrder: query.sortOrder,
       },
       { tenantId: this.tenantId },
@@ -249,5 +249,13 @@ export class TaskService extends BaseService {
 
   async getOverdueTasks(): Promise<Task[]> {
     return this.taskRepository.findOverdue({ tenantId: this.tenantId });
+  }
+
+  async countByStatus(status: TaskStatus): Promise<number> {
+    return this.taskRepository.countByStatus(status, { tenantId: this.tenantId });
+  }
+
+  async countByProject(projectId: string): Promise<number> {
+    return this.taskRepository.countByProject(projectId, { tenantId: this.tenantId });
   }
 }

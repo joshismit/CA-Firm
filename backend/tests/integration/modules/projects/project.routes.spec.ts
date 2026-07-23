@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { Application } from 'express';
-import { PrismaClient, ProjectStatus } from '@prisma/client';
+import { ProjectStatus } from '@prisma/client';
+import { prisma } from '@config/database';
 import { createTestApp } from '../../helpers/test-app';
 import { signAccessToken } from '../../helpers/jwt';
 import { seedFixtures, cleanupFixtures, TestFixtures } from '../../helpers/fixtures';
@@ -27,20 +28,17 @@ jest.setTimeout(30000);
 
 describe('Projects API — integration', () => {
   let app: Application;
-  let prisma: PrismaClient;
   let fixtures: TestFixtures;
 
   const allPermissions = Object.values(PROJECT_PERMISSIONS);
 
   beforeAll(async () => {
     app = createTestApp();
-    prisma = new PrismaClient();
     fixtures = await seedFixtures(prisma);
   });
 
   afterAll(async () => {
     await cleanupFixtures(prisma, fixtures);
-    await prisma.$disconnect();
   });
 
   function tokenForTenantA(permissions: string[] = allPermissions): string {
