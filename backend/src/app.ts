@@ -2,12 +2,15 @@ import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import swaggerUi from 'swagger-ui-express';
 
 import { correlationIdMiddleware } from '@middlewares/correlation-id.middleware';
 import { requestLoggerMiddleware } from '@middlewares/request-logger.middleware';
 import { errorMiddleware } from '@middlewares/error.middleware';
 import { ApiResponseHelper } from '@shared/response/api-response';
 import { API } from '@shared/constants';
+import { env } from '@config/environment';
+import { swaggerSpec } from '@config/swagger';
 import { projectRoutes } from '@modules/projects';
 import { taskRoutes } from '@modules/tasks';
 
@@ -31,7 +34,11 @@ app.get('/health', (req: Request, res: Response) => {
   );
 });
 
-// 4. API Routes
+// 4. API Routes & Documentation
+if (env.ENABLE_SWAGGER) {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+}
+
 app.use(`${API.PREFIX}/projects`, projectRoutes);
 app.use(`${API.PREFIX}/tasks`, taskRoutes);
 

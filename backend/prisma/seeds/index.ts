@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { seedPermissions } from './permissions.seed';
 
 /**
@@ -15,7 +16,8 @@ import { seedPermissions } from './permissions.seed';
  * order (e.g. permissions before roles, roles before role-permission grants).
  * ─────────────────────────────────────────────────────────────────────────────
  */
-const prisma = new PrismaClient({ errorFormat: 'pretty' });
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter, errorFormat: 'pretty' });
 
 async function main(): Promise<void> {
   console.log('Seeding permissions...');

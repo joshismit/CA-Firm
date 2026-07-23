@@ -14,15 +14,23 @@ import {
 
 /**
  * Status transitions reachable through `updateTaskStatus()`.
- * There is no ARCHIVED status for tasks (unlike Project) — "archived tasks
- * don't exist" is a deliberate business rule, not an omission.
- * `CANCELLED` has no outgoing transitions (terminal).
+ *
+ * Lifecycle:
+ *   TODO → IN_PROGRESS → REVIEW → COMPLETED
+ *   TODO → CANCELLED
+ *   IN_PROGRESS → CANCELLED
+ *   REVIEW → CANCELLED
+ *   COMPLETED → IN_PROGRESS  (reopen only)
+ *
+ * `COMPLETED` is terminal (no further forward transitions).
+ * `CANCELLED` is terminal (no outgoing transitions).
  */
 const ALLOWED_TRANSITIONS: Partial<Record<TaskStatus, TaskStatus[]>> = {
-  [TaskStatus.TODO]: [TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED],
-  [TaskStatus.IN_PROGRESS]: [TaskStatus.REVIEW, TaskStatus.COMPLETED, TaskStatus.CANCELLED],
-  [TaskStatus.REVIEW]: [TaskStatus.IN_PROGRESS, TaskStatus.COMPLETED, TaskStatus.CANCELLED],
-  [TaskStatus.COMPLETED]: [TaskStatus.IN_PROGRESS], // reopen
+  [TaskStatus.TODO]:        [TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED],
+  [TaskStatus.IN_PROGRESS]: [TaskStatus.REVIEW, TaskStatus.CANCELLED],
+  [TaskStatus.REVIEW]:      [TaskStatus.IN_PROGRESS, TaskStatus.COMPLETED, TaskStatus.CANCELLED],
+  [TaskStatus.COMPLETED]:   [TaskStatus.IN_PROGRESS], // reopen only
+  // CANCELLED has no outgoing transitions (terminal).
 };
 
 /** Entering these statuses requires an explanatory reason. */
@@ -86,18 +94,19 @@ export class TaskService extends BaseService {
 
     this.logger.info({ title: dto.title, projectId: dto.projectId }, 'Creating task');
 
-    // TODO: once TaskActivity/labels exist, wrap the create + initial
-    // activity-log write in this.transaction() so they commit atomically.
+    // TODO: once TaskActivity/Comments/TimeLogs/Notifications/Attachments exist,
+    // wrap the create + initial activity-log write in this.transaction() so they
+    // commit atomically.
     const task = await this.taskRepository.create(
       {
-        projectId: dto.projectId ?? null,
-        assigneeId: dto.assigneeId ?? null,
-        title: dto.title,
+        projectId:   dto.projectId   ?? null,
+        assigneeId:  dto.assigneeId  ?? null,
+        title:       dto.title,
         description: dto.description ?? null,
-        startDate: dto.startDate ?? null,
-        dueDate: dto.dueDate ?? null,
-        status: TaskStatus.TODO,
-        createdBy: this.userId ?? null,
+        startDate:   dto.startDate   ?? null,
+        dueDate:     dto.dueDate     ?? null,
+        status:      TaskStatus.TODO,
+        createdBy:   this.userId     ?? null,
       },
       { tenantId: this.tenantId },
     );
@@ -111,11 +120,15 @@ export class TaskService extends BaseService {
     this.validateExists(existing, 'Task');
 
     const nextStartDate = dto.startDate !== undefined ? dto.startDate : existing.startDate;
-    const nextDueDate = dto.dueDate !== undefined ? dto.dueDate : existing.dueDate;
+    const nextDueDate   = dto.dueDate   !== undefined ? dto.dueDate   : existing.dueDate;
     this.assertValidDateRange(nextStartDate, nextDueDate);
 
     this.logger.info({ taskId: id }, 'Updating task');
 
+    // TODO: once TaskActivity/Comments/TimeLogs/Notifications/Attachments exist,
+    // wrap the update + activity-log write in this.transaction() so they commit
+    // atomically.
+    // TODO: emit TaskUpdated once the domain event bus exists.
     return this.taskRepository.update(id, dto, { tenantId: this.tenantId });
   }
 
@@ -130,10 +143,12 @@ export class TaskService extends BaseService {
     this.assertValidTransition(existing.status, dto.status, dto.reason);
 
     const data: { status: TaskStatus; completedAt?: Date | null } = { status: dto.status };
+
     if (dto.status === TaskStatus.COMPLETED) {
+      // Moving to terminal COMPLETED — stamp the timestamp.
       data.completedAt = new Date();
     } else if (existing.status === TaskStatus.COMPLETED) {
-      // Reopening — clear the previous completion timestamp.
+      // Reopening from COMPLETED — clear the previous completion timestamp.
       data.completedAt = null;
     }
 
@@ -142,9 +157,10 @@ export class TaskService extends BaseService {
       'Updating task status',
     );
 
-    // TODO: once TaskActivity exists, wrap the status update + activity-log
-    // write in this.transaction(); once TaskDependency exists, IN_PROGRESS
-    // should also validate no incomplete blocking predecessor.
+    // TODO: once TaskActivity/Comments/TimeLogs/Notifications/Attachments exist,
+    // wrap the status update + activity-log write in this.transaction(); once
+    // TaskDependency exists, IN_PROGRESS should also validate no incomplete
+    // blocking predecessor.
     const updated = await this.taskRepository.update(id, data, { tenantId: this.tenantId });
 
     // TODO: emit TaskStatusChanged (and TaskCompleted/TaskReopened where
@@ -152,30 +168,9 @@ export class TaskService extends BaseService {
     return updated;
   }
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // Soft delete / restore
-  // ────────────────────────────────────────────────────────────────────────────
-
-  async deleteTask(id: string): Promise<void> {
-    const existing = await this.taskRepository.findById(id, { tenantId: this.tenantId });
-    this.validateExists(existing, 'Task');
-
-    if (!DELETABLE_STATUSES.includes(existing.status)) {
-      throw new ConflictError('Only TODO or cancelled tasks can be deleted.');
-    }
-
-    this.logger.info({ taskId: id }, 'Deleting task');
-
-    // TODO: wrap in this.transaction() once deletion needs to cascade to
-    // related subtasks/attachments/comments.
-    await this.taskRepository.delete(id, { tenantId: this.tenantId, userId: this.userId });
-
-    // TODO: emit TaskDeleted once the domain event bus exists.
-  }
-
   async restoreTask(id: string): Promise<Task> {
     const existing = await this.taskRepository.findById(id, {
-      tenantId: this.tenantId,
+      tenantId:        this.tenantId,
       ignoreSoftDelete: true,
     });
     this.validateExists(existing, 'Task');
@@ -193,6 +188,27 @@ export class TaskService extends BaseService {
     return restored;
   }
 
+  async deleteTask(id: string): Promise<void> {
+    const existing = await this.taskRepository.findById(id, { tenantId: this.tenantId });
+    this.validateExists(existing, 'Task');
+
+    if (!DELETABLE_STATUSES.includes(existing.status)) {
+      throw new ConflictError(
+        `Cannot delete a task in ${existing.status} status. ` +
+        'Only TODO or CANCELLED tasks can be deleted.',
+      );
+    }
+
+    this.logger.info({ taskId: id }, 'Deleting task');
+
+    // TODO: once TaskActivity/Comments/TimeLogs/Notifications/Attachments exist,
+    // wrap the delete + cascade writes in this.transaction() so they commit
+    // atomically.
+    await this.taskRepository.delete(id, { tenantId: this.tenantId, userId: this.userId });
+
+    // TODO: emit TaskDeleted once the domain event bus exists.
+  }
+
   // ────────────────────────────────────────────────────────────────────────────
   // Reads
   // ────────────────────────────────────────────────────────────────────────────
@@ -206,17 +222,17 @@ export class TaskService extends BaseService {
   async listTasks(query: ListTasksQueryDto): Promise<{ data: Task[]; meta: PaginationMeta }> {
     return this.taskRepository.search(
       {
-        status: query.status,
-        projectId: query.projectId,
+        status:     query.status,
+        projectId:  query.projectId,
         assigneeId: query.assigneeId,
-        dueBefore: query.dueBefore,
-        dueAfter: query.dueAfter,
-        search: query.search,
+        dueBefore:  query.dueBefore,
+        dueAfter:   query.dueAfter,
+        search:     query.search,
       },
       {
-        page: query.page,
-        limit: query.limit,
-        sortBy: query.sortBy,
+        page:      query.page,
+        limit:     query.limit,
+        sortBy:    query.sortBy,
         sortOrder: query.sortOrder,
       },
       { tenantId: this.tenantId },
@@ -233,13 +249,5 @@ export class TaskService extends BaseService {
 
   async getOverdueTasks(): Promise<Task[]> {
     return this.taskRepository.findOverdue({ tenantId: this.tenantId });
-  }
-
-  async countByStatus(status: TaskStatus): Promise<number> {
-    return this.taskRepository.countByStatus(status, { tenantId: this.tenantId });
-  }
-
-  async countByProject(projectId: string): Promise<number> {
-    return this.taskRepository.countByProject(projectId, { tenantId: this.tenantId });
   }
 }
