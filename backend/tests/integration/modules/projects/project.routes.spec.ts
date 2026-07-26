@@ -39,6 +39,7 @@ describe('Projects API — integration', () => {
 
   afterAll(async () => {
     await cleanupFixtures(prisma, fixtures);
+    await prisma.$disconnect();
   });
 
   function tokenForTenantA(permissions: string[] = allPermissions): string {

@@ -1,2 +1,14 @@
-// Shadcn UI primitives (button, input, dialog, select, etc.) generated via the shadcn CLI (npx shadcn add <component>). Do not hand-edit generated primitives directly; wrap them instead.
-export {};
+// UI primitives (button, input, dialog, select, etc.) wrapping Radix primitives with Tailwind + design tokens.
+// Wrap these instead of hand-editing; higher-level composed components (e.g. the modal Dialog wrapper) live in their feature folders.
+export * from './dialog'
+export * from './tooltip'
+export * from './progress'
+export * from './label'
+export * from './input'
+export * from './checkbox'
+export * from './switch'
+export * from './select'
+export * from './button'
+export * from './icon-button'
+export * from './avatar'
+export * from './counter'

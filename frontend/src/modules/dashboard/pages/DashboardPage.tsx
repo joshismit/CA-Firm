@@ -1,7 +1,8 @@
 // src/modules/dashboard/pages/DashboardPage.tsx
 import { PageHeader } from '@/components/shared/PageHeader/PageHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge/StatusBadge'
-import { formatINR, formatDate, cn } from '@/lib/utils'
+import { Progress } from '@/components/ui/progress'
+import { formatINR, formatCompactINR, formatDate, cn } from '@/lib/utils'
 import {
   TrendingUp,
   TrendingDown,
@@ -190,7 +191,7 @@ function KpiCard({ label, value, isAmount, change, changeLabel, icon: Icon, colo
             'text-[28px] font-700 text-[var(--color-text-heading)] leading-none font-bold',
             isAmount && 'font-mono tabular-nums'
           )}>
-            {isAmount ? formatINR(value, 0) : value.toLocaleString('en-IN')}
+            {isAmount ? formatCompactINR(value) : value.toLocaleString('en-IN')}
           </p>
         </div>
 
@@ -392,12 +393,7 @@ export function DashboardPage() {
                       <span className="text-[10px] font-normal text-[var(--color-text-muted)] bg-[var(--color-surface)] px-1 py-0.5 rounded-[var(--radius-xs)]">{pct}%</span>
                     </div>
                   </div>
-                  <div className="h-1.5 rounded-full bg-[var(--color-surface)] overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{ width: `${pct}%`, backgroundColor: item.color }}
-                    />
-                  </div>
+                  <Progress value={pct} color={item.color} height={6} />
                 </div>
               )
             })}

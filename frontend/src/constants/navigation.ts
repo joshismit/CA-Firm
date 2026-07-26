@@ -4,6 +4,7 @@ import {
   BarChart3,
   Users,
   UserPlus,
+  Briefcase,
   FileText,
   Calculator,
   Receipt,
@@ -47,6 +48,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'All Clients', path: '/clients', icon: Users },
       { label: 'Add Client', path: '/clients/new', icon: UserPlus },
+      { label: 'Projects', path: '/projects', icon: Briefcase },
     ],
   },
   {

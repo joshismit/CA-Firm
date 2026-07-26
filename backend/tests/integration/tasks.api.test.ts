@@ -104,6 +104,7 @@ describe('Tasks API — integration', () => {
       },
     });
     await cleanupFixtures(prisma, fixtures);
+    await prisma.$disconnect();
   });
 
   // ══════════════════════════════════════════════════════════════════════════

@@ -1,2 +1,3 @@
 // Barrel for global, feature-agnostic hooks.
-export {};
+
+export * from './use-permission'

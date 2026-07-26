@@ -1,7 +1,8 @@
 // src/layouts/AppLayout/Header.tsx
-import { Link, useLocation } from 'react-router-dom'
-import { cn } from '@/lib/utils'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { cn, getInitials } from '@/lib/utils'
 import { useTheme } from '@/contexts/ThemeContext'
+import { useAuthStore } from '@/store/auth.store'
 import { NAV_GROUPS } from '@/constants/navigation'
 import {
   Search,
@@ -42,6 +43,19 @@ export function Header() {
   const { resolvedTheme, toggleTheme } = useTheme()
   const crumbs = useBreadcrumbs()
   const pageTitle = crumbs.length > 1 ? crumbs[crumbs.length - 1].label : 'Dashboard'
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const logout = useAuthStore((s) => s.logout)
+
+  const displayName = user
+    ? [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email
+    : ''
+  const initials = user ? getInitials(displayName) : ''
+
+  const handleSignOut = () => {
+    logout()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <header
@@ -136,14 +150,14 @@ export function Header() {
             aria-label="User menu"
           >
             <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[var(--color-primary-500)] to-[var(--color-primary-700)] flex items-center justify-center shrink-0">
-              <span className="text-[10px] font-semibold text-white">AK</span>
+              <span className="text-[10px] font-semibold text-white">{initials}</span>
             </div>
             <div className="hidden md:flex flex-col items-start">
               <span className="text-[12px] font-medium text-[var(--color-text-body)] leading-tight">
-                Amit Kumar
+                {displayName}
               </span>
               <span className="text-[10px] text-[var(--color-text-muted)] leading-tight">
-                Admin
+                {user?.role ?? ''}
               </span>
             </div>
           </button>
@@ -175,6 +189,7 @@ export function Header() {
             ))}
             <div className="my-1 border-t border-[var(--color-border)]" />
             <button
+              onClick={handleSignOut}
               className={cn(
                 'flex items-center gap-2.5 w-full px-3 py-2 text-[13px]',
                 'text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]',

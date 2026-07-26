@@ -31,6 +31,20 @@ export function formatIndianNumber(num: number): string {
 }
 
 /**
+ * Format a number as compact Indian-notation currency (K/L/Cr), e.g. ₹48.2L, ₹1.3Cr.
+ * Used for large headline figures (KPI cards) where the full grouped amount is too wide.
+ */
+export function formatCompactINR(amount: number, decimals = 1): string {
+  const abs = Math.abs(amount)
+  const sign = amount < 0 ? '-' : ''
+
+  if (abs >= 1_00_00_000) return `${sign}₹${(abs / 1_00_00_000).toFixed(decimals)}Cr`
+  if (abs >= 1_00_000) return `${sign}₹${(abs / 1_00_000).toFixed(decimals)}L`
+  if (abs >= 1_000) return `${sign}₹${(abs / 1_000).toFixed(decimals)}K`
+  return `${sign}₹${abs.toLocaleString('en-IN')}`
+}
+
+/**
  * Format date in Indian format DD/MM/YYYY
  */
 export function formatDate(date: string | Date): string {
