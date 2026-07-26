@@ -1,57 +1,50 @@
 // src/app/router.tsx
-import { createBrowserRouter, Link } from 'react-router-dom'
-import { ShieldAlert, FileQuestion } from 'lucide-react'
+import { createBrowserRouter, isRouteErrorResponse, useNavigate, useRouteError } from 'react-router-dom'
 import { ErrorLayout } from '@/layouts/ErrorLayout/ErrorLayout'
+import { NoPermission, NotFound } from '@/components/feedback'
+import { ErrorFallback } from '@/providers/ErrorBoundary'
 import { publicRoutes, protectedRoutes, masterAdminRoutes, clientPortalRoutes } from '@/routes'
 
-function ErrorPage({ icon: Icon, code, title, description }: { icon: typeof ShieldAlert; code: string; title: string; description: string }) {
+// React Router's data router catches render/loader errors at the route level before they can
+// reach the top-level <ErrorBoundary> in providers/AppProviders.tsx (which sits outside
+// <RouterProvider>). Every top-level route group below gets this as its errorElement so page
+// errors render the same fallback instead of React Router's built-in "Unexpected Application
+// Error!" page.
+function RouteErrorBoundary() {
+  const routeError = useRouteError()
+  const navigate = useNavigate()
+
+  const error =
+    routeError instanceof Error
+      ? routeError
+      : new Error(isRouteErrorResponse(routeError) ? `${routeError.status} ${routeError.statusText}` : 'Unknown error')
+
   return (
     <ErrorLayout>
-      <div className="flex flex-col items-center gap-4 text-center">
-        <div className="w-16 h-16 rounded-[var(--radius-xl)] bg-[var(--color-surface)] flex items-center justify-center">
-          <Icon className="w-7 h-7 text-[var(--color-text-muted)]" />
-        </div>
-        <div>
-          <p className="text-[13px] font-mono text-[var(--color-text-muted)]">{code}</p>
-          <h1 className="mt-1 text-[20px] font-semibold text-[var(--color-text-heading)]">{title}</h1>
-          <p className="mt-1 text-[13px] text-[var(--color-text-muted)]">{description}</p>
-        </div>
-        <Link
-          to="/dashboard"
-          className="h-9 px-4 inline-flex items-center rounded-[var(--radius-md)] text-[13px] font-medium text-white bg-[var(--color-primary-600)] hover:bg-[var(--color-primary-700)] transition-colors"
-        >
-          Back to dashboard
-        </Link>
-      </div>
+      <ErrorFallback error={error} onRetry={() => navigate(0)} />
     </ErrorLayout>
   )
 }
 
 export const router = createBrowserRouter([
-  publicRoutes,
-  protectedRoutes,
-  masterAdminRoutes,
-  clientPortalRoutes,
+  { ...publicRoutes, errorElement: <RouteErrorBoundary /> },
+  { ...protectedRoutes, errorElement: <RouteErrorBoundary /> },
+  { ...masterAdminRoutes, errorElement: <RouteErrorBoundary /> },
+  { ...clientPortalRoutes, errorElement: <RouteErrorBoundary /> },
   {
     path: '/403',
     element: (
-      <ErrorPage
-        icon={ShieldAlert}
-        code="403"
-        title="Access denied"
-        description="You don't have permission to view this page."
-      />
+      <ErrorLayout>
+        <NoPermission />
+      </ErrorLayout>
     ),
   },
   {
     path: '*',
     element: (
-      <ErrorPage
-        icon={FileQuestion}
-        code="404"
-        title="Page not found"
-        description="The page you're looking for doesn't exist."
-      />
+      <ErrorLayout>
+        <NotFound />
+      </ErrorLayout>
     ),
   },
 ])

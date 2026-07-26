@@ -4,16 +4,22 @@
 
 import type { ReactNode } from 'react'
 import { Toaster } from 'sonner'
+import { HelmetProvider } from 'react-helmet-async'
+import { ErrorBoundary } from './ErrorBoundary'
 import { QueryProvider } from './QueryProvider'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
-    <QueryProvider>
-      <ThemeProvider>
-        {children}
-        <Toaster richColors position="top-right" />
-      </ThemeProvider>
-    </QueryProvider>
+    <ErrorBoundary>
+      <HelmetProvider>
+        <QueryProvider>
+          <ThemeProvider>
+            {children}
+            <Toaster richColors position="top-right" />
+          </ThemeProvider>
+        </QueryProvider>
+      </HelmetProvider>
+    </ErrorBoundary>
   )
 }

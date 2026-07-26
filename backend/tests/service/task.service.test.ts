@@ -1,5 +1,19 @@
 import { Request } from 'express';
 import { Task, TaskStatus } from '@prisma/client';
+
+/**
+ * `TaskService`'s constructor defaults to `new TaskRepository(prisma)` (the
+ * real `@config/database` singleton) when no repository is injected. These
+ * tests always inject an explicit mock repository, so the real `prisma`
+ * export is never used — but merely *importing* `TaskService` transitively
+ * imports `@config/database`, whose top-level `new PrismaClient(...)` call
+ * opens a real connection pool that this file never disconnects, leaving the
+ * Jest process hanging after all tests complete. Stubbing the module here is
+ * test-only and does not touch production code. Mirrors
+ * `tests/unit/modules/tasks/task.service.spec.ts`.
+ */
+jest.mock('@config/database', () => ({ prisma: {} }));
+
 import { TaskService } from '@modules/tasks/service/task.service';
 import { TaskRepository } from '@modules/tasks/repository/task.repository';
 import { ListTasksQueryDto } from '@modules/tasks/dto/task.req.dto';

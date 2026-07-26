@@ -1,51 +1,27 @@
 // src/layouts/AppLayout/Header.tsx
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { cn, getInitials } from '@/lib/utils'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useAuthStore } from '@/store/auth.store'
-import { NAV_GROUPS } from '@/constants/navigation'
+import { useUiStore } from '@/store/ui.store'
+import { Breadcrumb } from '@/components/navigation'
 import {
   Search,
   Sun,
   Moon,
   Bell,
-  ChevronRight,
   Settings,
   LogOut,
   User,
   HelpCircle,
 } from 'lucide-react'
 
-function useBreadcrumbs() {
-  const location = useLocation()
-  const parts = location.pathname.split('/').filter(Boolean)
-
-  const crumbs: { label: string; path: string }[] = [
-    { label: 'Home', path: '/' },
-  ]
-
-  let accumulated = ''
-  for (const part of parts) {
-    accumulated += `/${part}`
-    // Find matching nav item label
-    let label = part.charAt(0).toUpperCase() + part.slice(1)
-    for (const group of NAV_GROUPS) {
-      const found = group.items.find(i => i.path === accumulated)
-      if (found) { label = found.label; break }
-    }
-    crumbs.push({ label, path: accumulated })
-  }
-
-  return crumbs
-}
-
 export function Header() {
   const { resolvedTheme, toggleTheme } = useTheme()
-  const crumbs = useBreadcrumbs()
-  const pageTitle = crumbs.length > 1 ? crumbs[crumbs.length - 1].label : 'Dashboard'
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
+  const setCommandMenuOpen = useUiStore((s) => s.setCommandMenuOpen)
 
   const displayName = user
     ? [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email
@@ -67,31 +43,14 @@ export function Header() {
     >
       {/* Breadcrumb */}
       <div className="flex-1 flex items-center min-w-0">
-        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5">
-          {crumbs.map((crumb, i) => (
-            <span key={crumb.path} className="flex items-center gap-1.5 text-[12px]">
-              {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />}
-              {i === crumbs.length - 1 ? (
-                <span className="font-medium text-[var(--color-text-heading)]" aria-current="page">
-                  {crumb.label}
-                </span>
-              ) : (
-                <Link
-                  to={crumb.path}
-                  className="text-[var(--color-text-muted)] hover:text-[var(--color-text-heading)] transition-colors"
-                >
-                  {crumb.label}
-                </Link>
-              )}
-            </span>
-          ))}
-        </nav>
+        <Breadcrumb />
       </div>
 
       {/* Actions */}
       <div className="flex items-center gap-1.5">
         {/* Search trigger */}
         <button
+          onClick={() => setCommandMenuOpen(true)}
           className={cn(
             'flex items-center gap-2 h-8 px-3 rounded-[var(--radius-md)]',
             'text-[12px] text-[var(--color-text-muted)] border border-[var(--color-border)]',

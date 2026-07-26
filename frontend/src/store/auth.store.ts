@@ -4,6 +4,7 @@
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { STORAGE_KEYS } from '@/constants/storage-keys.constants'
 
 export interface AuthUser {
   id: string
@@ -46,7 +47,7 @@ export const useAuthStore = create<AuthState>()(
       }
     },
     {
-      name: 'ca-erp-auth',
+      name: STORAGE_KEYS.AUTH,
       partialize: (state) => ({
         accessToken: state.accessToken,
         user: state.user,

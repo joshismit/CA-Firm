@@ -1,6 +1,7 @@
 // UI primitives (button, input, dialog, select, etc.) wrapping Radix primitives with Tailwind + design tokens.
 // Wrap these instead of hand-editing; higher-level composed components (e.g. the modal Dialog wrapper) live in their feature folders.
 export * from './dialog'
+export * from './drawer'
 export * from './tooltip'
 export * from './progress'
 export * from './label'

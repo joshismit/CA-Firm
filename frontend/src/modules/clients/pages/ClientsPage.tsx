@@ -7,7 +7,8 @@ import { Card } from '@/components/shared/Card/Card'
 import { Separator } from '@/components/shared/Separator/Separator'
 import { StatusBadge } from '@/components/shared/StatusBadge/StatusBadge'
 import { Avatar } from '@/components/ui/avatar'
-import { formatINR, formatDate, cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { formatINR, formatDate } from '@/lib/utils'
 
 type ClientStatus = 'active' | 'pending' | 'overdue' | 'inactive'
 type TabValue = 'all' | 'active' | 'overdue' | 'archived'
@@ -38,18 +39,6 @@ const STATUS_CONFIG: Record<ClientStatus, { variant: 'success' | 'warning' | 'da
   inactive: { variant: 'default', label: 'Inactive' },
 }
 
-const secondaryBtn = cn(
-  'flex items-center gap-1.5 h-8 px-3 rounded-[var(--radius-md)]',
-  'text-[12px] font-medium text-[var(--color-text-secondary)] border border-[var(--color-border)]',
-  'hover:bg-[var(--color-hover)] transition-colors'
-)
-
-const primaryBtn = cn(
-  'flex items-center gap-1.5 h-8 px-3 rounded-[var(--radius-md)]',
-  'text-[12px] font-medium text-white bg-[var(--color-primary-600)]',
-  'hover:bg-[var(--color-primary-700)] transition-colors shadow-[var(--shadow-xs)]'
-)
-
 export function ClientsPage() {
   const [tab, setTab] = useState<TabValue>('active')
 
@@ -69,14 +58,12 @@ export function ClientsPage() {
         description={`${totalCount} active · ${overdueCount} overdue filings`}
         actions={
           <>
-            <button className={secondaryBtn}>
-              <Download className="w-3.5 h-3.5" />
+            <Button variant="secondary" size="sm" className="bg-transparent" leadingIcon={<Download className="w-3.5 h-3.5" />}>
               Export
-            </button>
-            <button className={primaryBtn}>
-              <Plus className="w-3.5 h-3.5" />
+            </Button>
+            <Button variant="primary" size="sm" leadingIcon={<Plus className="w-3.5 h-3.5" />}>
               Add Client
-            </button>
+            </Button>
           </>
         }
       />

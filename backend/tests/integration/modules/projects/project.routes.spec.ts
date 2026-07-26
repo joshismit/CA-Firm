@@ -308,6 +308,7 @@ describe('Projects API — integration', () => {
         .post('/api/v1/projects')
         .set('Authorization', `Bearer ${tokenForTenantA()}`)
         .send({ clientId: fixtures.tenantA.clientId, code: 'ISOLATION-1', name: 'Tenant A Only' });
+      expect(res.status).toBe(201);
       tenantAProjectId = res.body.data.id;
     });
 
@@ -349,6 +350,7 @@ describe('Projects API — integration', () => {
         .post('/api/v1/projects')
         .set('Authorization', `Bearer ${tokenForTenantA()}`)
         .send({ clientId: fixtures.tenantA.clientId, code: 'SOFTDELETE-1', name: 'Soft Delete Me' });
+      expect(res.status).toBe(201);
       deletableProjectId = res.body.data.id;
     });
 
@@ -401,10 +403,11 @@ describe('Projects API — integration', () => {
       const token = tokenForTenantA();
       for (let i = 1; i <= 3; i++) {
         // eslint-disable-next-line no-await-in-loop
-        await request(app)
+        const res = await request(app)
           .post('/api/v1/projects')
           .set('Authorization', `Bearer ${token}`)
           .send({ clientId: fixtures.tenantA.clientId, code: `PAGINATION-${i}`, name: `Pagination ${i}` });
+        expect(res.status).toBe(201);
       }
     });
 

@@ -1,38 +1,23 @@
 // src/modules/dashboard/pages/DashboardPage.tsx
 import { PageHeader } from '@/components/shared/PageHeader/PageHeader'
+import { Card } from '@/components/shared/Card/Card'
 import { StatusBadge } from '@/components/shared/StatusBadge/StatusBadge'
-import { Progress } from '@/components/ui/progress'
-import { formatINR, formatCompactINR, formatDate, cn } from '@/lib/utils'
+import { AlertBanner } from '@/components/feedback'
+import { formatINR, formatDate, cn } from '@/lib/utils'
 import {
-  TrendingUp,
-  TrendingDown,
   Users,
   FileText,
   IndianRupee,
   CheckCircle2,
-  Clock,
-  AlertCircle,
   Plus,
   Upload,
   RefreshCw,
   ArrowUpRight,
   MoreHorizontal,
   Zap,
-  Calendar,
   Activity,
 } from 'lucide-react'
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell,
-} from 'recharts'
+import { KPICard, RevenueChart, GSTStatusCard, RecentTasksWidget, ChartCard } from '../components'
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
@@ -120,163 +105,17 @@ const UPCOMING_DEADLINES = [
   { date: '2025-08-07', event: 'TDS Return Q1', count: 24, severity: 'info' },
 ]
 
-// ─── Subcomponents ────────────────────────────────────────────────────────────
-
-interface KpiCardProps {
-  label: string
-  value: number
-  isAmount: boolean
-  change: number
-  changeLabel: string
-  icon: React.ElementType
-  color: string
-  sparkData: number[]
-}
-
-function KpiCard({ label, value, isAmount, change, changeLabel, icon: Icon, color, sparkData }: KpiCardProps) {
-  const isPositive = change >= 0
-  const colorMap: Record<string, { bg: string; icon: string; text: string }> = {
-    primary: { bg: 'var(--color-primary-50)', icon: 'var(--color-primary-600)', text: 'var(--color-primary-700)' },
-    success: { bg: 'var(--color-success-bg)', icon: 'var(--color-success)', text: 'var(--color-success-fg)' },
-    warning: { bg: 'var(--color-warning-bg)', icon: 'var(--color-warning)', text: 'var(--color-warning-fg)' },
-    info:    { bg: 'var(--color-info-bg)', icon: 'var(--color-info)', text: 'var(--color-info-fg)' },
-  }
-  const colors = colorMap[color] || colorMap.primary
-
-  const sparkMin = Math.min(...sparkData)
-  const sparkMax = Math.max(...sparkData)
-  const normalize = (v: number) => ((v - sparkMin) / (sparkMax - sparkMin || 1)) * 28
-
-  return (
-    <div className={cn(
-      'relative rounded-[var(--radius-lg)] border border-[var(--color-border)]',
-      'bg-[var(--color-card)] p-5 shadow-[var(--shadow-sm)]',
-      'hover:shadow-[var(--shadow-md)] transition-shadow duration-200 overflow-hidden'
-    )}>
-      {/* Background accent */}
-      <div
-        className="absolute inset-0 opacity-[0.03]"
-        style={{ background: `radial-gradient(circle at top right, ${colors.icon}, transparent 70%)` }}
-      />
-
-      <div className="relative">
-        {/* Top row */}
-        <div className="flex items-start justify-between mb-4">
-          <div
-            className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)]"
-            style={{ backgroundColor: colors.bg }}
-          >
-            <Icon className="w-4.5 h-4.5" style={{ color: colors.icon, width: '18px', height: '18px' }} />
-          </div>
-
-          {/* Sparkline */}
-          <svg width="64" height="28" viewBox="0 0 64 28" className="opacity-60">
-            <polyline
-              points={sparkData.map((v, i) => `${(i / (sparkData.length - 1)) * 64},${28 - normalize(v)}`).join(' ')}
-              fill="none"
-              stroke={colors.icon}
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-
-        {/* Value */}
-        <div className="mb-1">
-          <p className="text-[11px] font-medium text-[var(--color-text-muted)] mb-1 uppercase tracking-wider">
-            {label}
-          </p>
-          <p className={cn(
-            'text-[28px] font-700 text-[var(--color-text-heading)] leading-none font-bold',
-            isAmount && 'font-mono tabular-nums'
-          )}>
-            {isAmount ? formatCompactINR(value) : value.toLocaleString('en-IN')}
-          </p>
-        </div>
-
-        {/* Change */}
-        <div className="flex items-center gap-1.5 mt-2">
-          <span className={cn(
-            'inline-flex items-center gap-0.5 text-[11px] font-semibold',
-            isPositive ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'
-          )}>
-            {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-            {isPositive ? '+' : ''}{change}%
-          </span>
-          <span className="text-[11px] text-[var(--color-text-muted)]">{changeLabel}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
+// ─── Subcomponents (not promoted - only used within this one section) ─────────
 
 function ClientStatusBadge({ status }: { status: string }) {
   const map: Record<string, { variant: 'success' | 'warning' | 'danger' | 'default'; label: string }> = {
-    active:  { variant: 'success', label: 'Active' },
+    active: { variant: 'success', label: 'Active' },
     pending: { variant: 'warning', label: 'Pending' },
-    overdue: { variant: 'danger',  label: 'Overdue' },
-    inactive:{ variant: 'default', label: 'Inactive' },
+    overdue: { variant: 'danger', label: 'Overdue' },
+    inactive: { variant: 'default', label: 'Inactive' },
   }
   const config = map[status] || map.inactive
   return <StatusBadge variant={config.variant} dot>{config.label}</StatusBadge>
-}
-
-function TaskStatusIcon({ status }: { status: string }) {
-  if (status === 'completed') return <CheckCircle2 className="w-4 h-4 text-[var(--color-success)]" />
-  if (status === 'in_progress') return <Clock className="w-4 h-4 text-[var(--color-info)]" />
-  if (status === 'overdue') return <AlertCircle className="w-4 h-4 text-[var(--color-danger)]" />
-  return <Clock className="w-4 h-4 text-[var(--color-text-muted)]" />
-}
-
-function PriorityBadge({ priority }: { priority: string }) {
-  const map: Record<string, 'danger' | 'warning' | 'default'> = {
-    high: 'danger', medium: 'warning', low: 'default',
-  }
-  return <StatusBadge variant={map[priority] || 'default'}>{priority}</StatusBadge>
-}
-
-function CardHeader({ title, action }: { title: string; action?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between mb-4">
-      <h3 className="text-[14px] font-semibold text-[var(--color-text-heading)]">{title}</h3>
-      {action}
-    </div>
-  )
-}
-
-function Card({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn(
-      'rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-card)]',
-      'shadow-[var(--shadow-sm)] p-5',
-      className
-    )}>
-      {children}
-    </div>
-  )
-}
-
-const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; color: string }>; label?: string }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className={cn(
-        'rounded-[var(--radius-md)] border border-[var(--color-border)]',
-        'bg-[var(--color-card)] shadow-[var(--shadow-lg)] p-3 text-[12px]'
-      )}>
-        <p className="font-semibold text-[var(--color-text-heading)] mb-1">{label}</p>
-        {payload.map((entry) => (
-          <p key={entry.name} className="text-[var(--color-text-secondary)]">
-            <span style={{ color: entry.color }}>●</span>{' '}
-            {entry.name}: <span className="font-mono font-medium text-[var(--color-text-body)]">
-              {formatINR(entry.value, 0)}
-            </span>
-          </p>
-        ))}
-      </div>
-    )
-  }
-  return null
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -313,128 +152,45 @@ export function DashboardPage() {
       />
 
       {/* Alert Banner */}
-      <div className={cn(
-        'flex items-center gap-3 p-3.5 rounded-[var(--radius-md)]',
-        'border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)]'
-      )}>
-        <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0" />
-        <p className="text-[12px] text-[var(--color-danger-fg)]">
-          <span className="font-semibold">Action required:</span> 12 GSTR-1 filings are due today (15 July 2025). Clients: Apex Manufacturing, Sharma & Sons, and 10 more.
-        </p>
-        <button className="ml-auto text-[11px] font-semibold text-[var(--color-danger)] hover:underline shrink-0">
-          View All →
-        </button>
-      </div>
+      <AlertBanner
+        variant="danger"
+        message={
+          <>
+            <span className="font-semibold">Action required:</span> 12 GSTR-1 filings are due today (15 July 2025). Clients: Apex Manufacturing, Sharma & Sons, and 10 more.
+          </>
+        }
+        action={
+          <button className="text-[11px] font-semibold text-[var(--color-danger)] hover:underline shrink-0">
+            View All →
+          </button>
+        }
+      />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {KPI_CARDS.map((card) => (
-          <KpiCard key={card.label} {...card} />
+          <KPICard key={card.label} {...card} />
         ))}
       </div>
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Revenue Chart — 2/3 width */}
-        <Card className="lg:col-span-2">
-          <CardHeader
-            title="Revenue vs Collections"
-            action={
-              <div className="flex items-center gap-3 text-[11px] text-[var(--color-text-muted)]">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-[var(--color-primary-500)]" /> Revenue
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-[var(--color-success)]" /> Collections
-                </span>
-              </div>
-            }
-          />
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={REVENUE_DATA} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-              <defs>
-                <linearGradient id="revenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366F1" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#6366F1" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="collections" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v/100000).toFixed(0)}L`} />
-              <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#6366F1" strokeWidth={2} fill="url(#revenue)" />
-              <Area type="monotone" dataKey="collections" name="Collections" stroke="#10B981" strokeWidth={2} fill="url(#collections)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-
-        {/* GST Status — 1/3 width */}
-        <Card>
-          <CardHeader title="GST Filing Status" action={
-            <span className="text-[11px] text-[var(--color-text-muted)]">Jul 2025</span>
-          } />
-          <div className="space-y-3">
-            {GST_STATUS_DATA.map((item) => {
-              const total = GST_STATUS_DATA.reduce((s, d) => s + d.value, 0)
-              const pct = Math.round((item.value / total) * 100)
-              return (
-                <div key={item.name}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="flex items-center gap-2 text-[12px] text-[var(--color-text-secondary)]">
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
-                      {item.name}
-                    </span>
-                    <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--color-text-heading)]">
-                      <span className="font-mono">{item.value}</span>
-                      <span className="text-[10px] font-normal text-[var(--color-text-muted)] bg-[var(--color-surface)] px-1 py-0.5 rounded-[var(--radius-xs)]">{pct}%</span>
-                    </div>
-                  </div>
-                  <Progress value={pct} color={item.color} height={6} />
-                </div>
-              )
-            })}
-          </div>
-
-          <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
-            <ResponsiveContainer width="100%" height={100}>
-              <BarChart data={GST_STATUS_DATA} margin={{ top: 0, right: 0, left: -30, bottom: 0 }}>
-                <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  formatter={(value) => [value, 'Clients']}
-                  contentStyle={{
-                    background: 'var(--color-card)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                  }}
-                />
-                <Bar dataKey="value" radius={[3, 3, 0, 0]}>
-                  {GST_STATUS_DATA.map((entry) => (
-                    <Cell key={entry.name} fill={entry.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+        <RevenueChart data={REVENUE_DATA} className="lg:col-span-2" />
+        <GSTStatusCard data={GST_STATUS_DATA} period="Jul 2025" />
       </div>
 
       {/* Bottom Row: Clients Table + Tasks + Deadlines */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* Recent Clients — 2/3 */}
-        <Card className="xl:col-span-2">
-          <CardHeader
-            title="Recent Clients"
-            action={
-              <a href="/clients" className="text-[12px] font-medium text-[var(--color-text-link)] hover:underline flex items-center gap-1">
-                View all <ArrowUpRight className="w-3 h-3" />
-              </a>
-            }
-          />
+        <ChartCard
+          title="Recent Clients"
+          action={
+            <a href="/clients" className="text-[12px] font-medium text-[var(--color-text-link)] hover:underline flex items-center gap-1">
+              View all <ArrowUpRight className="w-3 h-3" />
+            </a>
+          }
+          className="xl:col-span-2"
+        >
           <div className="overflow-x-auto">
             <table className="w-full text-[12px]">
               <thead>
@@ -514,62 +270,14 @@ export function DashboardPage() {
               </tbody>
             </table>
           </div>
-        </Card>
+        </ChartCard>
 
         {/* Right column: Tasks + Deadlines */}
         <div className="space-y-4">
-          {/* My Tasks */}
-          <Card>
-            <CardHeader
-              title="My Tasks"
-              action={
-                <span className="text-[11px] text-[var(--color-text-muted)]">
-                  5 pending
-                </span>
-              }
-            />
-            <div className="space-y-2">
-              {RECENT_TASKS.map((task) => (
-                <div
-                  key={task.id}
-                  className={cn(
-                    'flex items-start gap-2.5 p-2.5 rounded-[var(--radius-md)]',
-                    'hover:bg-[var(--color-hover)] transition-colors cursor-default',
-                    task.status === 'overdue' && 'border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)]'
-                  )}
-                >
-                  <TaskStatusIcon status={task.status} />
-                  <div className="flex-1 min-w-0">
-                    <p className={cn(
-                      'text-[12px] font-medium leading-tight truncate',
-                      task.status === 'completed' ? 'text-[var(--color-text-muted)] line-through' : 'text-[var(--color-text-body)]'
-                    )}>
-                      {task.title}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] text-[var(--color-text-muted)]">{task.client}</span>
-                      <span className="text-[var(--color-border-strong)]">·</span>
-                      <span className={cn(
-                        'flex items-center gap-0.5 text-[10px]',
-                        task.status === 'overdue' ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-muted)]'
-                      )}>
-                        <Calendar className="w-2.5 h-2.5" />
-                        {formatDate(task.due)}
-                      </span>
-                    </div>
-                  </div>
-                  <PriorityBadge priority={task.priority} />
-                </div>
-              ))}
-            </div>
-          </Card>
+          <RecentTasksWidget tasks={RECENT_TASKS} pendingCount={5} />
 
           {/* Upcoming Deadlines */}
-          <Card>
-            <CardHeader
-              title="Upcoming Deadlines"
-              action={<Activity className="w-4 h-4 text-[var(--color-text-muted)]" />}
-            />
+          <ChartCard title="Upcoming Deadlines" action={<Activity className="w-4 h-4 text-[var(--color-text-muted)]" />}>
             <div className="space-y-2.5">
               {UPCOMING_DEADLINES.map((d) => {
                 const sev = d.severity as 'danger' | 'warning' | 'info'
@@ -597,12 +305,12 @@ export function DashboardPage() {
                 )
               })}
             </div>
-          </Card>
+          </ChartCard>
         </div>
       </div>
 
       {/* Quick Actions Footer */}
-      <Card className="p-4">
+      <Card padding="sm">
         <div className="flex items-center gap-2 mb-3">
           <Zap className="w-4 h-4 text-[var(--color-warning)]" />
           <h3 className="text-[13px] font-semibold text-[var(--color-text-heading)]">Quick Actions</h3>
