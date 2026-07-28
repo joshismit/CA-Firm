@@ -15,6 +15,7 @@ import { projectRoutes } from '@modules/projects';
 import { taskRoutes } from '@modules/tasks';
 import { businessRoutes } from '@modules/business';
 import { contactRoutes } from '@modules/contacts';
+import { crmRoutes } from '@modules/crm';
 
 const app: Application = express();
 
@@ -45,6 +46,7 @@ app.use(`${API.PREFIX}/projects`, projectRoutes);
 app.use(`${API.PREFIX}/tasks`, taskRoutes);
 app.use(`${API.PREFIX}/business`, businessRoutes);
 app.use(`${API.PREFIX}/contacts`, contactRoutes);
+app.use(`${API.PREFIX}/crm`, crmRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

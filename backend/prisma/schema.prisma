@@ -444,6 +444,7 @@ model User {
   authoredNotes         LeadNote[]              @relation("NoteAuthor")
   assignedLeads         LeadAssignment[]        @relation("LeadAssignedUser")
   leadConversions       LeadConversion[]        @relation("LeadConvertedBy")
+  deletedLeads          Lead[]                  @relation("LeadDeletedBy")
 
   // ── Relations: Projects ───────────────────────────────────────────────
   createdProjects       Project[]               @relation("ProjectCreatedBy")
@@ -1170,12 +1171,15 @@ model Lead {
   
   createdAt        DateTime   @default(now()) @db.Timestamptz @map("created_at")
   updatedAt        DateTime   @updatedAt      @db.Timestamptz @map("updated_at")
+  deletedAt        DateTime?                 @db.Timestamptz @map("deleted_at")
+  deletedBy        String?    @db.Uuid @map("deleted_by")
 
   business         Business?  @relation(fields: [businessId], references: [id], onDelete: SetNull)
   contact          Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
   source           LeadSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
   stage            LeadStage  @relation(fields: [stageId], references: [id], onDelete: Restrict)
-  
+  deletedByUser    User?      @relation("LeadDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
   activities       LeadActivity[]
   notes            LeadNote[]
   assignments      LeadAssignment[]
@@ -1183,6 +1187,7 @@ model Lead {
 
   @@index([tenantId, stageId])
   @@index([tenantId, expectedCloseDate])
+  @@index([tenantId, deletedAt])
   @@map("leads")
 }
 

@@ -179,6 +179,53 @@ const CONTACT_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   },
 ];
 
+const CRM_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.CREATE,
+    dbAction: PrismaPermissionAction.CREATE,
+    name: 'Create Leads',
+    description: 'Create new CRM leads.',
+  },
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Leads',
+    description: 'View lead details and lists, and the lead stage catalog.',
+  },
+  {
+    action: PermissionAction.UPDATE,
+    dbAction: PrismaPermissionAction.UPDATE,
+    name: 'Update Leads',
+    description: 'Edit lead details.',
+  },
+  {
+    action: PermissionAction.DELETE,
+    dbAction: PrismaPermissionAction.DELETE,
+    name: 'Delete Leads',
+    description: 'Soft-delete leads.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Leads',
+    description: 'Full control over leads, including converting a lead into a client.',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.APPROVE,
+    dbAction: PrismaPermissionAction.APPROVE,
+    name: 'Approve Leads',
+    description: 'Approve lead-level actions requiring sign-off.',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.EXPORT,
+    dbAction: PrismaPermissionAction.EXPORT,
+    name: 'Export Leads',
+    description: 'Export lead lists and reports.',
+  },
+];
+
 const TASK_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   {
     action: PermissionAction.CREATE,
@@ -262,7 +309,7 @@ async function upsertResourcePermissions(
 }
 
 /**
- * Seeds all `Permission` records for the Projects, Tasks, Business, and Contacts modules.
+ * Seeds all `Permission` records for the Projects, Tasks, Business, Contacts, and CRM modules.
  * Idempotent — re-running upserts on the unique `code` column instead of
  * inserting duplicates. Does not touch `Role`, `PermissionGroup`, or
  * `RolePermission` — role/grant seeding is explicitly out of scope here.
@@ -276,4 +323,5 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
   await upsertResourcePermissions(prisma, PermissionResource.TASKS, TASK_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.BUSINESS, BUSINESS_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.CONTACTS, CONTACT_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.CRM, CRM_PERMISSION_DEFINITIONS);
 }
