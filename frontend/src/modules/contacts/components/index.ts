@@ -1,2 +1,12 @@
 // contacts feature-specific components - not reused outside this module. Promote to src/components if reuse emerges.
-export {};
+
+export * from './ContactStatusBadge'
+export * from './ContactTableColumns'
+export * from './ContactFilters'
+export * from './ContactForm'
+export * from './ContactQuickActions'
+export * from './ContactHeader'
+export * from './ContactOverviewCard'
+export * from './ContactInformationCard'
+export * from './ContactBusinessCard'
+export * from './ContactTimelineCard'

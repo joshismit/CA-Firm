@@ -13,6 +13,8 @@ import { env } from '@config/environment';
 import { swaggerSpec } from '@config/swagger';
 import { projectRoutes } from '@modules/projects';
 import { taskRoutes } from '@modules/tasks';
+import { businessRoutes } from '@modules/business';
+import { contactRoutes } from '@modules/contacts';
 
 const app: Application = express();
 
@@ -41,6 +43,8 @@ if (env.ENABLE_SWAGGER) {
 
 app.use(`${API.PREFIX}/projects`, projectRoutes);
 app.use(`${API.PREFIX}/tasks`, taskRoutes);
+app.use(`${API.PREFIX}/business`, businessRoutes);
+app.use(`${API.PREFIX}/contacts`, contactRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

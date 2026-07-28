@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { seedPermissions } from './permissions.seed';
+import { seedBusinessTypes } from './business-type.seed';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -23,6 +24,10 @@ async function main(): Promise<void> {
   console.log('Seeding permissions...');
   await seedPermissions(prisma);
   console.log('Permissions seeded successfully.');
+
+  console.log('Seeding business types...');
+  await seedBusinessTypes(prisma);
+  console.log('Business types seeded successfully.');
 }
 
 main()

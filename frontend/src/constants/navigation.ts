@@ -5,6 +5,9 @@ import {
   Users,
   UserPlus,
   Briefcase,
+  Landmark,
+  IdCard,
+  Handshake,
   FileText,
   Calculator,
   Receipt,
@@ -46,6 +49,9 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Clients',
     items: [
+      { label: 'Businesses', path: '/business', icon: Landmark },
+      { label: 'Contacts', path: '/contacts', icon: IdCard },
+      { label: 'CRM', path: '/crm', icon: Handshake },
       { label: 'All Clients', path: '/clients', icon: Users },
       { label: 'Add Client', path: '/clients/new', icon: UserPlus },
       { label: 'Projects', path: '/projects', icon: Briefcase },

@@ -85,6 +85,100 @@ const PROJECT_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   },
 ];
 
+const BUSINESS_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.CREATE,
+    dbAction: PrismaPermissionAction.CREATE,
+    name: 'Create Businesses',
+    description: 'Create new businesses (client entities).',
+  },
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Businesses',
+    description: 'View business details and lists, and the business type catalog.',
+  },
+  {
+    action: PermissionAction.UPDATE,
+    dbAction: PrismaPermissionAction.UPDATE,
+    name: 'Update Businesses',
+    description: 'Edit business details.',
+  },
+  {
+    action: PermissionAction.DELETE,
+    dbAction: PrismaPermissionAction.DELETE,
+    name: 'Delete Businesses',
+    description: 'Soft-delete businesses.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Businesses',
+    description: 'Full control over businesses.',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.APPROVE,
+    dbAction: PrismaPermissionAction.APPROVE,
+    name: 'Approve Businesses',
+    description: 'Approve business-level actions requiring sign-off.',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.EXPORT,
+    dbAction: PrismaPermissionAction.EXPORT,
+    name: 'Export Businesses',
+    description: 'Export business lists and reports.',
+  },
+];
+
+const CONTACT_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.CREATE,
+    dbAction: PrismaPermissionAction.CREATE,
+    name: 'Create Contacts',
+    description: 'Create new contacts (people).',
+  },
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Contacts',
+    description: 'View contact details and lists, and their business role assignments.',
+  },
+  {
+    action: PermissionAction.UPDATE,
+    dbAction: PrismaPermissionAction.UPDATE,
+    name: 'Update Contacts',
+    description: 'Edit contact details and assign contacts to businesses with a role.',
+  },
+  {
+    action: PermissionAction.DELETE,
+    dbAction: PrismaPermissionAction.DELETE,
+    name: 'Delete Contacts',
+    description: 'Soft-delete contacts.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Contacts',
+    description: 'Full control over contacts.',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.APPROVE,
+    dbAction: PrismaPermissionAction.APPROVE,
+    name: 'Approve Contacts',
+    description: 'Approve contact-level actions requiring sign-off.',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.EXPORT,
+    dbAction: PrismaPermissionAction.EXPORT,
+    name: 'Export Contacts',
+    description: 'Export contact lists and reports.',
+  },
+];
+
 const TASK_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   {
     action: PermissionAction.CREATE,
@@ -168,7 +262,7 @@ async function upsertResourcePermissions(
 }
 
 /**
- * Seeds all `Permission` records for the Projects and Tasks modules.
+ * Seeds all `Permission` records for the Projects, Tasks, Business, and Contacts modules.
  * Idempotent — re-running upserts on the unique `code` column instead of
  * inserting duplicates. Does not touch `Role`, `PermissionGroup`, or
  * `RolePermission` — role/grant seeding is explicitly out of scope here.
@@ -180,4 +274,6 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
     PROJECT_PERMISSION_DEFINITIONS,
   );
   await upsertResourcePermissions(prisma, PermissionResource.TASKS, TASK_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.BUSINESS, BUSINESS_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.CONTACTS, CONTACT_PERMISSION_DEFINITIONS);
 }
