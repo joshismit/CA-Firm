@@ -9,6 +9,8 @@ import {
   ContactOverviewCard,
   ContactInformationCard,
   ContactBusinessCard,
+  ContactDocumentsCard,
+  ContactCrmCard,
   ContactTimelineCard,
 } from '../components'
 
@@ -46,6 +48,8 @@ export function ContactDetailPage() {
             <ContactOverviewCard contact={contact} />
             <ContactInformationCard contact={contact} />
             <ContactBusinessCard contactId={contact.id} />
+            <ContactDocumentsCard contactId={contact.id} />
+            <ContactCrmCard contactId={contact.id} />
           </div>
           <div className="space-y-4">
             <ContactTimelineCard contact={contact} />

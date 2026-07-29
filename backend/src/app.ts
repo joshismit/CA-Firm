@@ -11,11 +11,13 @@ import { ApiResponseHelper } from '@shared/response/api-response';
 import { API } from '@shared/constants';
 import { env } from '@config/environment';
 import { swaggerSpec } from '@config/swagger';
+import { authRoutes } from '@modules/auth';
 import { projectRoutes } from '@modules/projects';
 import { taskRoutes } from '@modules/tasks';
 import { businessRoutes } from '@modules/business';
 import { contactRoutes } from '@modules/contacts';
 import { crmRoutes } from '@modules/crm';
+import { documentRoutes } from '@modules/documents';
 
 const app: Application = express();
 
@@ -42,11 +44,13 @@ if (env.ENABLE_SWAGGER) {
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 }
 
+app.use(`${API.PREFIX}/auth`, authRoutes);
 app.use(`${API.PREFIX}/projects`, projectRoutes);
 app.use(`${API.PREFIX}/tasks`, taskRoutes);
 app.use(`${API.PREFIX}/business`, businessRoutes);
 app.use(`${API.PREFIX}/contacts`, contactRoutes);
 app.use(`${API.PREFIX}/crm`, crmRoutes);
+app.use(`${API.PREFIX}/documents`, documentRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

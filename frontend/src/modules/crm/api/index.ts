@@ -1,11 +1,10 @@
 // crm API request functions, built on the shared Axios instance from src/services/axios.ts.
-//
-// NOT YET AVAILABLE: backend/src/modules has no `crm` module. Every function below is a typed
-// placeholder - wire the real apiClient call once the backend implements it. No mock data, no
-// guessed endpoint path.
+// Hits the real backend at ${env.apiBaseUrl}/crm (backend/src/modules/crm/routes/lead.routes.ts) -
+// mirrors modules/business/api/index.ts and modules/contacts/api/index.ts now that the CRM backend
+// module exists.
 
-import type { ApiError } from '@/services/api-error'
-import type { PaginatedResponse } from '@/types/api.types'
+import { apiClient } from '@/services/axios'
+import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type {
   ConvertLeadPayload,
   CreateLeadPayload,
@@ -15,40 +14,43 @@ import type {
   UpdateLeadPayload,
 } from '../types'
 
-function notImplemented(action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `CRM API is not available yet (${action}).`,
-  } satisfies ApiError
+export async function listLeads(filters: LeadListFilters): Promise<PaginatedResponse<Lead>> {
+  const { data } = await apiClient.get<PaginatedResponse<Lead>>('/crm', { params: filters })
+  return data
 }
 
-// TODO: GET /api/v1/crm/leads
-export async function listLeads(_filters: LeadListFilters): Promise<PaginatedResponse<Lead>> {
-  return notImplemented('listLeads')
+export async function getLead(id: string): Promise<Lead> {
+  const { data } = await apiClient.get<ApiResponse<Lead>>(`/crm/${id}`)
+  return data.data
 }
 
-// TODO: GET /api/v1/crm/leads/:id
-export async function getLead(_id: string): Promise<Lead> {
-  return notImplemented('getLead')
-}
-
-// TODO: GET /api/v1/crm/lead-stages
 export async function listLeadStages(): Promise<LeadStage[]> {
-  return notImplemented('listLeadStages')
+  const { data } = await apiClient.get<ApiResponse<LeadStage[]>>('/crm/stages')
+  return data.data
 }
 
-// TODO: POST /api/v1/crm/leads
-export async function createLead(_payload: CreateLeadPayload): Promise<Lead> {
-  return notImplemented('createLead')
+export async function createLead(payload: CreateLeadPayload): Promise<Lead> {
+  const { data } = await apiClient.post<ApiResponse<Lead>>('/crm', payload)
+  return data.data
 }
 
-// TODO: PATCH /api/v1/crm/leads/:id
-export async function updateLead(_id: string, _payload: UpdateLeadPayload): Promise<Lead> {
-  return notImplemented('updateLead')
+export async function updateLead(id: string, payload: UpdateLeadPayload): Promise<Lead> {
+  const { data } = await apiClient.patch<ApiResponse<Lead>>(`/crm/${id}`, payload)
+  return data.data
 }
 
-// TODO: POST /api/v1/crm/leads/:id/convert
-export async function convertLead(_payload: ConvertLeadPayload): Promise<Lead> {
-  return notImplemented('convertLead')
+export async function deleteLead(id: string): Promise<void> {
+  await apiClient.delete(`/crm/${id}`)
+}
+
+/**
+ * `leadId` addresses the URL (`POST /crm/:id/convert`) - only `notes` travels in the body, matching
+ * backend/src/modules/crm/schemas/lead.schema.ts's `convertLeadSchema`. `ConvertLeadPayload` bundles
+ * both for the caller's convenience; that's a client-side shape only.
+ */
+export async function convertLead(payload: ConvertLeadPayload): Promise<Lead> {
+  const { data } = await apiClient.post<ApiResponse<Lead>>(`/crm/${payload.leadId}/convert`, {
+    notes: payload.notes,
+  })
+  return data.data
 }

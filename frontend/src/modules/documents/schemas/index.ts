@@ -14,3 +14,8 @@ export const uploadDocumentSchema = z.object({
 })
 
 export type UploadDocumentFormValues = z.infer<typeof uploadDocumentSchema>
+
+/** Metadata-only edit form - same fields as upload, minus `file` (no update endpoint replaces the file itself). */
+export const updateDocumentSchema = uploadDocumentSchema.omit({ file: true })
+
+export type UpdateDocumentFormValues = z.infer<typeof updateDocumentSchema>

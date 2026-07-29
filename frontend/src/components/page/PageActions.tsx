@@ -10,5 +10,5 @@ export interface PageActionsProps {
 }
 
 export function PageActions({ children, className }: PageActionsProps) {
-  return <div className={cn('flex items-center gap-2 shrink-0', className)}>{children}</div>
+  return <div className={cn('flex items-center gap-2 flex-wrap shrink-0', className)}>{children}</div>
 }

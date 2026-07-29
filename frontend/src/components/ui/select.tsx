@@ -15,13 +15,16 @@ export interface SelectProps {
   placeholder?: string
   disabled?: boolean
   className?: string
+  /** Accessible name for triggers with no visible adjacent label (e.g. an inline table/card control). */
+  'aria-label'?: string
 }
 
 /** Simple styled dropdown select. Trigger matches Input's visual weight. */
-export function Select({ value, onChange, options, placeholder = 'Select…', disabled, className }: SelectProps) {
+export function Select({ value, onChange, options, placeholder = 'Select…', disabled, className, 'aria-label': ariaLabel }: SelectProps) {
   return (
     <SelectPrimitive.Root value={value} onValueChange={onChange} disabled={disabled}>
       <SelectPrimitive.Trigger
+        aria-label={ariaLabel}
         className={cn(
           'flex h-10 w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)]',
           'bg-[var(--color-card)] px-3 text-[13px] text-[var(--color-text-body)] outline-none transition-colors',

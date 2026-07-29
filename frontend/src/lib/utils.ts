@@ -98,6 +98,19 @@ export function truncate(str: string, length = 40): string {
   return str.length > length ? str.slice(0, length) + '…' : str
 }
 
+/** Formats a byte count as a human-readable size (B/KB/MB/GB) - shared by Documents and the generic upload components. */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unitIndex]}`
+}
+
 /**
  * Check if a value is empty (null, undefined, empty string, empty array)
  */

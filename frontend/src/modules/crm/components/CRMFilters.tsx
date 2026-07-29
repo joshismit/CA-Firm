@@ -1,11 +1,10 @@
 // src/modules/crm/components/CRMFilters.tsx
 // Filter controls for the CRM (Leads) list - rendered inside DataTable's toolbarFilters slot.
-// Stage filter is a real Select backed by useLeadStagesQuery() (the hook exists in the locked
-// architecture) - it degrades to a disabled placeholder while that query is loading/erroring
-// (currently always NOT_IMPLEMENTED) rather than rendering a broken empty dropdown. Source filter
-// has no equivalent listLeadSources hook anywhere in the locked api/hooks layer, so - same
-// placeholder-until-a-picker-exists pattern as Business's typeId / Contacts' businessId - it's a
-// raw UUID input, not invented Select options.
+// Stage filter is a real Select backed by useLeadStagesQuery() (GET /crm/stages) - it degrades to
+// a disabled placeholder only while that query is loading/erroring, rather than rendering a broken
+// empty dropdown. Source filter has no equivalent listLeadSources hook - the backend never added a
+// GET /crm/lead-sources endpoint, so - same placeholder-until-a-picker-exists pattern as Business's
+// typeId / Contacts' businessId - it's a raw UUID input, not invented Select options.
 import { Select } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import type { LeadStage } from '../types'

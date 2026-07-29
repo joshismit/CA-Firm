@@ -1,10 +1,9 @@
 // src/modules/crm/components/CRMQuickActions.tsx
-// Unlike Business/Contacts, the locked crm/api and crm/hooks layers have no deleteLead function at
-// all (only listLeads/getLead/listLeadStages/createLead/updateLead/convertLead exist) - so there is
-// no Delete action here, rather than inventing a delete endpoint that isn't part of the architecture.
-// Edit and Convert both gate on PERMISSIONS.CRM_UPDATE - CRM's permission registry does define
-// CRM_UPDATE (unlike Business/Contacts, which had no *_UPDATE and had to reuse a stand-in), so no
-// permission substitution was needed here.
+// A real deleteLead()/useDeleteLeadMutation() now exist (DELETE /crm/:id), but no Delete button is
+// added here deliberately - this phase's brief is backend wiring only, with instructions not to add
+// new UI surfaces that didn't already exist. Edit and Convert both gate on PERMISSIONS.CRM_UPDATE -
+// CRM's permission registry does define CRM_UPDATE (unlike Business/Contacts, which had no
+// *_UPDATE and had to reuse a stand-in), so no permission substitution was needed here.
 import { Pencil, ArrowRightCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'

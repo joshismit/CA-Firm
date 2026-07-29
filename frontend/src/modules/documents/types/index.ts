@@ -1,8 +1,6 @@
 // TypeScript types and interfaces scoped to documents.
-// PROVISIONAL: unlike Business/Contacts/CRM, there is no Prisma model for documents at all yet
-// (confirmed against backend/prisma/schema.prisma) - these shapes are inferred from the PRD's
-// document-vault description (categories, versioning, secure storage naming) and will need
-// revisiting once the backend actually designs this module.
+// Field shapes matched (field-for-field) against backend/src/modules/documents/dto/document.res.dto.ts
+// once the Documents Prisma model and backend module were designed and shipped.
 
 export type DocumentCategory =
   | 'PAN'
@@ -47,4 +45,16 @@ export interface UploadDocumentPayload {
   contactId?: string
   category: DocumentCategory
   file: File
+}
+
+/** Metadata-only update - matches backend's updateDocumentSchema (no file replacement). */
+export interface UpdateDocumentPayload {
+  businessId?: string | null
+  contactId?: string | null
+  category?: DocumentCategory
+}
+
+export interface DocumentDownloadUrl {
+  url: string
+  expiresInSeconds: number
 }

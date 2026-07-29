@@ -2,7 +2,9 @@
 // System/technical fields - deliberately not repeated from DocumentOverviewCard (which covers the
 // user-facing category/size/version/uploaded fields). storageKey is shown as an opaque internal
 // reference, never as a download link (PRD 7.3: internal storage uses unique IDs, not the original
-// filename) - no download endpoint exists in the locked architecture to link to anyway.
+// filename) - a real GET /documents/:id/download now exists (see useDownloadDocumentMutation), but
+// this phase intentionally added no new download button anywhere in the UI (see the module's
+// integration notes); storageKey itself was never meant to be a clickable link regardless.
 import { Card, CardHeader } from '@/components/shared/Card/Card'
 import type { DocumentFile } from '../types'
 

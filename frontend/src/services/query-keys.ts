@@ -76,6 +76,7 @@ export const queryKeys = {
     list: (filters: DocumentListFilters) => [...queryKeys.documents.lists(), filters] as const,
     details: () => [...queryKeys.documents.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.documents.details(), id] as const,
+    downloadUrl: (id: string) => [...queryKeys.documents.all, 'download-url', id] as const,
   },
   billing: {
     subscription: ['billing', 'subscription'] as const,

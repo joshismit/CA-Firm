@@ -7,6 +7,7 @@ import { useDocumentQuery } from '../hooks'
 import {
   DocumentHeader,
   DocumentOverviewCard,
+  DocumentPreviewCard,
   DocumentBusinessCard,
   DocumentMetadataCard,
   DocumentVersionCard,
@@ -44,6 +45,7 @@ export function DocumentDetailPage() {
       <PageContent>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-4">
+            <DocumentPreviewCard document={document} />
             <DocumentOverviewCard document={document} />
             <DocumentBusinessCard businessId={document.businessId} />
             <DocumentMetadataCard document={document} />

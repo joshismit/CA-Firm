@@ -66,9 +66,9 @@ export function CRMForm({ mode, lead, onSubmit, isSubmitting = false, submitErro
       : undefined,
   })
 
-  // Once the (currently NOT_IMPLEMENTED) stages endpoint starts returning data, an edit-mode form
-  // opened before that load finishes should still show the lead's real stageId in the fallback
-  // input - this just keeps the field's registered value in sync, it doesn't change validation.
+  // An edit-mode form opened before the real GET /crm/stages load finishes should still show the
+  // lead's real stageId in the fallback input - this just keeps the field's registered value in
+  // sync, it doesn't change validation.
   useEffect(() => {
     if (lead?.stageId) setValue('stageId', lead.stageId)
   }, [lead?.stageId, setValue])

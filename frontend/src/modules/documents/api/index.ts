@@ -1,38 +1,69 @@
 // documents API request functions, built on the shared Axios instance from src/services/axios.ts.
-//
-// NOT YET AVAILABLE: there is no Documents Prisma model or backend module at all yet (unlike
-// Business/Contacts/CRM, which at least have schema). Every function below is a typed
-// placeholder - wire the real apiClient call (including multipart upload handling) once the
-// backend designs and implements this module. No mock data, no guessed endpoint path.
+// Hits the real backend at ${env.apiBaseUrl}/documents
+// (backend/src/modules/documents/routes/document.routes.ts) - mirrors modules/business/api/index.ts
+// now that the Documents backend module exists.
 
-import type { ApiError } from '@/services/api-error'
-import type { PaginatedResponse } from '@/types/api.types'
-import type { DocumentFile, DocumentListFilters, UploadDocumentPayload } from '../types'
+import { apiClient } from '@/services/axios'
+import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
+import type {
+  DocumentDownloadUrl,
+  DocumentFile,
+  DocumentListFilters,
+  UpdateDocumentPayload,
+  UploadDocumentPayload,
+} from '../types'
 
-function notImplemented(action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `Documents API is not available yet (${action}).`,
-  } satisfies ApiError
+export async function listDocuments(filters: DocumentListFilters): Promise<PaginatedResponse<DocumentFile>> {
+  const { data } = await apiClient.get<PaginatedResponse<DocumentFile>>('/documents', { params: filters })
+  return data
 }
 
-// TODO: GET /api/v1/documents
-export async function listDocuments(_filters: DocumentListFilters): Promise<PaginatedResponse<DocumentFile>> {
-  return notImplemented('listDocuments')
+export async function getDocument(id: string): Promise<DocumentFile> {
+  const { data } = await apiClient.get<ApiResponse<DocumentFile>>(`/documents/${id}`)
+  return data.data
 }
 
-// TODO: GET /api/v1/documents/:id
-export async function getDocument(_id: string): Promise<DocumentFile> {
-  return notImplemented('getDocument')
+/**
+ * `multipart/form-data` - `apiClient`'s default Axios instance sets no Content-Type of its own, so
+ * passing a `FormData` body lets Axios/the browser attach the correct
+ * `multipart/form-data; boundary=...` header automatically. Only appends fields the user actually
+ * provided - never sends a `businessId`/`contactId` key at all when absent, rather than an
+ * `undefined` value multer/Zod would have to special-case.
+ *
+ * `onUploadProgress` is real Axios/XHR upload progress (bytes actually sent over the wire) - not a
+ * simulated/fake progress bar - so the upload-queue UI can show a genuine per-file percentage.
+ */
+export async function uploadDocument(
+  payload: UploadDocumentPayload,
+  onUploadProgress?: (percent: number) => void
+): Promise<DocumentFile> {
+  const formData = new FormData()
+  formData.append('file', payload.file)
+  formData.append('category', payload.category)
+  if (payload.businessId) formData.append('businessId', payload.businessId)
+  if (payload.contactId) formData.append('contactId', payload.contactId)
+
+  const { data } = await apiClient.post<ApiResponse<DocumentFile>>('/documents', formData, {
+    onUploadProgress: onUploadProgress
+      ? (event) => {
+          if (event.total) onUploadProgress(Math.round((event.loaded / event.total) * 100))
+        }
+      : undefined,
+  })
+  return data.data
 }
 
-// TODO: POST /api/v1/documents (multipart/form-data)
-export async function uploadDocument(_payload: UploadDocumentPayload): Promise<DocumentFile> {
-  return notImplemented('uploadDocument')
+export async function updateDocument(id: string, payload: UpdateDocumentPayload): Promise<DocumentFile> {
+  const { data } = await apiClient.patch<ApiResponse<DocumentFile>>(`/documents/${id}`, payload)
+  return data.data
 }
 
-// TODO: DELETE /api/v1/documents/:id
-export async function deleteDocument(_id: string): Promise<void> {
-  return notImplemented('deleteDocument')
+export async function deleteDocument(id: string): Promise<void> {
+  await apiClient.delete(`/documents/${id}`)
+}
+
+/** Presigned, time-limited GET URL - never proxies the file through this app's own server. */
+export async function getDocumentDownloadUrl(id: string): Promise<DocumentDownloadUrl> {
+  const { data } = await apiClient.get<ApiResponse<DocumentDownloadUrl>>(`/documents/${id}/download`)
+  return data.data
 }

@@ -1,6 +1,6 @@
 // =============================================================================
 // CA Firm ERP — Prisma Schema
-// Modules: Foundation + Business + Contacts + Clients + CRM
+// Modules: Foundation + Business + Contacts + Clients + CRM + Projects + Tasks + Documents
 // =============================================================================
 
 generator client {
@@ -24,6 +24,7 @@ enum TenantStatus {
   TRIAL
   SUSPENDED
   DEACTIVATED
+
   @@map("tenant_status")
 }
 
@@ -35,6 +36,7 @@ enum SubscriptionStatus {
   SUSPENDED
   CANCELLED
   EXPIRED
+
   @@map("subscription_status")
 }
 
@@ -45,6 +47,7 @@ enum UserStatus {
   INVITED
   SUSPENDED
   DELETED
+
   @@map("user_status")
 }
 
@@ -55,6 +58,7 @@ enum SessionDeviceType {
   MOBILE_ANDROID
   DESKTOP
   API_KEY
+
   @@map("session_device_type")
 }
 
@@ -69,6 +73,7 @@ enum SessionRevokeReason {
   SESSION_EXPIRED
   SUSPICIOUS_ACTIVITY
   DEVICE_REMOVED
+
   @@map("session_revoke_reason")
 }
 
@@ -78,6 +83,7 @@ enum OtpPurpose {
   PHONE_VERIFY
   TWO_FACTOR
   PASSWORD_RESET
+
   @@map("otp_purpose")
 }
 
@@ -89,6 +95,7 @@ enum RefreshTokenRevokeReason {
   SESSION_REVOKED
   ADMIN_REVOKE
   EXPIRED
+
   @@map("refresh_token_revoke_reason")
 }
 
@@ -98,6 +105,7 @@ enum InvitationStatus {
   ACCEPTED
   EXPIRED
   REVOKED
+
   @@map("invitation_status")
 }
 
@@ -112,6 +120,7 @@ enum PermissionAction {
   APPROVE
   ASSIGN
   MANAGE
+
   @@map("permission_action")
 }
 
@@ -129,6 +138,7 @@ enum LoginEventType {
   ACCOUNT_UNLOCKED
   SESSION_REVOKED
   EMAIL_CHANGED
+
   @@map("login_event_type")
 }
 
@@ -136,6 +146,7 @@ enum LoginEventType {
 enum LoginEventStatus {
   SUCCESS
   FAILURE
+
   @@map("login_event_status")
 }
 
@@ -143,6 +154,7 @@ enum LoginEventStatus {
 enum RoleType {
   SYSTEM
   CUSTOM
+
   @@map("role_type")
 }
 
@@ -151,6 +163,7 @@ enum SessionStatus {
   ACTIVE
   EXPIRED
   REVOKED
+
   @@map("session_status")
 }
 
@@ -159,6 +172,7 @@ enum OtpType {
   TOTP
   SMS
   EMAIL
+
   @@map("otp_type")
 }
 
@@ -168,6 +182,7 @@ enum ResourceAccessLevel {
   READ
   WRITE
   ADMIN
+
   @@map("resource_access_level")
 }
 
@@ -177,6 +192,7 @@ enum DomainSslStatus {
   PROVISIONED
   FAILED
   EXPIRING
+
   @@map("domain_ssl_status")
 }
 
@@ -186,6 +202,7 @@ enum BusinessStatus {
   DORMANT
   STRUCK_OFF
   DISSOLVED
+
   @@map("business_status")
 }
 
@@ -196,6 +213,7 @@ enum AddressType {
   FACTORY
   RESIDENTIAL
   OTHER
+
   @@map("address_type")
 }
 
@@ -210,6 +228,7 @@ enum ContactRoleType {
   CLIENT_REPRESENTATIVE
   EMERGENCY_CONTACT
   OTHER
+
   @@map("contact_role_type")
 }
 
@@ -218,6 +237,7 @@ enum ClientStatus {
   INACTIVE
   SUSPENDED
   FORMER
+
   @@map("client_status")
 }
 
@@ -227,9 +247,9 @@ enum ActivityType {
   EMAIL
   WHATSAPP
   SYSTEM_LOG
+
   @@map("activity_type")
 }
-
 
 // =============================================================================
 // SECTION 2 — TENANT MODULE
@@ -240,26 +260,26 @@ model Tenant {
   slug String @unique @db.VarChar(100)
   name String @db.VarChar(255)
 
-  country         String @default("IN")           @db.Char(2)      @map("country")
-  timezone        String @default("Asia/Kolkata")  @db.VarChar(100) @map("timezone")
-  locale          String @default("en-IN")         @db.VarChar(20)  @map("locale")
-  defaultCurrency String @default("INR")           @db.Char(3)      @map("default_currency")
+  country         String @default("IN") @map("country") @db.Char(2)
+  timezone        String @default("Asia/Kolkata") @map("timezone") @db.VarChar(100)
+  locale          String @default("en-IN") @map("locale") @db.VarChar(20)
+  defaultCurrency String @default("INR") @map("default_currency") @db.Char(3)
 
   status TenantStatus @default(TRIAL) @map("status")
 
   subscriptionStatus    SubscriptionStatus @default(TRIAL) @map("subscription_status")
-  subscriptionExpiresAt DateTime?          @db.Timestamptz @map("subscription_expires_at")
-  planCode              String?            @db.VarChar(50) @map("plan_code")
+  subscriptionExpiresAt DateTime?          @map("subscription_expires_at") @db.Timestamptz
+  planCode              String?            @map("plan_code") @db.VarChar(50)
   maxUsers              Int?               @map("max_users")
   maxClients            Int?               @map("max_clients")
   maxStorageGb          Int?               @map("max_storage_gb")
   maxDocuments          Int?               @map("max_documents")
 
-  onboardingCompletedAt DateTime? @db.Timestamptz @map("onboarding_completed_at")
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at") @db.Timestamptz
 
-  createdAt DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt DateTime?                 @db.Timestamptz @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
   settings     TenantSettings?
   branding     TenantBranding?
@@ -269,32 +289,32 @@ model Tenant {
   roles           Role[]
   userInvitations UserInvitation[]
 
-  @@index([status],            name: "idx_tenants_status")
+  @@index([status], name: "idx_tenants_status")
   @@index([subscriptionStatus], name: "idx_tenants_subscription_status")
-  @@index([planCode],          name: "idx_tenants_plan_code")
-  @@index([deletedAt],         name: "idx_tenants_soft_delete")
+  @@index([planCode], name: "idx_tenants_plan_code")
+  @@index([deletedAt], name: "idx_tenants_soft_delete")
   @@map("tenants")
 }
 
 model TenantSettings {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @unique @db.Uuid @map("tenant_id")
+  tenantId String @unique @map("tenant_id") @db.Uuid
 
-  timezone        String @default("Asia/Kolkata") @db.VarChar(100) @map("timezone")
-  dateFormat      String @default("DD/MM/YYYY")   @db.VarChar(30)  @map("date_format")
-  currency        String @default("INR")           @db.Char(3)      @map("currency")
-  fiscalYearStart Int    @default(4)                                @map("fiscal_year_start")
-  language        String @default("en")            @db.VarChar(10)  @map("language")
+  timezone        String @default("Asia/Kolkata") @map("timezone") @db.VarChar(100)
+  dateFormat      String @default("DD/MM/YYYY") @map("date_format") @db.VarChar(30)
+  currency        String @default("INR") @map("currency") @db.Char(3)
+  fiscalYearStart Int    @default(4) @map("fiscal_year_start")
+  language        String @default("en") @map("language") @db.VarChar(10)
 
-  maxLoginAttempts   Int @default(5)   @map("max_login_attempts")
+  maxLoginAttempts   Int @default(5) @map("max_login_attempts")
   sessionTimeoutMins Int @default(480) @map("session_timeout_mins")
 
   requireMfa               Boolean @default(false) @map("require_mfa")
-  requireEmailVerification Boolean @default(true)  @map("require_email_verification")
+  requireEmailVerification Boolean @default(true) @map("require_email_verification")
 
-  passwordMinLength     Int     @default(8)     @map("password_min_length")
-  passwordRequireUpper  Boolean @default(true)  @map("password_require_upper")
-  passwordRequireNumber Boolean @default(true)  @map("password_require_number")
+  passwordMinLength     Int     @default(8) @map("password_min_length")
+  passwordRequireUpper  Boolean @default(true) @map("password_require_upper")
+  passwordRequireNumber Boolean @default(true) @map("password_require_number")
   passwordRequireSymbol Boolean @default(false) @map("password_require_symbol")
   passwordExpiryDays    Int?    @map("password_expiry_days")
 
@@ -304,12 +324,12 @@ model TenantSettings {
   enableApiAccess    Boolean @default(false) @map("enable_api_access")
   enableOcr          Boolean @default(false) @map("enable_ocr")
 
-  defaultNotificationEmail String? @db.VarChar(255) @map("default_notification_email")
+  defaultNotificationEmail String? @map("default_notification_email") @db.VarChar(255)
 
-  extraSettings Json? @db.JsonB @map("extra_settings")
+  extraSettings Json? @map("extra_settings") @db.JsonB
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
@@ -318,32 +338,32 @@ model TenantSettings {
 
 model TenantBranding {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @unique @db.Uuid @map("tenant_id")
+  tenantId String @unique @map("tenant_id") @db.Uuid
 
-  firmName String? @db.VarChar(255) @map("firm_name")
+  firmName String? @map("firm_name") @db.VarChar(255)
 
-  logoStorageKey     String? @db.VarChar(500) @map("logo_storage_key")
-  logoDarkStorageKey String? @db.VarChar(500) @map("logo_dark_storage_key")
-  faviconStorageKey  String? @db.VarChar(500) @map("favicon_storage_key")
-  loginBgStorageKey  String? @db.VarChar(500) @map("login_bg_storage_key")
+  logoStorageKey     String? @map("logo_storage_key") @db.VarChar(500)
+  logoDarkStorageKey String? @map("logo_dark_storage_key") @db.VarChar(500)
+  faviconStorageKey  String? @map("favicon_storage_key") @db.VarChar(500)
+  loginBgStorageKey  String? @map("login_bg_storage_key") @db.VarChar(500)
 
-  primaryColor     String? @default("#1a73e8") @db.Char(7) @map("primary_color")
-  secondaryColor   String? @db.Char(7)                     @map("secondary_color")
-  accentColor      String? @db.Char(7)                     @map("accent_color")
-  backgroundColor  String? @db.Char(7)                     @map("background_color")
-  emailHeaderColor String? @db.Char(7)                     @map("email_header_color")
+  primaryColor     String? @default("#1a73e8") @map("primary_color") @db.Char(7)
+  secondaryColor   String? @map("secondary_color") @db.Char(7)
+  accentColor      String? @map("accent_color") @db.Char(7)
+  backgroundColor  String? @map("background_color") @db.Char(7)
+  emailHeaderColor String? @map("email_header_color") @db.Char(7)
 
-  fontFamily String? @default("Inter") @db.VarChar(100) @map("font_family")
-  customCss  String? @db.Text @map("custom_css")
+  fontFamily String? @default("Inter") @map("font_family") @db.VarChar(100)
+  customCss  String? @map("custom_css") @db.Text
 
-  emailFooterText String? @db.Text @map("email_footer_text")
+  emailFooterText String? @map("email_footer_text") @db.Text
 
-  footerText   String? @db.VarChar(500) @map("footer_text")
-  supportEmail String? @db.VarChar(255) @map("support_email")
-  supportPhone String? @db.VarChar(30)  @map("support_phone")
+  footerText   String? @map("footer_text") @db.VarChar(500)
+  supportEmail String? @map("support_email") @db.VarChar(255)
+  supportPhone String? @map("support_phone") @db.VarChar(30)
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
@@ -352,24 +372,24 @@ model TenantBranding {
 
 model TenantDomain {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @unique @db.Uuid @map("tenant_id")
+  tenantId String @unique @map("tenant_id") @db.Uuid
 
-  domain    String  @unique @db.VarChar(253) @map("domain")
-  subdomain String? @unique @db.VarChar(100) @map("subdomain")
+  domain    String  @unique @map("domain") @db.VarChar(253)
+  subdomain String? @unique @map("subdomain") @db.VarChar(100)
 
-  verificationToken String    @db.VarChar(255) @map("verification_token")
-  isVerified        Boolean   @default(false)  @map("is_verified")
-  verifiedAt        DateTime? @db.Timestamptz  @map("verified_at")
+  verificationToken String    @map("verification_token") @db.VarChar(255)
+  isVerified        Boolean   @default(false) @map("is_verified")
+  verifiedAt        DateTime? @map("verified_at") @db.Timestamptz
 
   sslStatus    DomainSslStatus @default(PENDING) @map("ssl_status")
-  sslExpiresAt DateTime?       @db.Timestamptz   @map("ssl_expires_at")
+  sslExpiresAt DateTime?       @map("ssl_expires_at") @db.Timestamptz
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
-  @@index([domain],    name: "idx_tenant_domains_domain")
+  @@index([domain], name: "idx_tenant_domains_domain")
   @@index([subdomain], name: "idx_tenant_domains_subdomain")
   @@index([isVerified, sslStatus], name: "idx_tenant_domains_ssl_status")
   @@map("tenant_domains")
@@ -381,34 +401,34 @@ model TenantDomain {
 
 model User {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
+  tenantId String @map("tenant_id") @db.Uuid
 
-  email        String @db.VarChar(255) @map("email")
-  passwordHash String? @db.Text        @map("password_hash")
-  firstName    String @db.VarChar(100) @map("first_name")
-  lastName     String @db.VarChar(100) @map("last_name")
-  phone        String? @db.VarChar(30) @map("phone")
+  email        String  @map("email") @db.VarChar(255)
+  passwordHash String? @map("password_hash") @db.Text
+  firstName    String  @map("first_name") @db.VarChar(100)
+  lastName     String  @map("last_name") @db.VarChar(100)
+  phone        String? @map("phone") @db.VarChar(30)
 
   status           UserStatus @default(INVITED) @map("status")
-  isOwner          Boolean    @default(false)   @map("is_owner")
-  failedLoginCount Int        @default(0)       @map("failed_login_count")
-  lockedUntil      DateTime?  @db.Timestamptz   @map("locked_until")
+  isOwner          Boolean    @default(false) @map("is_owner")
+  failedLoginCount Int        @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz
 
-  avatarStorageKey String? @db.VarChar(500) @map("avatar_storage_key")
-  jobTitle         String? @db.VarChar(100) @map("job_title")
-  bio              String? @db.Text         @map("bio")
+  avatarStorageKey String? @map("avatar_storage_key") @db.VarChar(500)
+  jobTitle         String? @map("job_title") @db.VarChar(100)
+  bio              String? @map("bio") @db.Text
 
-  emailVerifiedAt DateTime? @db.Timestamptz @map("email_verified_at")
-  phoneVerifiedAt DateTime? @db.Timestamptz @map("phone_verified_at")
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz
+  phoneVerifiedAt DateTime? @map("phone_verified_at") @db.Timestamptz
 
-  lastLoginAt       DateTime? @db.Timestamptz @map("last_login_at")
-  passwordChangedAt DateTime? @db.Timestamptz @map("password_changed_at")
+  lastLoginAt       DateTime? @map("last_login_at") @db.Timestamptz
+  passwordChangedAt DateTime? @map("password_changed_at") @db.Timestamptz
 
-  createdBy String?   @db.Uuid        @map("created_by")
-  createdAt DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt DateTime?                 @db.Timestamptz @map("deleted_at")
-  deletedBy String?   @db.Uuid        @map("deleted_by")
+  createdBy String?   @map("created_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy String?   @map("deleted_by") @db.Uuid
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
@@ -417,11 +437,11 @@ model User {
   deletedByUser User?  @relation("UserDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
   deletedUsers  User[] @relation("UserDeletedBy")
 
-  sessions           UserSession[]
-  refreshTokens      RefreshToken[]
-  otpCodes           OtpCode[]
-  mfaConfig          MfaConfig?
-  passwordHistory    UserPasswordHistory[]
+  sessions        UserSession[]
+  refreshTokens   RefreshToken[]
+  otpCodes        OtpCode[]
+  mfaConfig       MfaConfig?
+  passwordHistory UserPasswordHistory[]
 
   sentInvitations    UserInvitation[] @relation("InvitedByUser")
   acceptedInvitation UserInvitation?  @relation("AcceptedUser")
@@ -447,144 +467,148 @@ model User {
   deletedLeads          Lead[]                  @relation("LeadDeletedBy")
 
   // ── Relations: Projects ───────────────────────────────────────────────
-  createdProjects       Project[]               @relation("ProjectCreatedBy")
-  deletedProjects       Project[]               @relation("ProjectDeletedBy")
-  managedProjects       Project[]               @relation("ProjectManager")
+  createdProjects Project[] @relation("ProjectCreatedBy")
+  deletedProjects Project[] @relation("ProjectDeletedBy")
+  managedProjects Project[] @relation("ProjectManager")
 
   // ── Relations: Tasks ───────────────────────────────────────────────────
-  assignedTasks         Task[]                  @relation("TaskAssignee")
-  createdTasks          Task[]                  @relation("TaskCreatedBy")
-  deletedTasks          Task[]                  @relation("TaskDeletedBy")
+  assignedTasks Task[] @relation("TaskAssignee")
+  createdTasks  Task[] @relation("TaskCreatedBy")
+  deletedTasks  Task[] @relation("TaskDeletedBy")
+
+  // ── Relations: Documents ───────────────────────────────────────────────
+  uploadedDocuments Document[] @relation("DocumentUploadedBy")
+  deletedDocuments  Document[] @relation("DocumentDeletedBy")
 
   @@unique([tenantId, email], name: "uq_users_tenant_email")
-  @@index([tenantId, status],    name: "idx_users_tenant_status")
+  @@index([tenantId, status], name: "idx_users_tenant_status")
   @@index([tenantId, deletedAt], name: "idx_users_soft_delete")
-  @@index([tenantId, isOwner],   name: "idx_users_tenant_owner")
-  @@index([tenantId, email],     name: "idx_users_email_lookup")
-  @@index([lastLoginAt],         name: "idx_users_last_login")
+  @@index([tenantId, isOwner], name: "idx_users_tenant_owner")
+  @@index([tenantId, email], name: "idx_users_email_lookup")
+  @@index([lastLoginAt], name: "idx_users_last_login")
   @@map("users")
 }
 
 model UserSession {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
-  userId   String @db.Uuid @map("user_id")
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
 
-  tokenHash String @unique @db.VarChar(64) @map("token_hash")
+  tokenHash String @unique @map("token_hash") @db.VarChar(64)
 
-  deviceType        SessionDeviceType @default(WEB)    @map("device_type")
-  deviceName        String?           @db.VarChar(255) @map("device_name")
-  deviceFingerprint String?           @db.VarChar(255) @map("device_fingerprint")
-  browser           String?           @db.VarChar(100) @map("browser")
-  os                String?           @db.VarChar(100) @map("os")
+  deviceType        SessionDeviceType @default(WEB) @map("device_type")
+  deviceName        String?           @map("device_name") @db.VarChar(255)
+  deviceFingerprint String?           @map("device_fingerprint") @db.VarChar(255)
+  browser           String?           @map("browser") @db.VarChar(100)
+  os                String?           @map("os") @db.VarChar(100)
 
-  ipAddress String? @db.VarChar(45) @map("ip_address")
-  userAgent String? @db.Text        @map("user_agent")
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.Text
 
-  locationCity    String? @db.VarChar(100) @map("location_city")
-  locationCountry String? @db.Char(2)     @map("location_country")
+  locationCity    String? @map("location_city") @db.VarChar(100)
+  locationCountry String? @map("location_country") @db.Char(2)
 
   status       SessionStatus        @default(ACTIVE) @map("status")
-  expiresAt    DateTime             @db.Timestamptz @map("expires_at")
-  lastActiveAt DateTime             @default(now()) @db.Timestamptz @map("last_active_at")
-  revokedAt    DateTime?            @db.Timestamptz @map("revoked_at")
+  expiresAt    DateTime             @map("expires_at") @db.Timestamptz
+  lastActiveAt DateTime             @default(now()) @map("last_active_at") @db.Timestamptz
+  revokedAt    DateTime?            @map("revoked_at") @db.Timestamptz
   revokeReason SessionRevokeReason? @map("revoke_reason")
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokens RefreshToken[]
 
-  @@index([userId, status],          name: "idx_sessions_user_active")
-  @@index([tenantId, userId],        name: "idx_sessions_tenant_user")
-  @@index([expiresAt, status],       name: "idx_sessions_cleanup_job")
+  @@index([userId, status], name: "idx_sessions_user_active")
+  @@index([tenantId, userId], name: "idx_sessions_tenant_user")
+  @@index([expiresAt, status], name: "idx_sessions_cleanup_job")
   @@map("user_sessions")
 }
 
 model RefreshToken {
   id        String @id @default(uuid()) @db.Uuid
-  tenantId  String @db.Uuid @map("tenant_id")
-  userId    String @db.Uuid @map("user_id")
-  sessionId String @db.Uuid @map("session_id")
+  tenantId  String @map("tenant_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+  sessionId String @map("session_id") @db.Uuid
 
-  tokenHash String @unique @db.VarChar(64) @map("token_hash")
+  tokenHash String @unique @map("token_hash") @db.VarChar(64)
 
-  familyId    String    @db.Uuid       @map("family_id")
-  sequence    Int       @default(1)    @map("sequence")
+  familyId    String    @map("family_id") @db.Uuid
+  sequence    Int       @default(1) @map("sequence")
   isUsed      Boolean   @default(false) @map("is_used")
-  usedAt      DateTime? @db.Timestamptz @map("used_at")
-  rotatedToId String?   @unique @db.Uuid @map("rotated_to_id")
+  usedAt      DateTime? @map("used_at") @db.Timestamptz
+  rotatedToId String?   @unique @map("rotated_to_id") @db.Uuid
 
-  expiresAt    DateTime                  @db.Timestamptz @map("expires_at")
-  revokedAt    DateTime?                 @db.Timestamptz @map("revoked_at")
+  expiresAt    DateTime                  @map("expires_at") @db.Timestamptz
+  revokedAt    DateTime?                 @map("revoked_at") @db.Timestamptz
   revokeReason RefreshTokenRevokeReason? @map("revoke_reason")
 
-  ipAddress String? @db.VarChar(45) @map("ip_address")
-  userAgent String? @db.Text        @map("user_agent")
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.Text
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   session UserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  rotatedTo   RefreshToken?  @relation("TokenRotationChain", fields: [rotatedToId], references: [id])
-  rotatedFrom RefreshToken?  @relation("TokenRotationChain")
+  rotatedTo   RefreshToken? @relation("TokenRotationChain", fields: [rotatedToId], references: [id])
+  rotatedFrom RefreshToken? @relation("TokenRotationChain")
 
-  @@index([familyId, isUsed],   name: "idx_refresh_tokens_family")
-  @@index([userId, expiresAt],  name: "idx_refresh_tokens_user_expiry")
-  @@index([tenantId, userId],   name: "idx_refresh_tokens_tenant_user")
+  @@index([familyId, isUsed], name: "idx_refresh_tokens_family")
+  @@index([userId, expiresAt], name: "idx_refresh_tokens_user_expiry")
+  @@index([tenantId, userId], name: "idx_refresh_tokens_tenant_user")
   @@map("refresh_tokens")
 }
 
 model OtpCode {
   id       String  @id @default(uuid()) @db.Uuid
-  tenantId String  @db.Uuid @map("tenant_id")
-  userId   String? @db.Uuid @map("user_id")
-  email    String? @db.VarChar(255) @map("email")
+  tenantId String  @map("tenant_id") @db.Uuid
+  userId   String? @map("user_id") @db.Uuid
+  email    String? @map("email") @db.VarChar(255)
 
   purpose  OtpPurpose @map("purpose")
   type     OtpType    @default(EMAIL) @map("type")
-  codeHash String     @db.VarChar(255) @map("code_hash")
+  codeHash String     @map("code_hash") @db.VarChar(255)
 
   attemptCount Int @default(0) @map("attempt_count")
   maxAttempts  Int @default(5) @map("max_attempts")
 
   isUsed    Boolean   @default(false) @map("is_used")
-  usedAt    DateTime? @db.Timestamptz @map("used_at")
-  expiresAt DateTime  @db.Timestamptz @map("expires_at")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, purpose, expiresAt], name: "idx_otp_active_user")
-  @@index([email, purpose, expiresAt],  name: "idx_otp_active_email")
+  @@index([email, purpose, expiresAt], name: "idx_otp_active_email")
   @@map("otp_codes")
 }
 
 model MfaConfig {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
-  userId   String @unique @db.Uuid @map("user_id")
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @unique @map("user_id") @db.Uuid
 
-  totpSecretEncrypted String?   @db.Text        @map("totp_secret_encrypted")
+  totpSecretEncrypted String?   @map("totp_secret_encrypted") @db.Text
   totpEnabled         Boolean   @default(false) @map("totp_enabled")
-  totpVerifiedAt      DateTime? @db.Timestamptz @map("totp_verified_at")
+  totpVerifiedAt      DateTime? @map("totp_verified_at") @db.Timestamptz
 
   smsEnabled Boolean @default(false) @map("sms_enabled")
-  smsPhone   String? @db.VarChar(30) @map("sms_phone")
+  smsPhone   String? @map("sms_phone") @db.VarChar(30)
 
   backupCodes            String[]  @default([]) @map("backup_codes")
-  backupCodesGeneratedAt DateTime? @db.Timestamptz @map("backup_codes_generated_at")
-  backupCodesUsedCount   Int       @default(0)     @map("backup_codes_used_count")
+  backupCodesGeneratedAt DateTime? @map("backup_codes_generated_at") @db.Timestamptz
+  backupCodesUsedCount   Int       @default(0) @map("backup_codes_used_count")
 
-  lastUsedAt DateTime? @db.Timestamptz @map("last_used_at")
-  lastMethod String?   @db.VarChar(20) @map("last_method")
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz
+  lastMethod String?   @map("last_method") @db.VarChar(20)
 
-  encryptionKeyVersion String? @db.VarChar(100) @map("encryption_key_version")
+  encryptionKeyVersion String? @map("encryption_key_version") @db.VarChar(100)
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -594,74 +618,74 @@ model MfaConfig {
 
 model UserInvitation {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
+  tenantId String @map("tenant_id") @db.Uuid
 
-  email     String  @db.VarChar(255) @map("email")
-  firstName String? @db.VarChar(100) @map("first_name")
-  lastName  String? @db.VarChar(100) @map("last_name")
+  email     String  @map("email") @db.VarChar(255)
+  firstName String? @map("first_name") @db.VarChar(100)
+  lastName  String? @map("last_name") @db.VarChar(100)
 
-  invitedById String @db.Uuid @map("invited_by_id")
+  invitedById String   @map("invited_by_id") @db.Uuid
   roleIds     String[] @map("role_ids")
 
-  tokenHash String @unique @db.VarChar(64) @map("token_hash")
+  tokenHash String @unique @map("token_hash") @db.VarChar(64)
 
   status    InvitationStatus @default(PENDING) @map("status")
-  expiresAt DateTime         @db.Timestamptz   @map("expires_at")
+  expiresAt DateTime         @map("expires_at") @db.Timestamptz
 
-  acceptedAt   DateTime? @db.Timestamptz @map("accepted_at")
-  acceptedById String?   @unique @db.Uuid        @map("accepted_by_id")
+  acceptedAt   DateTime? @map("accepted_at") @db.Timestamptz
+  acceptedById String?   @unique @map("accepted_by_id") @db.Uuid
 
-  message String? @db.Text @map("message")
+  message String? @map("message") @db.Text
 
-  createdAt DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  revokedAt DateTime?                 @db.Timestamptz @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
 
   tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invitedBy  User   @relation("InvitedByUser", fields: [invitedById], references: [id], onDelete: Restrict)
-  acceptedBy User?  @relation("AcceptedUser",  fields: [acceptedById], references: [id], onDelete: SetNull)
+  acceptedBy User?  @relation("AcceptedUser", fields: [acceptedById], references: [id], onDelete: SetNull)
 
-  @@index([tenantId, email],   name: "idx_invitations_tenant_email")
+  @@index([tenantId, email], name: "idx_invitations_tenant_email")
   @@index([expiresAt, status], name: "idx_invitations_expiry_status")
   @@map("user_invitations")
 }
 
 model LoginHistory {
   id       String  @id @default(uuid()) @db.Uuid
-  tenantId String? @db.Uuid @map("tenant_id")
-  userId   String? @db.Uuid @map("user_id")
+  tenantId String? @map("tenant_id") @db.Uuid
+  userId   String? @map("user_id") @db.Uuid
 
-  email String @db.VarChar(255) @map("email")
+  email String @map("email") @db.VarChar(255)
 
   eventType LoginEventType   @map("event_type")
   status    LoginEventStatus @map("status")
 
-  ipAddress String? @db.VarChar(45) @map("ip_address")
-  userAgent String? @db.Text        @map("user_agent")
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.Text
 
-  country String? @db.Char(2)      @map("country")
-  city    String? @db.VarChar(100) @map("city")
+  country String? @map("country") @db.Char(2)
+  city    String? @map("city") @db.VarChar(100)
 
-  sessionId String? @db.Uuid @map("session_id")
-  failureReason String? @db.VarChar(500) @map("failure_reason")
+  sessionId     String? @map("session_id") @db.Uuid
+  failureReason String? @map("failure_reason") @db.VarChar(500)
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  @@index([tenantId, userId, createdAt(sort: Desc)],    name: "idx_login_history_user_timeline")
+  @@index([tenantId, userId, createdAt(sort: Desc)], name: "idx_login_history_user_timeline")
   @@index([tenantId, eventType, createdAt(sort: Desc)], name: "idx_login_history_events")
-  @@index([email, createdAt(sort: Desc)],               name: "idx_login_history_email")
-  @@index([tenantId, createdAt(sort: Desc)],            name: "idx_login_history_tenant")
-  @@index([ipAddress, createdAt(sort: Desc)],           name: "idx_login_history_ip")
+  @@index([email, createdAt(sort: Desc)], name: "idx_login_history_email")
+  @@index([tenantId, createdAt(sort: Desc)], name: "idx_login_history_tenant")
+  @@index([ipAddress, createdAt(sort: Desc)], name: "idx_login_history_ip")
   @@map("login_history")
 }
 
 model UserPasswordHistory {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
-  userId   String @db.Uuid @map("user_id")
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
 
-  passwordHash String   @db.Text @map("password_hash")
-  createdAt    DateTime @default(now()) @db.Timestamptz @map("created_at")
+  passwordHash String   @map("password_hash") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -675,61 +699,61 @@ model UserPasswordHistory {
 
 model Permission {
   id      String  @id @default(uuid()) @db.Uuid
-  groupId String? @db.Uuid @map("group_id")
+  groupId String? @map("group_id") @db.Uuid
 
-  code        String  @unique @db.VarChar(100) @map("code")
-  name        String  @db.VarChar(255)          @map("name")
-  description String? @db.Text                  @map("description")
+  code        String  @unique @map("code") @db.VarChar(100)
+  name        String  @map("name") @db.VarChar(255)
+  description String? @map("description") @db.Text
 
-  module   String           @db.VarChar(100) @map("module")
+  module   String           @map("module") @db.VarChar(100)
   action   PermissionAction @map("action")
-  resource String           @db.VarChar(100) @map("resource")
+  resource String           @map("resource") @db.VarChar(100)
 
   isSensitive Boolean @default(false) @map("is_sensitive")
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   group           PermissionGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   rolePermissions RolePermission[]
 
-  @@index([module],         name: "idx_permissions_module")
+  @@index([module], name: "idx_permissions_module")
   @@index([module, action], name: "idx_permissions_module_action")
-  @@index([isSensitive],    name: "idx_permissions_sensitive")
+  @@index([isSensitive], name: "idx_permissions_sensitive")
   @@map("permissions")
 }
 
 model PermissionGroup {
-  id          String  @id @default(uuid()) @db.Uuid
-  name        String  @unique @db.VarChar(255) @map("name")
-  description String? @db.Text                 @map("description")
-  module      String  @db.VarChar(100)          @map("module")
-  displayOrder Int    @default(0)               @map("display_order")
+  id           String  @id @default(uuid()) @db.Uuid
+  name         String  @unique @map("name") @db.VarChar(255)
+  description  String? @map("description") @db.Text
+  module       String  @map("module") @db.VarChar(100)
+  displayOrder Int     @default(0) @map("display_order")
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   permissions Permission[]
 
-  @@index([module],       name: "idx_permission_groups_module")
+  @@index([module], name: "idx_permission_groups_module")
   @@index([displayOrder], name: "idx_permission_groups_order")
   @@map("permission_groups")
 }
 
 model Role {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
+  tenantId String @map("tenant_id") @db.Uuid
 
-  name        String  @db.VarChar(100) @map("name")
-  description String? @db.Text         @map("description")
-  color       String? @db.Char(7)      @map("color")
+  name        String  @map("name") @db.VarChar(100)
+  description String? @map("description") @db.Text
+  color       String? @map("color") @db.Char(7)
 
   type     RoleType @default(CUSTOM) @map("type")
-  isActive Boolean  @default(true)   @map("is_active")
+  isActive Boolean  @default(true) @map("is_active")
 
-  createdById String?   @db.Uuid        @map("created_by_id")
-  createdAt   DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt   DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt   DateTime?                 @db.Timestamptz @map("deleted_at")
+  createdById String?   @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz
 
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   createdBy       User?            @relation("RoleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -738,75 +762,75 @@ model Role {
 
   @@unique([tenantId, name], name: "uq_roles_tenant_name")
   @@index([tenantId, isActive], name: "idx_roles_tenant_active")
-  @@index([tenantId, type],     name: "idx_roles_type")
+  @@index([tenantId, type], name: "idx_roles_type")
   @@index([tenantId, deletedAt], name: "idx_roles_soft_delete")
   @@map("roles")
 }
 
 model RolePermission {
   id           String @id @default(uuid()) @db.Uuid
-  roleId       String @db.Uuid @map("role_id")
-  permissionId String @db.Uuid @map("permission_id")
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
 
-  grantedById String?   @db.Uuid        @map("granted_by_id")
-  grantedAt   DateTime  @default(now()) @db.Timestamptz @map("granted_at")
+  grantedById String?  @map("granted_by_id") @db.Uuid
+  grantedAt   DateTime @default(now()) @map("granted_at") @db.Timestamptz
 
   role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
   grantedBy  User?      @relation("RolePermissionGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
 
   @@unique([roleId, permissionId], name: "uq_role_permission")
-  @@index([roleId],       name: "idx_role_permissions_by_role")
+  @@index([roleId], name: "idx_role_permissions_by_role")
   @@index([permissionId], name: "idx_role_permissions_by_permission")
   @@map("role_permissions")
 }
 
 model UserRole {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
-  userId   String @db.Uuid @map("user_id")
-  roleId   String @db.Uuid @map("role_id")
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+  roleId   String @map("role_id") @db.Uuid
 
-  assignedById String    @db.Uuid        @map("assigned_by_id")
-  assignedAt   DateTime  @default(now()) @db.Timestamptz @map("assigned_at")
-  expiresAt    DateTime? @db.Timestamptz @map("expires_at")
+  assignedById String    @map("assigned_by_id") @db.Uuid
+  assignedAt   DateTime  @default(now()) @map("assigned_at") @db.Timestamptz
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz
 
-  user       User @relation("UserRoleUser",       fields: [userId],       references: [id], onDelete: Cascade)
-  role       Role @relation(                      fields: [roleId],       references: [id], onDelete: Restrict)
+  user       User @relation("UserRoleUser", fields: [userId], references: [id], onDelete: Cascade)
+  role       Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
   assignedBy User @relation("UserRoleAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, userId, roleId], name: "uq_user_role")
-  @@index([tenantId, userId],          name: "idx_user_roles_resolution")
-  @@index([roleId],                    name: "idx_user_roles_by_role")
-  @@index([expiresAt],                 name: "idx_user_roles_expiry")
+  @@index([tenantId, userId], name: "idx_user_roles_resolution")
+  @@index([roleId], name: "idx_user_roles_by_role")
+  @@index([expiresAt], name: "idx_user_roles_expiry")
   @@map("user_roles")
 }
 
 model ResourceAccessPolicy {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
-  userId   String @db.Uuid @map("user_id")
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
 
-  resourceType String @db.VarChar(100) @map("resource_type")
-  resourceId   String @db.Uuid         @map("resource_id")
+  resourceType String @map("resource_type") @db.VarChar(100)
+  resourceId   String @map("resource_id") @db.Uuid
 
   accessLevel ResourceAccessLevel @map("access_level")
 
-  grantedById String    @db.Uuid        @map("granted_by_id")
-  grantedAt   DateTime  @default(now()) @db.Timestamptz @map("granted_at")
-  expiresAt   DateTime? @db.Timestamptz @map("expires_at")
-  reason      String?   @db.Text        @map("reason")
+  grantedById String    @map("granted_by_id") @db.Uuid
+  grantedAt   DateTime  @default(now()) @map("granted_at") @db.Timestamptz
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz
+  reason      String?   @map("reason") @db.Text
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  user      User @relation("PolicyUser",      fields: [userId],      references: [id], onDelete: Cascade)
+  user      User @relation("PolicyUser", fields: [userId], references: [id], onDelete: Cascade)
   grantedBy User @relation("PolicyGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, userId, resourceType, resourceId], name: "uq_resource_policy")
-  @@index([tenantId, userId, resourceType],              name: "idx_resource_policy_user_type")
-  @@index([tenantId, resourceType, resourceId],          name: "idx_resource_policy_by_resource")
-  @@index([expiresAt],                                   name: "idx_resource_policy_expiry")
+  @@index([tenantId, userId, resourceType], name: "idx_resource_policy_user_type")
+  @@index([tenantId, resourceType, resourceId], name: "idx_resource_policy_by_resource")
+  @@index([expiresAt], name: "idx_resource_policy_expiry")
   @@map("resource_access_policies")
 }
 
@@ -820,46 +844,48 @@ model BusinessType {
   name        String   @db.VarChar(100)
   description String?  @db.Text
   isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  businesses  Business[]
+  businesses Business[]
+
   @@map("business_types")
 }
 
 model Business {
-  id                 String    @id @default(uuid()) @db.Uuid
-  tenantId           String    @db.Uuid @map("tenant_id")
-  typeId             String    @db.Uuid @map("type_id")
-  
-  name               String    @db.VarChar(255)
-  legalName          String?   @db.VarChar(255) @map("legal_name")
-  status             BusinessStatus @default(ACTIVE)
-  
-  pan                String?   @db.VarChar(10)
-  gstin              String?   @db.VarChar(15)
-  cin                String?   @db.VarChar(21)
-  
-  incorporationDate  DateTime? @db.Date @map("incorporation_date")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  typeId   String @map("type_id") @db.Uuid
+
+  name      String         @db.VarChar(255)
+  legalName String?        @map("legal_name") @db.VarChar(255)
+  status    BusinessStatus @default(ACTIVE)
+
+  pan   String? @db.VarChar(10)
+  gstin String? @db.VarChar(15)
+  cin   String? @db.VarChar(21)
+
+  incorporationDate  DateTime? @map("incorporation_date") @db.Date
   financialYearStart Int       @default(4) @map("financial_year_start")
   industry           String?   @db.VarChar(100)
-  
-  createdAt          DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt          DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt          DateTime?                 @db.Timestamptz @map("deleted_at")
-  createdBy          String?   @db.Uuid @map("created_by")
-  deletedBy          String?   @db.Uuid @map("deleted_by")
 
-  type               BusinessType @relation(fields: [typeId], references: [id], onDelete: Restrict)
-  createdByUser      User?        @relation("BusinessCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
-  deletedByUser      User?        @relation("BusinessDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
-  
-  addresses          BusinessAddress[]
-  registrations      BusinessRegistration[]
-  assignments        BusinessAssignment[]
-  statusHistory      BusinessStatusHistory[]
-  contactRoles       ContactRole[]
-  client             Client?
-  leads              Lead[]
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdBy String?   @map("created_by") @db.Uuid
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  type          BusinessType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  createdByUser User?        @relation("BusinessCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  deletedByUser User?        @relation("BusinessDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  addresses     BusinessAddress[]
+  registrations BusinessRegistration[]
+  assignments   BusinessAssignment[]
+  statusHistory BusinessStatusHistory[]
+  contactRoles  ContactRole[]
+  client        Client?
+  leads         Lead[]
+  documents     Document[]
 
   @@index([tenantId, status])
   @@index([tenantId, pan])
@@ -871,42 +897,42 @@ model Business {
 }
 
 model BusinessAddress {
-  id           String      @id @default(uuid()) @db.Uuid
-  tenantId     String      @db.Uuid @map("tenant_id")
-  businessId   String      @db.Uuid @map("business_id")
-  
-  type         AddressType @map("type")
-  isPrimary    Boolean     @default(false) @map("is_primary")
-  
-  addressLine1 String      @db.VarChar(255) @map("address_line_1")
-  addressLine2 String?     @db.VarChar(255) @map("address_line_2")
-  city         String      @db.VarChar(100)
-  state        String      @db.VarChar(100)
-  pincode      String      @db.VarChar(20)
-  country      String      @default("IN") @db.Char(2)
-  
-  createdAt    DateTime    @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt    DateTime    @updatedAt      @db.Timestamptz @map("updated_at")
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
 
-  business     Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  type      AddressType @map("type")
+  isPrimary Boolean     @default(false) @map("is_primary")
+
+  addressLine1 String  @map("address_line_1") @db.VarChar(255)
+  addressLine2 String? @map("address_line_2") @db.VarChar(255)
+  city         String  @db.VarChar(100)
+  state        String  @db.VarChar(100)
+  pincode      String  @db.VarChar(20)
+  country      String  @default("IN") @db.Char(2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId, isPrimary])
   @@map("business_addresses")
 }
 
 model BusinessRegistration {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @db.Uuid @map("tenant_id")
-  businessId       String   @db.Uuid @map("business_id")
-  
-  registrationType String   @db.VarChar(50) @map("registration_type")
-  registrationNum  String   @db.VarChar(100) @map("registration_num")
-  issueDate        DateTime? @db.Date @map("issue_date")
-  documentId       String?  @db.Uuid @map("document_id")
-  
-  createdAt        DateTime @default(now()) @db.Timestamptz @map("created_at")
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
 
-  business         Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  registrationType String    @map("registration_type") @db.VarChar(50)
+  registrationNum  String    @map("registration_num") @db.VarChar(100)
+  issueDate        DateTime? @map("issue_date") @db.Date
+  documentId       String?   @map("document_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, registrationType])
   @@index([tenantId, registrationNum])
@@ -914,16 +940,16 @@ model BusinessRegistration {
 }
 
 model BusinessAssignment {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @db.Uuid @map("tenant_id")
-  businessId String   @db.Uuid @map("business_id")
-  userId     String   @db.Uuid @map("user_id")
-  
-  role       String   @db.VarChar(50)
-  assignedAt DateTime @default(now()) @db.Timestamptz @map("assigned_at")
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
+  userId     String @map("user_id") @db.Uuid
 
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  user       User     @relation("BusinessAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
+  role       String   @db.VarChar(50)
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation("BusinessAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, userId])
   @@index([tenantId, userId])
@@ -931,19 +957,19 @@ model BusinessAssignment {
 }
 
 model BusinessStatusHistory {
-  id           String         @id @default(uuid()) @db.Uuid
-  tenantId     String         @db.Uuid @map("tenant_id")
-  businessId   String         @db.Uuid @map("business_id")
-  
-  oldStatus    BusinessStatus? @map("old_status")
-  newStatus    BusinessStatus  @map("new_status")
-  reason       String?        @db.Text
-  changedById  String         @db.Uuid @map("changed_by_id")
-  
-  createdAt    DateTime       @default(now()) @db.Timestamptz @map("created_at")
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
 
-  business     Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  changedBy    User           @relation("BusinessStatusChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+  oldStatus   BusinessStatus? @map("old_status")
+  newStatus   BusinessStatus  @map("new_status")
+  reason      String?         @db.Text
+  changedById String          @map("changed_by_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  changedBy User     @relation("BusinessStatusChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
 
   @@index([businessId, createdAt(sort: Desc)])
   @@map("business_status_history")
@@ -954,31 +980,32 @@ model BusinessStatusHistory {
 // =============================================================================
 
 model Contact {
-  id           String    @id @default(uuid()) @db.Uuid
-  tenantId     String    @db.Uuid @map("tenant_id")
-  
-  firstName    String    @db.VarChar(100) @map("first_name")
-  lastName     String?   @db.VarChar(100) @map("last_name")
-  email        String?   @db.VarChar(255)
-  phone        String?   @db.VarChar(30)
-  
-  pan          String?   @db.VarChar(10)
-  aadhaarHash  String?   @db.VarChar(64) @map("aadhaar_hash")
-  
-  portalUserId String?   @unique @db.Uuid @map("portal_user_id")
-  
-  createdAt    DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt    DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt    DateTime?                 @db.Timestamptz @map("deleted_at")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
 
-  portalUser   User?     @relation("UserPortalContact", fields: [portalUserId], references: [id], onDelete: SetNull)
+  firstName String  @map("first_name") @db.VarChar(100)
+  lastName  String? @map("last_name") @db.VarChar(100)
+  email     String? @db.VarChar(255)
+  phone     String? @db.VarChar(30)
 
-  roles        ContactRole[]
-  addresses    ContactAddress[]
-  comms        ContactCommunication?
-  relMain      ContactRelationship[] @relation("MainContact")
-  relRelated   ContactRelationship[] @relation("RelatedContact")
-  leads        Lead[]
+  pan         String? @db.VarChar(10)
+  aadhaarHash String? @map("aadhaar_hash") @db.VarChar(64)
+
+  portalUserId String? @unique @map("portal_user_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  portalUser User? @relation("UserPortalContact", fields: [portalUserId], references: [id], onDelete: SetNull)
+
+  roles      ContactRole[]
+  addresses  ContactAddress[]
+  comms      ContactCommunication?
+  relMain    ContactRelationship[] @relation("MainContact")
+  relRelated ContactRelationship[] @relation("RelatedContact")
+  leads      Lead[]
+  documents  Document[]
 
   @@index([tenantId, email])
   @@index([tenantId, phone])
@@ -989,21 +1016,21 @@ model Contact {
 }
 
 model ContactRole {
-  id           String          @id @default(uuid()) @db.Uuid
-  tenantId     String          @db.Uuid @map("tenant_id")
-  businessId   String          @db.Uuid @map("business_id")
-  contactId    String          @db.Uuid @map("contact_id")
-  
-  roleType     ContactRoleType @map("role_type")
-  customTitle  String?         @db.VarChar(100) @map("custom_title")
-  
-  isPrimary    Boolean         @default(false) @map("is_primary")
-  sharePercent Decimal?        @db.Decimal(5, 2) @map("share_percent")
-  
-  createdAt    DateTime        @default(now()) @db.Timestamptz @map("created_at")
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
+  contactId  String @map("contact_id") @db.Uuid
 
-  business     Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contact      Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  roleType    ContactRoleType @map("role_type")
+  customTitle String?         @map("custom_title") @db.VarChar(100)
+
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  sharePercent Decimal? @map("share_percent") @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, contactId, roleType])
   @@index([businessId, isPrimary])
@@ -1011,56 +1038,56 @@ model ContactRole {
 }
 
 model ContactAddress {
-  id           String      @id @default(uuid()) @db.Uuid
-  tenantId     String      @db.Uuid @map("tenant_id")
-  contactId    String      @db.Uuid @map("contact_id")
-  
-  type         AddressType @map("type")
-  isPrimary    Boolean     @default(false) @map("is_primary")
-  
-  addressLine1 String      @db.VarChar(255) @map("address_line_1")
-  addressLine2 String?     @db.VarChar(255) @map("address_line_2")
-  city         String      @db.VarChar(100)
-  state        String      @db.VarChar(100)
-  pincode      String      @db.VarChar(20)
-  country      String      @default("IN") @db.Char(2)
-  
-  createdAt    DateTime    @default(now()) @db.Timestamptz @map("created_at")
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @map("tenant_id") @db.Uuid
+  contactId String @map("contact_id") @db.Uuid
 
-  contact      Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  type      AddressType @map("type")
+  isPrimary Boolean     @default(false) @map("is_primary")
+
+  addressLine1 String  @map("address_line_1") @db.VarChar(255)
+  addressLine2 String? @map("address_line_2") @db.VarChar(255)
+  city         String  @db.VarChar(100)
+  state        String  @db.VarChar(100)
+  pincode      String  @db.VarChar(20)
+  country      String  @default("IN") @db.Char(2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@index([contactId, isPrimary])
   @@map("contact_addresses")
 }
 
 model ContactCommunication {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @db.Uuid @map("tenant_id")
-  contactId    String   @unique @db.Uuid @map("contact_id")
-  
-  optInEmail   Boolean  @default(true) @map("opt_in_email")
-  optInSms     Boolean  @default(true) @map("opt_in_sms")
-  optInWhatsapp Boolean @default(true) @map("opt_in_whatsapp")
-  
-  updatedAt    DateTime @updatedAt @db.Timestamptz @map("updated_at")
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @map("tenant_id") @db.Uuid
+  contactId String @unique @map("contact_id") @db.Uuid
 
-  contact      Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  optInEmail    Boolean @default(true) @map("opt_in_email")
+  optInSms      Boolean @default(true) @map("opt_in_sms")
+  optInWhatsapp Boolean @default(true) @map("opt_in_whatsapp")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@map("contact_communications")
 }
 
 model ContactRelationship {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @db.Uuid @map("tenant_id")
-  mainContactId    String   @db.Uuid @map("main_contact_id")
-  relatedContactId String   @db.Uuid @map("related_contact_id")
-  
-  relationshipType String   @db.VarChar(50) @map("relationship_type")
-  
-  createdAt        DateTime @default(now()) @db.Timestamptz @map("created_at")
+  id               String @id @default(uuid()) @db.Uuid
+  tenantId         String @map("tenant_id") @db.Uuid
+  mainContactId    String @map("main_contact_id") @db.Uuid
+  relatedContactId String @map("related_contact_id") @db.Uuid
 
-  mainContact      Contact  @relation("MainContact", fields: [mainContactId], references: [id], onDelete: Cascade)
-  relatedContact   Contact  @relation("RelatedContact", fields: [relatedContactId], references: [id], onDelete: Cascade)
+  relationshipType String @map("relationship_type") @db.VarChar(50)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  mainContact    Contact @relation("MainContact", fields: [mainContactId], references: [id], onDelete: Cascade)
+  relatedContact Contact @relation("RelatedContact", fields: [relatedContactId], references: [id], onDelete: Cascade)
 
   @@unique([mainContactId, relatedContactId])
   @@map("contact_relationships")
@@ -1071,25 +1098,25 @@ model ContactRelationship {
 // =============================================================================
 
 model Client {
-  id             String       @id @default(uuid()) @db.Uuid
-  tenantId       String       @db.Uuid @map("tenant_id")
-  businessId     String       @unique @db.Uuid @map("business_id")
-  
-  status         ClientStatus @default(ACTIVE)
-  onboardedAt    DateTime?    @db.Timestamptz @map("onboarded_at")
-  categoryId     String?      @db.Uuid @map("category_id")
-  
-  createdAt      DateTime     @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt      DateTime     @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt      DateTime?                    @db.Timestamptz @map("deleted_at")
-  
-  business       Business     @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  category       ClientCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  
-  assignments    ClientAssignment[]
-  tags           ClientTagAssignment[]
-  conversion     LeadConversion?
-  projects       Project[]
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @unique @map("business_id") @db.Uuid
+
+  status      ClientStatus @default(ACTIVE)
+  onboardedAt DateTime?    @map("onboarded_at") @db.Timestamptz
+  categoryId  String?      @map("category_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  category ClientCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  assignments ClientAssignment[]
+  tags        ClientTagAssignment[]
+  conversion  LeadConversion?
+  projects    Project[]
 
   @@index([tenantId, status])
   @@index([tenantId, categoryId])
@@ -1097,16 +1124,16 @@ model Client {
 }
 
 model ClientAssignment {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @db.Uuid @map("tenant_id")
-  clientId   String   @db.Uuid @map("client_id")
-  userId     String   @db.Uuid @map("user_id")
-  
-  role       String   @db.VarChar(50)
-  assignedAt DateTime @default(now()) @db.Timestamptz @map("assigned_at")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  clientId String @map("client_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
 
-  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  user       User     @relation("ClientAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
+  role       String   @db.VarChar(50)
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User   @relation("ClientAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, userId])
   @@index([tenantId, userId])
@@ -1114,24 +1141,24 @@ model ClientAssignment {
 }
 
 model ClientCategory {
-  id          String   @id @default(uuid()) @db.Uuid
-  tenantId    String   @db.Uuid @map("tenant_id")
-  name        String   @db.VarChar(100)
-  color       String?  @db.Char(7)
-  
-  createdAt   DateTime @default(now()) @db.Timestamptz @map("created_at")
-  
-  clients     Client[]
+  id       String  @id @default(uuid()) @db.Uuid
+  tenantId String  @map("tenant_id") @db.Uuid
+  name     String  @db.VarChar(100)
+  color    String? @db.Char(7)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  clients Client[]
 
   @@unique([tenantId, name])
   @@map("client_categories")
 }
 
 model ClientTag {
-  id          String   @id @default(uuid()) @db.Uuid
-  tenantId    String   @db.Uuid @map("tenant_id")
-  name        String   @db.VarChar(50)
-  
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String @db.VarChar(50)
+
   assignments ClientTagAssignment[]
 
   @@unique([tenantId, name])
@@ -1139,12 +1166,12 @@ model ClientTag {
 }
 
 model ClientTagAssignment {
-  id         String    @id @default(uuid()) @db.Uuid
-  clientId   String    @db.Uuid @map("client_id")
-  tagId      String    @db.Uuid @map("tag_id")
+  id       String @id @default(uuid()) @db.Uuid
+  clientId String @map("client_id") @db.Uuid
+  tagId    String @map("tag_id") @db.Uuid
 
-  client     Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  tag        ClientTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  client Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tag    ClientTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, tagId])
   @@map("client_tag_assignments")
@@ -1155,35 +1182,35 @@ model ClientTagAssignment {
 // =============================================================================
 
 model Lead {
-  id               String     @id @default(uuid()) @db.Uuid
-  tenantId         String     @db.Uuid @map("tenant_id")
-  
-  businessId       String?    @db.Uuid @map("business_id")
-  contactId        String?    @db.Uuid @map("contact_id")
-  
-  title            String     @db.VarChar(255)
-  sourceId         String     @db.Uuid @map("source_id")
-  stageId          String     @db.Uuid @map("stage_id")
-  
-  expectedRevenue  Decimal?   @db.Decimal(12, 2) @map("expected_revenue")
-  probability      Int?       @map("probability") // 0-100
-  expectedCloseDate DateTime? @db.Date @map("expected_close_date")
-  
-  createdAt        DateTime   @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt        DateTime   @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt        DateTime?                 @db.Timestamptz @map("deleted_at")
-  deletedBy        String?    @db.Uuid @map("deleted_by")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
 
-  business         Business?  @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  contact          Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  source           LeadSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
-  stage            LeadStage  @relation(fields: [stageId], references: [id], onDelete: Restrict)
-  deletedByUser    User?      @relation("LeadDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+  businessId String? @map("business_id") @db.Uuid
+  contactId  String? @map("contact_id") @db.Uuid
 
-  activities       LeadActivity[]
-  notes            LeadNote[]
-  assignments      LeadAssignment[]
-  conversion       LeadConversion?
+  title    String @db.VarChar(255)
+  sourceId String @map("source_id") @db.Uuid
+  stageId  String @map("stage_id") @db.Uuid
+
+  expectedRevenue   Decimal?  @map("expected_revenue") @db.Decimal(12, 2)
+  probability       Int?      @map("probability") // 0-100
+  expectedCloseDate DateTime? @map("expected_close_date") @db.Date
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  business      Business?  @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  contact       Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  source        LeadSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  stage         LeadStage  @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  deletedByUser User?      @relation("LeadDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  activities  LeadActivity[]
+  notes       LeadNote[]
+  assignments LeadAssignment[]
+  conversion  LeadConversion?
 
   @@index([tenantId, stageId])
   @@index([tenantId, expectedCloseDate])
@@ -1192,73 +1219,73 @@ model Lead {
 }
 
 model LeadSource {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @db.Uuid @map("tenant_id")
-  name      String   @db.VarChar(100)
-  
-  leads     Lead[]
-  
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String @db.VarChar(100)
+
+  leads Lead[]
+
   @@unique([tenantId, name])
   @@map("lead_sources")
 }
 
 model LeadStage {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @db.Uuid @map("tenant_id")
-  name      String   @db.VarChar(100)
-  order     Int      @default(0)
-  
-  leads     Lead[]
-  
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String @db.VarChar(100)
+  order    Int    @default(0)
+
+  leads Lead[]
+
   @@unique([tenantId, name])
   @@index([tenantId, order])
   @@map("lead_stages")
 }
 
 model LeadActivity {
-  id           String       @id @default(uuid()) @db.Uuid
-  tenantId     String       @db.Uuid @map("tenant_id")
-  leadId       String       @db.Uuid @map("lead_id")
-  
-  type         ActivityType @map("type")
-  description  String       @db.Text
-  activityDate DateTime     @default(now()) @db.Timestamptz @map("activity_date")
-  performedById String      @db.Uuid @map("performed_by_id")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  leadId   String @map("lead_id") @db.Uuid
 
-  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  performedBy  User         @relation("ActivityPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+  type          ActivityType @map("type")
+  description   String       @db.Text
+  activityDate  DateTime     @default(now()) @map("activity_date") @db.Timestamptz
+  performedById String       @map("performed_by_id") @db.Uuid
+
+  lead        Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  performedBy User @relation("ActivityPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
 
   @@index([leadId, activityDate(sort: Desc)])
   @@map("lead_activities")
 }
 
 model LeadNote {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @db.Uuid @map("tenant_id")
-  leadId     String   @db.Uuid @map("lead_id")
-  
-  content    String   @db.Text
-  authorId   String   @db.Uuid @map("author_id")
-  createdAt  DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt  DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  leadId   String @map("lead_id") @db.Uuid
 
-  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  author     User     @relation("NoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  content   String   @db.Text
+  authorId  String   @map("author_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  author User @relation("NoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
 
   @@index([leadId, createdAt(sort: Desc)])
   @@map("lead_notes")
 }
 
 model LeadAssignment {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @db.Uuid @map("tenant_id")
-  leadId     String   @db.Uuid @map("lead_id")
-  userId     String   @db.Uuid @map("user_id")
-  
-  assignedAt DateTime @default(now()) @db.Timestamptz @map("assigned_at")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  leadId   String @map("lead_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
 
-  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  user       User     @relation("LeadAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation("LeadAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([leadId, userId])
   @@index([tenantId, userId])
@@ -1266,18 +1293,18 @@ model LeadAssignment {
 }
 
 model LeadConversion {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @db.Uuid @map("tenant_id")
-  leadId       String   @unique @db.Uuid @map("lead_id")
-  clientId     String   @unique @db.Uuid @map("client_id")
-  
-  convertedById String   @db.Uuid @map("converted_by_id")
-  convertedAt  DateTime @default(now()) @db.Timestamptz @map("converted_at")
-  notes        String?  @db.Text
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  leadId   String @unique @map("lead_id") @db.Uuid
+  clientId String @unique @map("client_id") @db.Uuid
 
-  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Restrict)
-  client       Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  convertedBy  User     @relation("LeadConvertedBy", fields: [convertedById], references: [id], onDelete: Restrict)
+  convertedById String   @map("converted_by_id") @db.Uuid
+  convertedAt   DateTime @default(now()) @map("converted_at") @db.Timestamptz
+  notes         String?  @db.Text
+
+  lead        Lead   @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  client      Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  convertedBy User   @relation("LeadConvertedBy", fields: [convertedById], references: [id], onDelete: Restrict)
 
   @@map("lead_conversions")
 }
@@ -1287,25 +1314,25 @@ model LeadConversion {
 // =============================================================================
 
 model Project {
-  id          String        @id @default(uuid()) @db.Uuid
-  tenantId    String        @db.Uuid @map("tenant_id")
-  clientId    String        @db.Uuid @map("client_id")
-  managerId   String?       @db.Uuid @map("manager_id")
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @map("tenant_id") @db.Uuid
+  clientId  String  @map("client_id") @db.Uuid
+  managerId String? @map("manager_id") @db.Uuid
 
-  code        String        @db.VarChar(50)
-  name        String        @db.VarChar(255)
-  status      ProjectStatus @default(DRAFT)
+  code   String        @db.VarChar(50)
+  name   String        @db.VarChar(255)
+  status ProjectStatus @default(DRAFT)
 
-  startDate   DateTime?     @db.Date @map("start_date")
-  dueDate     DateTime?     @db.Date @map("due_date")
-  completedAt DateTime?     @db.Timestamptz @map("completed_at")
-  archivedAt  DateTime?     @db.Timestamptz @map("archived_at")
+  startDate   DateTime? @map("start_date") @db.Date
+  dueDate     DateTime? @map("due_date") @db.Date
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz
 
-  createdAt   DateTime      @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt   DateTime      @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt   DateTime?                     @db.Timestamptz @map("deleted_at")
-  createdBy   String?       @db.Uuid @map("created_by")
-  deletedBy   String?       @db.Uuid @map("deleted_by")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdBy String?   @map("created_by") @db.Uuid
+  deletedBy String?   @map("deleted_by") @db.Uuid
 
   client        Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
   manager       User?  @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
@@ -1329,6 +1356,7 @@ enum ProjectStatus {
   COMPLETED
   ARCHIVED
   CANCELLED
+
   @@map("project_status")
 }
 
@@ -1343,24 +1371,24 @@ enum ProjectStatus {
 // rather than a many-to-many assignment join table.
 
 model Task {
-  id          String     @id @default(uuid()) @db.Uuid
-  tenantId    String     @db.Uuid @map("tenant_id")
-  projectId   String?    @db.Uuid @map("project_id")
-  assigneeId  String?    @db.Uuid @map("assignee_id")
+  id         String  @id @default(uuid()) @db.Uuid
+  tenantId   String  @map("tenant_id") @db.Uuid
+  projectId  String? @map("project_id") @db.Uuid
+  assigneeId String? @map("assignee_id") @db.Uuid
 
   title       String     @db.VarChar(255)
   description String?    @db.Text
   status      TaskStatus @default(TODO)
 
-  startDate   DateTime?  @db.Date @map("start_date")
-  dueDate     DateTime?  @db.Date @map("due_date")
-  completedAt DateTime?  @db.Timestamptz @map("completed_at")
+  startDate   DateTime? @map("start_date") @db.Date
+  dueDate     DateTime? @map("due_date") @db.Date
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
 
-  createdAt   DateTime   @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt   DateTime   @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt   DateTime?                 @db.Timestamptz @map("deleted_at")
-  createdBy   String?    @db.Uuid @map("created_by")
-  deletedBy   String?    @db.Uuid @map("deleted_by")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdBy String?   @map("created_by") @db.Uuid
+  deletedBy String?   @map("deleted_by") @db.Uuid
 
   project       Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   assignee      User?    @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
@@ -1381,5 +1409,70 @@ enum TaskStatus {
   REVIEW
   COMPLETED
   CANCELLED
+
   @@map("task_status")
+}
+
+// =============================================================================
+// SECTION 11 — DOCUMENTS MODULE
+// =============================================================================
+//
+// Deliberately minimal, matching the same scope discipline used for Project/
+// Task: a single `Document` metadata table, no DocumentFolder/DocumentShare/
+// DocumentTemplate satellite tables, and `version` tracked as a plain
+// incrementing Int rather than a full version-history table. Matches
+// frontend/src/modules/documents/types/index.ts's `DocumentFile` shape,
+// which predates this schema and was marked PROVISIONAL pending backend
+// design. `category` is a fixed enum (mirrors the frontend's
+// DOCUMENT_CATEGORY_VALUES) rather than a tenant-configurable table like
+// BusinessType/ClientCategory — no signal that firms need custom categories.
+
+model Document {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  businessId String? @map("business_id") @db.Uuid
+  contactId  String? @map("contact_id") @db.Uuid
+
+  category   DocumentCategory
+  fileName   String           @map("file_name") @db.VarChar(255)
+  storageKey String           @unique @map("storage_key") @db.VarChar(500)
+  mimeType   String           @map("mime_type") @db.VarChar(150)
+  sizeBytes  Int              @map("size_bytes")
+  version    Int              @default(1)
+
+  uploadedById String @map("uploaded_by_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  business      Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  contact       Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  uploadedBy    User      @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  deletedByUser User?     @relation("DocumentDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, category])
+  @@index([tenantId, businessId])
+  @@index([tenantId, contactId])
+  @@index([tenantId, deletedAt])
+  @@index([fileName(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("documents")
+}
+
+enum DocumentCategory {
+  PAN
+  GST
+  INCOME_TAX
+  ROC
+  AUDIT
+  BANK
+  AGREEMENTS
+  PAYROLL
+  DSC
+  IDENTITY
+  OTHER
+
+  @@map("document_category")
 }
