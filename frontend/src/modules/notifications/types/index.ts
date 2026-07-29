@@ -19,7 +19,11 @@ export interface Notification {
 export interface NotificationListFilters {
   page?: number
   limit?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+  search?: string
   channel?: NotificationChannel
+  status?: NotificationStatus
   unreadOnly?: boolean
 }
 

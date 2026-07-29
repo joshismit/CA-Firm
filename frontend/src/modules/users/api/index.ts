@@ -7,6 +7,8 @@
 
 import type { ApiError } from '@/services/api-error'
 import type { PaginatedResponse } from '@/types/api.types'
+import type { AuthSession } from '@/modules/auth/types'
+import type { Role } from '@/modules/roles/types'
 import type { InviteUserPayload, UpdateUserPayload, User, UserInvitation, UserListFilters } from '../types'
 
 function notImplemented(action: string): never {
@@ -50,4 +52,18 @@ export async function resendInvitation(_invitationId: string): Promise<void> {
 // TODO: DELETE /api/v1/users/invitations/:id
 export async function revokeInvitation(_invitationId: string): Promise<void> {
   return notImplemented('revokeInvitation')
+}
+
+// TODO: GET /api/v1/users/:id/roles
+export async function getUserRoles(_userId: string): Promise<Role[]> {
+  return notImplemented('getUserRoles')
+}
+
+// Deliberately distinct from the real, self-service GET /auth/sessions (modules/auth) - that
+// endpoint always returns the *caller's own* sessions with no userId param, so it cannot be reused
+// here to show an arbitrary user's sessions to an admin. This is a separate, still-provisional
+// admin-facing endpoint.
+// TODO: GET /api/v1/users/:id/sessions
+export async function getUserSessions(_userId: string): Promise<AuthSession[]> {
+  return notImplemented('getUserSessions')
 }

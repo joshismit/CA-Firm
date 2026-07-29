@@ -1,16 +1,23 @@
 // roles-scoped React hooks - data-fetching wrappers (TanStack Query) and local UI state.
+// retry: false everywhere - a 501 NOT_IMPLEMENTED will never succeed on retry (same convention as
+// modules/compliance, modules/client-billing, modules/notifications, modules/reports, modules/audit,
+// modules/settings, modules/users).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/services/query-keys'
-import { assignRole, createRole, deleteRole, getRole, listRoles, revokeRole, updateRole } from '../api'
+import { assignRole, createRole, deleteRole, getRole, getRoleUsers, listRoles, revokeRole, updateRole } from '../api'
 import type { AssignRolePayload, CreateRolePayload, RoleListFilters, UpdateRolePayload } from '../types'
 
 export function useRolesQuery(filters: RoleListFilters) {
-  return useQuery({ queryKey: queryKeys.roles.list(filters), queryFn: () => listRoles(filters) })
+  return useQuery({ queryKey: queryKeys.roles.list(filters), queryFn: () => listRoles(filters), retry: false })
 }
 
 export function useRoleQuery(id: string) {
-  return useQuery({ queryKey: queryKeys.roles.detail(id), queryFn: () => getRole(id), enabled: !!id })
+  return useQuery({ queryKey: queryKeys.roles.detail(id), queryFn: () => getRole(id), enabled: !!id, retry: false })
+}
+
+export function useRoleUsersQuery(id: string) {
+  return useQuery({ queryKey: queryKeys.roles.users(id), queryFn: () => getRoleUsers(id), enabled: !!id, retry: false })
 }
 
 export function useCreateRoleMutation() {

@@ -1,156 +1,182 @@
 // src/modules/projects/pages/ProjectsPage.tsx
+// Reference composition: PageLayout > PageHeader (+ PageActions) > PageContent > DataTable.
+// DataTable's own built-in toolbar (search/filters/column-visibility/bulk-actions in one row) is
+// used rather than a second page-level PageToolbar/PageSearch/PageFilters row - same reasoning as
+// BusinessListPage/ContactsListPage.
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { AlertCircle, Download, Plus } from 'lucide-react'
-import { PageHeader } from '@/components/shared/PageHeader/PageHeader'
-import { Tabs } from '@/components/shared/Tabs/Tabs'
-import { Card } from '@/components/shared/Card/Card'
-import { Separator } from '@/components/shared/Separator/Separator'
-import { StatusBadge } from '@/components/shared/StatusBadge/StatusBadge'
+import { useNavigate } from 'react-router-dom'
+import { Plus, Trash2 } from 'lucide-react'
+import type { RowSelectionState, SortingState } from '@tanstack/react-table'
+import { PageLayout, PageHeader, PageContent, PageActions } from '@/components/page'
+import { DataTable } from '@/components/tables'
+import { Button } from '@/components/ui/button'
 import { Can } from '@/components/common/Can'
+import { ExportButton } from '@/components/shared/ExportButton/ExportButton'
+import { FilterChips, type FilterChip } from '@/components/shared/FilterChips/FilterChips'
 import { PERMISSIONS } from '@/config/permissions.config'
 import { normalizeApiError } from '@/services/api-error'
-import { cn, formatDate } from '@/lib/utils'
-import { useProjectsQuery } from '../hooks'
-import type { ProjectStatus } from '../types'
-
-type TabValue = 'all' | ProjectStatus
-
-const STATUS_CONFIG: Record<ProjectStatus, { variant: 'default' | 'success' | 'warning' | 'info' | 'danger'; label: string }> = {
-  DRAFT: { variant: 'default', label: 'Draft' },
-  PLANNED: { variant: 'default', label: 'Planned' },
-  ACTIVE: { variant: 'success', label: 'Active' },
-  ON_HOLD: { variant: 'warning', label: 'On Hold' },
-  COMPLETED: { variant: 'info', label: 'Completed' },
-  ARCHIVED: { variant: 'default', label: 'Archived' },
-  CANCELLED: { variant: 'danger', label: 'Cancelled' },
-}
-
-const secondaryBtn = cn(
-  'flex items-center gap-1.5 h-8 px-3 rounded-[var(--radius-md)]',
-  'text-[12px] font-medium text-[var(--color-text-secondary)] border border-[var(--color-border)]',
-  'hover:bg-[var(--color-hover)] transition-colors'
-)
-
-const primaryBtn = cn(
-  'flex items-center gap-1.5 h-8 px-3 rounded-[var(--radius-md)]',
-  'text-[12px] font-medium text-white bg-[var(--color-primary-600)]',
-  'hover:bg-[var(--color-primary-700)] transition-colors shadow-[var(--shadow-xs)]'
-)
+import { useDebounce } from '@/hooks'
+import { useProjectsQuery, useDeleteProjectMutation } from '../hooks'
+import { projectTableColumns, ProjectFilters, ProjectStatsCards } from '../components'
+import { PROJECT_STATUS_LABELS } from '../constants'
+import type { Project, ProjectListFilters, ProjectStatus } from '../types'
 
 export function ProjectsPage() {
-  const [tab, setTab] = useState<TabValue>('all')
+  const navigate = useNavigate()
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState<ProjectStatus | undefined>()
+  const [clientId, setClientId] = useState('')
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [pageIndex, setPageIndex] = useState(0)
+  const [pageSize, setPageSize] = useState(20)
 
-  const { data, isLoading, isError, error } = useProjectsQuery({
-    status: tab === 'all' ? undefined : tab,
-    page: 1,
-    limit: 20,
-  })
+  const debouncedSearch = useDebounce(search, 300)
 
-  const projects = data?.data ?? []
-  const total = data?.meta?.total ?? 0
+  const filters: ProjectListFilters = {
+    page: pageIndex + 1,
+    limit: pageSize,
+    search: debouncedSearch || undefined,
+    status,
+    clientId: clientId || undefined,
+    sortBy: sorting[0]?.id,
+    sortOrder: sorting[0] ? (sorting[0].desc ? 'desc' : 'asc') : undefined,
+  }
+
+  const { data, isLoading, isError, error, refetch } = useProjectsQuery(filters)
+  const deleteMutation = useDeleteProjectMutation()
+
+  const handleBulkDelete = async (selected: Project[]) => {
+    if (selected.length === 0) return
+    if (!window.confirm(`Delete ${selected.length} project${selected.length === 1 ? '' : 's'}? This cannot be undone.`)) return
+    // No bulk-delete endpoint exists - this calls the existing single-item deleteProject mutation
+    // once per selected row rather than inventing a bulk API. Projects that aren't DRAFT/PLANNED/
+    // CANCELLED will 409 - the loop stops there, same behavior BusinessListPage/ContactsListPage
+    // already accept for their own bulk deletes.
+    for (const project of selected) {
+      await deleteMutation.mutateAsync(project.id)
+    }
+    setRowSelection({})
+  }
+
+  const chips: FilterChip[] = [
+    ...(debouncedSearch ? [{ key: 'search', label: `Search: "${debouncedSearch}"` }] : []),
+    ...(status ? [{ key: 'status', label: `Status: ${PROJECT_STATUS_LABELS[status] ?? status}` }] : []),
+    ...(clientId ? [{ key: 'clientId', label: `Client: ${clientId.slice(0, 8)}…` }] : []),
+  ]
+
+  const removeChip = (key: string) => {
+    if (key === 'search') setSearch('')
+    if (key === 'status') setStatus(undefined)
+    if (key === 'clientId') setClientId('')
+    setPageIndex(0)
+  }
+
+  const clearAllChips = () => {
+    setSearch('')
+    setStatus(undefined)
+    setClientId('')
+    setPageIndex(0)
+  }
 
   return (
-    <div className="space-y-6">
+    <PageLayout>
       <PageHeader
         title="Projects"
-        description={`${total} engagement${total === 1 ? '' : 's'}`}
+        description={data?.meta ? `${data.meta.total} engagement${data.meta.total === 1 ? '' : 's'}` : undefined}
         actions={
-          <>
-            <button className={secondaryBtn}>
-              <Download className="w-3.5 h-3.5" />
-              Export
-            </button>
+          <PageActions>
+            <ExportButton
+              rows={data?.data ?? []}
+              filename="projects"
+              columns={[
+                { header: 'Code', accessor: (p) => p.code },
+                { header: 'Name', accessor: (p) => p.name },
+                { header: 'Status', accessor: (p) => p.status },
+                { header: 'Client ID', accessor: (p) => p.clientId },
+                { header: 'Manager ID', accessor: (p) => p.managerId },
+                { header: 'Start Date', accessor: (p) => p.startDate },
+                { header: 'Due Date', accessor: (p) => p.dueDate },
+                { header: 'Overdue', accessor: (p) => (p.isOverdue ? 'Yes' : 'No') },
+                { header: 'Created', accessor: (p) => p.createdAt },
+              ]}
+            />
             <Can permission={PERMISSIONS.PROJECTS_CREATE}>
-              <button className={primaryBtn}>
-                <Plus className="w-3.5 h-3.5" />
+              <Button leadingIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => navigate('/projects/new')}>
                 New Project
-              </button>
+              </Button>
             </Can>
-          </>
+          </PageActions>
         }
       />
 
-      <Tabs
-        value={tab}
-        onChange={(v) => setTab(v as TabValue)}
-        tabs={[
-          { value: 'all', label: 'All' },
-          { value: 'ACTIVE', label: 'Active' },
-          { value: 'ON_HOLD', label: 'On Hold' },
-          { value: 'COMPLETED', label: 'Completed' },
-          { value: 'CANCELLED', label: 'Cancelled' },
-        ]}
-      />
+      <PageContent>
+        <div className="space-y-4">
+          <ProjectStatsCards />
 
-      {isLoading && (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <Card key={i} className="h-[104px] shimmer">{null}</Card>
-          ))}
-        </div>
-      )}
+          <FilterChips chips={chips} onRemove={removeChip} onClearAll={clearAllChips} />
 
-      {isError && (
-        <Card>
-          <div className="flex items-start gap-2 text-[13px] text-[var(--color-danger-fg)]">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>{normalizeApiError(error).message || "Couldn't load projects. Please try again."}</span>
-          </div>
-        </Card>
-      )}
-
-      {!isLoading && !isError && projects.length === 0 && (
-        <Card>
-          <p className="text-center text-[13px] text-[var(--color-text-muted)] py-6">
-            No projects found for this filter.
-          </p>
-        </Card>
-      )}
-
-      <div className="space-y-3">
-        {projects.map((project) => {
-          const status = STATUS_CONFIG[project.status]
-          return (
-            <Card key={project.id}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-text-muted)]">
-                    {project.code}
-                  </p>
-                  <h4 className="text-[15px] font-semibold text-[var(--color-text-heading)]">{project.name}</h4>
-                </div>
-                <StatusBadge variant={status.variant} dot>
-                  {status.label}
-                </StatusBadge>
-              </div>
-
-              <div className="mt-3 flex items-center justify-between gap-4 text-[12px]">
-                <p className="text-[var(--color-text-muted)]">
-                  {project.managerId ? `Manager assigned` : 'Unassigned'}
-                </p>
-                {project.dueDate && (
-                  <p className={project.isOverdue ? 'font-medium text-[var(--color-danger)]' : 'text-[var(--color-text-muted)]'}>
-                    Due {formatDate(project.dueDate)}
-                    {project.isOverdue && ' · Overdue'}
-                  </p>
-                )}
-              </div>
-
-              <Separator className="my-3.5" />
-
-              <div className="flex items-center gap-2">
-                <Link
-                  to={`/projects/${project.id}`}
-                  className="h-7 rounded-[var(--radius-sm)] bg-[var(--color-surface)] px-2.5 text-[12px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-hover)] inline-flex items-center"
+          <DataTable<Project>
+            columns={projectTableColumns}
+            data={data?.data ?? []}
+            isLoading={isLoading}
+            isError={isError}
+            errorMessage={isError ? normalizeApiError(error).message : undefined}
+            onRetry={refetch}
+            emptyTitle="No projects yet"
+            emptyDescription="Projects you create will show up here."
+            searchValue={search}
+            onSearchChange={(value) => {
+              setSearch(value)
+              setPageIndex(0)
+            }}
+            searchPlaceholder="Search by name or code…"
+            toolbarFilters={
+              <ProjectFilters
+                status={status}
+                onStatusChange={(next) => {
+                  setStatus(next)
+                  setPageIndex(0)
+                }}
+                clientId={clientId}
+                onClientIdChange={(next) => {
+                  setClientId(next)
+                  setPageIndex(0)
+                }}
+              />
+            }
+            sorting={sorting}
+            onSortingChange={setSorting}
+            pageIndex={pageIndex}
+            pageSize={pageSize}
+            pageCount={data?.meta?.totalPages ?? 0}
+            totalRows={data?.meta?.total}
+            onPageChange={setPageIndex}
+            onPageSizeChange={(size) => {
+              setPageSize(size)
+              setPageIndex(0)
+            }}
+            enableRowSelection
+            rowSelection={rowSelection}
+            onRowSelectionChange={setRowSelection}
+            getRowId={(row) => row.id}
+            bulkActions={(selected) => (
+              <Can permission={PERMISSIONS.PROJECTS_DELETE}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leadingIcon={<Trash2 className="w-3.5 h-3.5" />}
+                  onClick={() => handleBulkDelete(selected)}
+                  loading={deleteMutation.isPending}
                 >
-                  View
-                </Link>
-              </div>
-            </Card>
-          )
-        })}
-      </div>
-    </div>
+                  Delete selected
+                </Button>
+              </Can>
+            )}
+            onRowClick={(row) => navigate(`/projects/${row.id}`)}
+          />
+        </div>
+      </PageContent>
+    </PageLayout>
   )
 }

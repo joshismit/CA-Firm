@@ -21,8 +21,11 @@ import {
   LayoutTemplate,
   UsersRound,
   Shield,
+  KeyRound,
   Settings,
   Bell,
+  FileBarChart,
+  History,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -60,7 +63,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Compliance',
     items: [
-      { label: 'GST Returns', path: '/gst', icon: FileText, badge: 3 },
+      { label: 'GST Returns', path: '/gst', icon: FileText },
       { label: 'Income Tax (ITR)', path: '/itr', icon: Calculator },
       { label: 'TDS / 26Q', path: '/tds', icon: Receipt },
       { label: 'MCA / ROC', path: '/mca', icon: Building2 },
@@ -77,7 +80,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Tasks',
     items: [
-      { label: 'My Tasks', path: '/tasks/my', icon: CheckSquare, badge: 5 },
+      { label: 'My Tasks', path: '/tasks/my', icon: CheckSquare },
       { label: 'Team Tasks', path: '/tasks/team', icon: ClipboardList },
     ],
   },
@@ -89,16 +92,20 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'Staff',
+    label: 'Administration',
     items: [
-      { label: 'Team', path: '/staff', icon: UsersRound },
-      { label: 'Roles & Permissions', path: '/staff/roles', icon: Shield },
+      { label: 'Administration', path: '/staff', icon: UsersRound },
+      { label: 'Users', path: '/staff/users', icon: Users },
+      { label: 'Roles', path: '/staff/roles', icon: Shield },
+      { label: 'Permissions', path: '/staff/permissions', icon: KeyRound },
     ],
   },
   {
     label: 'System',
     items: [
-      { label: 'Notifications', path: '/notifications', icon: Bell, badge: 2 },
+      { label: 'Reports', path: '/reports', icon: FileBarChart },
+      { label: 'Audit Logs', path: '/audit', icon: History },
+      { label: 'Notifications', path: '/notifications', icon: Bell },
       { label: 'Settings', path: '/settings', icon: Settings },
     ],
   },

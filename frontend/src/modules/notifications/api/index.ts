@@ -21,6 +21,16 @@ export async function listNotifications(_filters: NotificationListFilters): Prom
   return notImplemented('listNotifications')
 }
 
+// TODO: GET /api/v1/notifications/:id
+export async function getNotification(_id: string): Promise<Notification> {
+  return notImplemented('getNotification')
+}
+
+// TODO: DELETE /api/v1/notifications/:id
+export async function deleteNotification(_id: string): Promise<void> {
+  return notImplemented('deleteNotification')
+}
+
 // TODO: PATCH /api/v1/notifications/:id/read
 export async function markNotificationAsRead(_id: string): Promise<void> {
   return notImplemented('markNotificationAsRead')

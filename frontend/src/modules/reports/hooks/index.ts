@@ -5,8 +5,17 @@ import { queryKeys } from '@/services/query-keys'
 import { exportReport, generateReport } from '../api'
 import type { ReportExportFormat, ReportFilters, ReportType } from '../types'
 
-export function useReportQuery(type: ReportType, filters: ReportFilters) {
-  return useQuery({ queryKey: queryKeys.reports.report(type, filters), queryFn: () => generateReport(type, filters) })
+// `enabled` defaults to true only for backward compatibility with any existing caller - the
+// report-generation page passes `enabled: hasGenerated` so nothing is attempted until the user
+// clicks "Generate", not on page load. retry:false: a 501 NOT_IMPLEMENTED will never succeed on
+// retry (same convention as modules/compliance and modules/client-billing).
+export function useReportQuery(type: ReportType, filters: ReportFilters, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.reports.report(type, filters),
+    queryFn: () => generateReport(type, filters),
+    enabled: options?.enabled ?? true,
+    retry: false,
+  })
 }
 
 export function useExportReportMutation() {

@@ -1,133 +1,334 @@
 // src/modules/clients/pages/ClientsPage.tsx
+// "All Clients" - a cross-domain hub composing the real Business and Contacts modules (GET
+// /business, GET /contacts) rather than a dedicated Clients backend, which doesn't exist yet (see
+// backend/src/app.ts - no /clients route is mounted; the Client Prisma model has no controller/
+// routes). No new API is invented here: every query below reuses useBusinessesQuery/
+// useContactsQuery, the same hooks BusinessListPage/ContactsListPage already call.
+//
+// Per-tab table columns, filters, and CSV export shape are imported unchanged from the Business and
+// Contacts modules (businessTableColumns/BusinessFilters, contactTableColumns/ContactFilters) - only
+// the page-level state orchestration (search/sort/pagination per entity) lives here, mirroring
+// BusinessListPage/ContactsListPage's own composition since each entity has a distinct filter shape
+// and can't share that wiring without inventing an abstraction neither page asked for.
 import { useState } from 'react'
-import { Plus, Download } from 'lucide-react'
-import { PageHeader } from '@/components/shared/PageHeader/PageHeader'
+import { useNavigate } from 'react-router-dom'
+import { Plus, Trash2 } from 'lucide-react'
+import type { RowSelectionState, SortingState } from '@tanstack/react-table'
+import { PageLayout, PageHeader, PageContent, PageActions } from '@/components/page'
+import { DataTable } from '@/components/tables'
 import { Tabs } from '@/components/shared/Tabs/Tabs'
-import { Card } from '@/components/shared/Card/Card'
-import { Separator } from '@/components/shared/Separator/Separator'
-import { StatusBadge } from '@/components/shared/StatusBadge/StatusBadge'
-import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { formatINR, formatDate } from '@/lib/utils'
+import { Can } from '@/components/common/Can'
+import { ExportButton } from '@/components/shared/ExportButton/ExportButton'
+import { FilterChips, type FilterChip } from '@/components/shared/FilterChips/FilterChips'
+import { PERMISSIONS } from '@/config/permissions.config'
+import { normalizeApiError } from '@/services/api-error'
+import { useDebounce } from '@/hooks'
+import { useBusinessesQuery, useDeleteBusinessMutation } from '@/modules/business/hooks'
+import { businessTableColumns, BusinessFilters } from '@/modules/business/components'
+import { BUSINESS_STATUS_LABELS } from '@/modules/business/constants'
+import type { Business, BusinessListFilters, BusinessStatus } from '@/modules/business/types'
+import { useContactsQuery, useDeleteContactMutation } from '@/modules/contacts/hooks'
+import { contactTableColumns, ContactFilters } from '@/modules/contacts/components'
+import type { Contact, ContactListFilters } from '@/modules/contacts/types'
+import { ClientsSummaryCards, ClientsQuickActions, ClientsRecentActivity } from '../components'
 
-type ClientStatus = 'active' | 'pending' | 'overdue' | 'inactive'
-type TabValue = 'all' | 'active' | 'overdue' | 'archived'
-
-interface ClientRow {
-  id: string
-  name: string
-  pan: string
-  gstin: string
-  status: ClientStatus
-  filings: number
-  lastFiling: string
-  balance: number
-}
-
-const CLIENTS: ClientRow[] = [
-  { id: 'C001', name: 'Apex Manufacturing Pvt. Ltd.', pan: 'AABCA1234B', gstin: '27AABCA1234B1Z5', status: 'active', filings: 8, lastFiling: '2025-06-30', balance: 48500 },
-  { id: 'C002', name: 'Sharma & Sons Traders', pan: 'BSHPS5678C', gstin: '06BSHPS5678C2Z3', status: 'active', filings: 12, lastFiling: '2025-07-01', balance: -12000 },
-  { id: 'C003', name: 'Greenleaf Pharma Ltd.', pan: 'CGPLP9012D', gstin: '29CGPLP9012D3Z1', status: 'pending', filings: 5, lastFiling: '2025-05-31', balance: 0 },
-  { id: 'C004', name: 'Metro Infra Projects', pan: 'DMIPP3456E', gstin: '07DMIPP3456E4Z8', status: 'active', filings: 9, lastFiling: '2025-06-30', balance: 125000 },
-  { id: 'C005', name: 'Sunrise Exports Ltd.', pan: 'ESELE7890F', gstin: '19ESELE7890F5Z2', status: 'overdue', filings: 3, lastFiling: '2025-04-30', balance: -8500 },
-]
-
-const STATUS_CONFIG: Record<ClientStatus, { variant: 'success' | 'warning' | 'danger' | 'default'; label: string }> = {
-  active: { variant: 'success', label: 'Active' },
-  pending: { variant: 'warning', label: 'Pending' },
-  overdue: { variant: 'danger', label: 'Overdue' },
-  inactive: { variant: 'default', label: 'Inactive' },
-}
+type ClientsTab = 'businesses' | 'contacts'
 
 export function ClientsPage() {
-  const [tab, setTab] = useState<TabValue>('active')
+  const navigate = useNavigate()
+  const [tab, setTab] = useState<ClientsTab>('businesses')
 
-  const totalCount = CLIENTS.length
-  const overdueCount = CLIENTS.filter((c) => c.status === 'overdue').length
+  // ─── Businesses tab state ────────────────────────────────────────────────
+  const [bizSearch, setBizSearch] = useState('')
+  const [bizStatus, setBizStatus] = useState<BusinessStatus | undefined>()
+  const [bizTypeId, setBizTypeId] = useState<string | undefined>()
+  const [bizSorting, setBizSorting] = useState<SortingState>([])
+  const [bizRowSelection, setBizRowSelection] = useState<RowSelectionState>({})
+  const [bizPageIndex, setBizPageIndex] = useState(0)
+  const [bizPageSize, setBizPageSize] = useState(20)
+  const debouncedBizSearch = useDebounce(bizSearch, 300)
 
-  const filtered = CLIENTS.filter((c) => {
-    if (tab === 'all') return true
-    if (tab === 'archived') return c.status === 'inactive'
-    return c.status === tab
-  })
+  const businessFilters: BusinessListFilters = {
+    page: bizPageIndex + 1,
+    limit: bizPageSize,
+    search: debouncedBizSearch || undefined,
+    status: bizStatus,
+    typeId: bizTypeId,
+    sortBy: bizSorting[0]?.id,
+    sortOrder: bizSorting[0] ? (bizSorting[0].desc ? 'desc' : 'asc') : undefined,
+  }
+  const businessesQuery = useBusinessesQuery(businessFilters)
+  const deleteBusinessMutation = useDeleteBusinessMutation()
+
+  const handleBulkDeleteBusinesses = async (selected: Business[]) => {
+    if (selected.length === 0) return
+    if (!window.confirm(`Delete ${selected.length} business${selected.length === 1 ? '' : 'es'}? This cannot be undone.`)) return
+    for (const business of selected) {
+      await deleteBusinessMutation.mutateAsync(business.id)
+    }
+    setBizRowSelection({})
+  }
+
+  const bizChips: FilterChip[] = [
+    ...(debouncedBizSearch ? [{ key: 'search', label: `Search: "${debouncedBizSearch}"` }] : []),
+    ...(bizStatus ? [{ key: 'status', label: `Status: ${BUSINESS_STATUS_LABELS[bizStatus] ?? bizStatus}` }] : []),
+    ...(bizTypeId ? [{ key: 'typeId', label: `Type: ${bizTypeId.slice(0, 8)}…` }] : []),
+  ]
+  const removeBizChip = (key: string) => {
+    if (key === 'search') setBizSearch('')
+    if (key === 'status') setBizStatus(undefined)
+    if (key === 'typeId') setBizTypeId(undefined)
+    setBizPageIndex(0)
+  }
+  const clearBizChips = () => {
+    setBizSearch('')
+    setBizStatus(undefined)
+    setBizTypeId(undefined)
+    setBizPageIndex(0)
+  }
+
+  // ─── Contacts tab state ──────────────────────────────────────────────────
+  const [contactSearch, setContactSearch] = useState('')
+  const [contactBusinessId, setContactBusinessId] = useState('')
+  const [contactSorting, setContactSorting] = useState<SortingState>([])
+  const [contactRowSelection, setContactRowSelection] = useState<RowSelectionState>({})
+  const [contactPageIndex, setContactPageIndex] = useState(0)
+  const [contactPageSize, setContactPageSize] = useState(20)
+  const debouncedContactSearch = useDebounce(contactSearch, 300)
+
+  const contactFilters: ContactListFilters = {
+    page: contactPageIndex + 1,
+    limit: contactPageSize,
+    search: debouncedContactSearch || undefined,
+    businessId: contactBusinessId || undefined,
+    sortBy: contactSorting[0]?.id,
+    sortOrder: contactSorting[0] ? (contactSorting[0].desc ? 'desc' : 'asc') : undefined,
+  }
+  const contactsQuery = useContactsQuery(contactFilters)
+  const deleteContactMutation = useDeleteContactMutation()
+
+  const handleBulkDeleteContacts = async (selected: Contact[]) => {
+    if (selected.length === 0) return
+    if (!window.confirm(`Delete ${selected.length} contact${selected.length === 1 ? '' : 's'}? This cannot be undone.`)) return
+    for (const contact of selected) {
+      await deleteContactMutation.mutateAsync(contact.id)
+    }
+    setContactRowSelection({})
+  }
+
+  const contactChips: FilterChip[] = [
+    ...(debouncedContactSearch ? [{ key: 'search', label: `Search: "${debouncedContactSearch}"` }] : []),
+    ...(contactBusinessId ? [{ key: 'businessId', label: `Business: ${contactBusinessId.slice(0, 8)}…` }] : []),
+  ]
+  const removeContactChip = (key: string) => {
+    if (key === 'search') setContactSearch('')
+    if (key === 'businessId') setContactBusinessId('')
+    setContactPageIndex(0)
+  }
+  const clearContactChips = () => {
+    setContactSearch('')
+    setContactBusinessId('')
+    setContactPageIndex(0)
+  }
 
   return (
-    <div className="space-y-6">
+    <PageLayout>
       <PageHeader
-        title="Clients"
-        description={`${totalCount} active · ${overdueCount} overdue filings`}
+        title="All Clients"
+        description="Unified view across Businesses and Contacts"
         actions={
-          <>
-            <Button variant="secondary" size="sm" className="bg-transparent" leadingIcon={<Download className="w-3.5 h-3.5" />}>
-              Export
-            </Button>
-            <Button variant="primary" size="sm" leadingIcon={<Plus className="w-3.5 h-3.5" />}>
-              Add Client
-            </Button>
-          </>
+          <PageActions>
+            {tab === 'businesses' ? (
+              <>
+                <ExportButton
+                  rows={businessesQuery.data?.data ?? []}
+                  filename="businesses"
+                  columns={[
+                    { header: 'Name', accessor: (b) => b.name },
+                    { header: 'Legal Name', accessor: (b) => b.legalName },
+                    { header: 'PAN', accessor: (b) => b.pan },
+                    { header: 'GSTIN', accessor: (b) => b.gstin },
+                    { header: 'Status', accessor: (b) => b.status },
+                    { header: 'Industry', accessor: (b) => b.industry },
+                    { header: 'Created', accessor: (b) => b.createdAt },
+                  ]}
+                />
+                <Can permission={PERMISSIONS.BUSINESS_CREATE}>
+                  <Button leadingIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => navigate('/business/new')}>
+                    New Business
+                  </Button>
+                </Can>
+              </>
+            ) : (
+              <>
+                <ExportButton
+                  rows={contactsQuery.data?.data ?? []}
+                  filename="contacts"
+                  columns={[
+                    { header: 'First Name', accessor: (c) => c.firstName },
+                    { header: 'Last Name', accessor: (c) => c.lastName },
+                    { header: 'Email', accessor: (c) => c.email },
+                    { header: 'Phone', accessor: (c) => c.phone },
+                    { header: 'PAN', accessor: (c) => c.pan },
+                    { header: 'Created', accessor: (c) => c.createdAt },
+                  ]}
+                />
+                <Can permission={PERMISSIONS.CONTACTS_CREATE}>
+                  <Button leadingIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => navigate('/contacts/new')}>
+                    New Contact
+                  </Button>
+                </Can>
+              </>
+            )}
+          </PageActions>
         }
       />
 
-      <Tabs
-        value={tab}
-        onChange={(v) => setTab(v as TabValue)}
-        tabs={[
-          { value: 'all', label: 'All', badge: totalCount },
-          { value: 'active', label: 'Active' },
-          { value: 'overdue', label: 'Overdue', badge: overdueCount },
-          { value: 'archived', label: 'Archived' },
-        ]}
-      />
+      <PageContent>
+        <ClientsSummaryCards />
 
-      <div className="space-y-3">
-        {filtered.map((client) => {
-          const status = STATUS_CONFIG[client.status]
-          return (
-            <Card key={client.id}>
-              <div className="flex items-start justify-between gap-4">
-                <h4 className="text-[15px] font-semibold text-[var(--color-text-heading)]">{client.name}</h4>
-                <StatusBadge variant={status.variant} dot>
-                  {status.label}
-                </StatusBadge>
-              </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-1">
+            <ClientsQuickActions />
+          </div>
+          <div className="lg:col-span-2">
+            <ClientsRecentActivity />
+          </div>
+        </div>
 
-              <div className="mt-3 flex items-center justify-between gap-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <Avatar name={client.name} size="md" />
-                  <div className="min-w-0 text-[12px]">
-                    <p className="text-[var(--color-text-secondary)]">
-                      <span className="text-[var(--color-text-muted)]">PAN</span> {client.pan}
-                    </p>
-                    <p className="mt-0.5 text-[var(--color-text-muted)]">
-                      {client.filings} filings · Last GSTR-1 filed {formatDate(client.lastFiling)}
-                    </p>
-                  </div>
-                </div>
+        <Tabs
+          value={tab}
+          onChange={(v) => setTab(v as ClientsTab)}
+          tabs={[
+            { value: 'businesses', label: 'Businesses', badge: businessesQuery.data?.meta.total },
+            { value: 'contacts', label: 'Contacts', badge: contactsQuery.data?.meta.total },
+          ]}
+        />
 
-                <div className="shrink-0 text-right">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-                    Outstanding
-                  </p>
-                  <p className="mt-0.5 font-mono text-[16px] font-bold tabular-nums text-[var(--color-text-heading)]">
-                    {client.balance === 0 ? '—' : formatINR(Math.abs(client.balance), 0)}
-                  </p>
-                </div>
-              </div>
-
-              <Separator className="my-3.5" />
-
-              <div className="flex items-center gap-2">
-                <button className="h-7 rounded-[var(--radius-sm)] bg-[var(--color-surface)] px-2.5 text-[12px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-hover)]">
-                  View profile
-                </button>
-                <button className="h-7 rounded-[var(--radius-sm)] px-2.5 text-[12px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-hover)]">
-                  Documents
-                </button>
-              </div>
-            </Card>
-          )
-        })}
-      </div>
-    </div>
+        {tab === 'businesses' ? (
+          <div className="space-y-4">
+            <FilterChips chips={bizChips} onRemove={removeBizChip} onClearAll={clearBizChips} />
+            <DataTable<Business>
+              columns={businessTableColumns}
+              data={businessesQuery.data?.data ?? []}
+              isLoading={businessesQuery.isLoading}
+              isError={businessesQuery.isError}
+              errorMessage={businessesQuery.isError ? normalizeApiError(businessesQuery.error).message : undefined}
+              onRetry={businessesQuery.refetch}
+              emptyTitle="No businesses yet"
+              emptyDescription="Businesses you create will show up here."
+              searchValue={bizSearch}
+              onSearchChange={(value) => {
+                setBizSearch(value)
+                setBizPageIndex(0)
+              }}
+              searchPlaceholder="Search by name, PAN, GSTIN…"
+              toolbarFilters={
+                <BusinessFilters
+                  status={bizStatus}
+                  onStatusChange={(next) => {
+                    setBizStatus(next)
+                    setBizPageIndex(0)
+                  }}
+                  typeId={bizTypeId}
+                  onTypeIdChange={(next) => {
+                    setBizTypeId(next)
+                    setBizPageIndex(0)
+                  }}
+                />
+              }
+              sorting={bizSorting}
+              onSortingChange={setBizSorting}
+              pageIndex={bizPageIndex}
+              pageSize={bizPageSize}
+              pageCount={businessesQuery.data?.meta?.totalPages ?? 0}
+              totalRows={businessesQuery.data?.meta?.total}
+              onPageChange={setBizPageIndex}
+              onPageSizeChange={(size) => {
+                setBizPageSize(size)
+                setBizPageIndex(0)
+              }}
+              enableRowSelection
+              rowSelection={bizRowSelection}
+              onRowSelectionChange={setBizRowSelection}
+              getRowId={(row) => row.id}
+              bulkActions={(selected) => (
+                <Can permission={PERMISSIONS.BUSINESS_DELETE}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    leadingIcon={<Trash2 className="w-3.5 h-3.5" />}
+                    onClick={() => handleBulkDeleteBusinesses(selected)}
+                    loading={deleteBusinessMutation.isPending}
+                  >
+                    Delete selected
+                  </Button>
+                </Can>
+              )}
+              onRowClick={(row) => navigate(`/business/${row.id}`)}
+            />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <FilterChips chips={contactChips} onRemove={removeContactChip} onClearAll={clearContactChips} />
+            <DataTable<Contact>
+              columns={contactTableColumns}
+              data={contactsQuery.data?.data ?? []}
+              isLoading={contactsQuery.isLoading}
+              isError={contactsQuery.isError}
+              errorMessage={contactsQuery.isError ? normalizeApiError(contactsQuery.error).message : undefined}
+              onRetry={contactsQuery.refetch}
+              emptyTitle="No contacts yet"
+              emptyDescription="Contacts you create will show up here."
+              searchValue={contactSearch}
+              onSearchChange={(value) => {
+                setContactSearch(value)
+                setContactPageIndex(0)
+              }}
+              searchPlaceholder="Search by name, email, phone…"
+              toolbarFilters={
+                <ContactFilters
+                  businessId={contactBusinessId}
+                  onBusinessIdChange={(next) => {
+                    setContactBusinessId(next)
+                    setContactPageIndex(0)
+                  }}
+                />
+              }
+              sorting={contactSorting}
+              onSortingChange={setContactSorting}
+              pageIndex={contactPageIndex}
+              pageSize={contactPageSize}
+              pageCount={contactsQuery.data?.meta?.totalPages ?? 0}
+              totalRows={contactsQuery.data?.meta?.total}
+              onPageChange={setContactPageIndex}
+              onPageSizeChange={(size) => {
+                setContactPageSize(size)
+                setContactPageIndex(0)
+              }}
+              enableRowSelection
+              rowSelection={contactRowSelection}
+              onRowSelectionChange={setContactRowSelection}
+              getRowId={(row) => row.id}
+              bulkActions={(selected) => (
+                <Can permission={PERMISSIONS.CONTACTS_DELETE}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    leadingIcon={<Trash2 className="w-3.5 h-3.5" />}
+                    onClick={() => handleBulkDeleteContacts(selected)}
+                    loading={deleteContactMutation.isPending}
+                  >
+                    Delete selected
+                  </Button>
+                </Can>
+              )}
+              onRowClick={(row) => navigate(`/contacts/${row.id}`)}
+            />
+          </div>
+        )}
+      </PageContent>
+    </PageLayout>
   )
 }

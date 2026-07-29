@@ -1,19 +1,23 @@
 // auth API request functions, built on the shared Axios instance from src/services/axios.ts.
 //
-// The backend has no /auth/login endpoint yet (backend/src/modules/auth is an empty stub), so
-// loginRequest() below is a stand-in that resolves fixture data shaped exactly like the real
-// response will be, against the JWT payload backend/src/middlewares/auth.middleware.ts already
-// expects: { sub, email, role, tenantId, permissions, iat, exp }.
+// loginRequest() below is still a client-side dev fixture (not a real network call) - it stands
+// in for POST /auth/login, which the frontend isn't wired to yet even though the backend now
+// implements it (backend/src/modules/auth/routes/auth.routes.ts). getMe/changePassword/
+// listSessions/revokeSession below are NOT stand-ins, though - those backend routes are real and
+// mounted, so they call apiClient directly like every other real module's API layer.
 //
-// SWAP PLAN: once the backend ships POST /auth/login, replace this function's body with:
+// SWAP PLAN for login: once the frontend is wired to a real refresh-token flow, replace
+// loginRequest()'s body with:
 //   const { data } = await apiClient.post<ApiResponse<LoginResponse>>('/auth/login', credentials)
 //   return data.data
 // The signature and return type stay identical - no caller needs to change.
 
 import type { ApiError } from '@/services/api-error'
+import { apiClient } from '@/services/axios'
+import type { ApiResponse } from '@/types/api.types'
 import { PERMISSIONS } from '@/config/permissions.config'
 import { env } from '@/config/env'
-import type { LoginRequest, LoginResponse, LoginResponseUser } from '../types'
+import type { AuthMeResponse, AuthSession, ChangePasswordPayload, LoginRequest, LoginResponse, LoginResponseUser } from '../types'
 
 const FIXTURE_TENANT = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -118,4 +122,24 @@ export async function loginRequest(credentials: LoginRequest): Promise<LoginResp
     user,
     tenant: FIXTURE_TENANT,
   }
+}
+
+// ─── Real endpoints (backend/src/modules/auth/routes/auth.routes.ts) ──────────
+
+export async function getMe(): Promise<AuthMeResponse> {
+  const { data } = await apiClient.get<ApiResponse<AuthMeResponse>>('/auth/me')
+  return data.data
+}
+
+export async function changePassword(payload: ChangePasswordPayload): Promise<void> {
+  await apiClient.post('/auth/change-password', payload)
+}
+
+export async function listSessions(): Promise<AuthSession[]> {
+  const { data } = await apiClient.get<ApiResponse<AuthSession[]>>('/auth/sessions')
+  return data.data
+}
+
+export async function revokeSession(id: string): Promise<void> {
+  await apiClient.delete(`/auth/sessions/${id}`)
 }

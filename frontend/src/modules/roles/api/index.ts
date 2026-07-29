@@ -7,6 +7,7 @@
 
 import type { ApiError } from '@/services/api-error'
 import type { PaginatedResponse } from '@/types/api.types'
+import type { User } from '@/modules/users/types'
 import type { AssignRolePayload, CreateRolePayload, Role, RoleListFilters, UpdateRolePayload } from '../types'
 
 function notImplemented(action: string): never {
@@ -50,4 +51,9 @@ export async function assignRole(_payload: AssignRolePayload): Promise<void> {
 // TODO: POST /api/v1/roles/revoke
 export async function revokeRole(_payload: AssignRolePayload): Promise<void> {
   return notImplemented('revokeRole')
+}
+
+// TODO: GET /api/v1/roles/:id/users
+export async function getRoleUsers(_roleId: string): Promise<User[]> {
+  return notImplemented('getRoleUsers')
 }

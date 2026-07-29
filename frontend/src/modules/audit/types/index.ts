@@ -29,8 +29,12 @@ export interface AuditLogEntry {
 export interface AuditLogFilters {
   page?: number
   limit?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+  search?: string
   eventType?: AuditEventType
   actorId?: string
+  targetType?: string
   from?: string
   to?: string
 }

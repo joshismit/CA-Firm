@@ -20,3 +20,8 @@ function notImplemented(action: string): never {
 export async function listAuditLogs(_filters: AuditLogFilters): Promise<PaginatedResponse<AuditLogEntry>> {
   return notImplemented('listAuditLogs')
 }
+
+// TODO: GET /api/v1/audit-logs/:id
+export async function getAuditLogEntry(_id: string): Promise<AuditLogEntry> {
+  return notImplemented('getAuditLogEntry')
+}

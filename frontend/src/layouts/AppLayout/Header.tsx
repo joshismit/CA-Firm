@@ -5,6 +5,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { useAuthStore } from '@/store/auth.store'
 import { useUiStore } from '@/store/ui.store'
 import { Breadcrumb } from '@/components/navigation'
+import { useNotificationsQuery } from '@/modules/notifications/hooks'
 import {
   Search,
   Sun,
@@ -22,6 +23,10 @@ export function Header() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const setCommandMenuOpen = useUiStore((s) => s.setCommandMenuOpen)
+  // Real query, not a hardcoded badge - there's no notifications backend yet, so this genuinely
+  // errors and the unread dot simply never renders rather than showing a fabricated count.
+  const unreadQuery = useNotificationsQuery({ page: 1, limit: 1, unreadOnly: true })
+  const unreadCount = unreadQuery.data?.meta.total ?? 0
 
   const displayName = user
     ? [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email
@@ -85,15 +90,18 @@ export function Header() {
 
         {/* Notifications */}
         <button
+          onClick={() => navigate('/notifications')}
           className={cn(
             'relative flex items-center justify-center w-8 h-8 rounded-[var(--radius-md)]',
             'text-[var(--color-text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-text-body)]',
             'transition-colors duration-100'
           )}
-          aria-label="Notifications (2 unread)"
+          aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
         >
           <Bell className="w-4 h-4" />
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[var(--color-danger)] border-2 border-[var(--color-sidebar)]" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[var(--color-danger)] border-2 border-[var(--color-sidebar)]" />
+          )}
         </button>
 
         {/* Divider */}

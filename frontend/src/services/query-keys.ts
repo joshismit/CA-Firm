@@ -16,12 +16,20 @@ import type { ReportFilters, ReportType } from '@/modules/reports/types'
 import type { AuditLogFilters } from '@/modules/audit/types'
 import type { UserListFilters } from '@/modules/users/types'
 import type { RoleListFilters } from '@/modules/roles/types'
+import type { ComplianceFilingListFilters, ComplianceModuleKey } from '@/modules/compliance/types'
+import type {
+  ExpenseListFilters,
+  InvoiceListFilters as ClientInvoiceListFilters,
+  PaymentListFilters,
+} from '@/modules/client-billing/types'
 
 export const queryKeys = {
   // No GET-based session/profile query exists yet (login is a mutation) - reserved for when a
   // real /auth/me endpoint lands.
   auth: {
     session: ['auth', 'session'] as const,
+    me: ['auth', 'me'] as const,
+    sessions: ['auth', 'sessions'] as const,
   },
 
   projects: {
@@ -87,6 +95,8 @@ export const queryKeys = {
     all: ['notifications'] as const,
     lists: () => [...queryKeys.notifications.all, 'list'] as const,
     list: (filters: NotificationListFilters) => [...queryKeys.notifications.lists(), filters] as const,
+    details: () => [...queryKeys.notifications.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.notifications.details(), id] as const,
     preferences: ['notifications', 'preferences'] as const,
   },
   reports: {
@@ -94,6 +104,8 @@ export const queryKeys = {
   },
   audit: {
     list: (filters: AuditLogFilters) => ['audit', 'logs', filters] as const,
+    details: ['audit', 'logs', 'detail'] as const,
+    detail: (id: string) => [...queryKeys.audit.details, id] as const,
   },
   users: {
     all: ['users'] as const,
@@ -101,6 +113,8 @@ export const queryKeys = {
     list: (filters: UserListFilters) => [...queryKeys.users.lists(), filters] as const,
     details: () => [...queryKeys.users.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.users.details(), id] as const,
+    roles: (id: string) => [...queryKeys.users.all, 'roles', id] as const,
+    sessions: (id: string) => [...queryKeys.users.all, 'sessions', id] as const,
   },
   roles: {
     all: ['roles'] as const,
@@ -108,10 +122,47 @@ export const queryKeys = {
     list: (filters: RoleListFilters) => [...queryKeys.roles.lists(), filters] as const,
     details: () => [...queryKeys.roles.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.roles.details(), id] as const,
+    users: (id: string) => [...queryKeys.roles.all, 'users', id] as const,
   },
   permissions: {
     list: ['permissions', 'list'] as const,
     groups: ['permissions', 'groups'] as const,
     matrix: (roleId: string) => ['permissions', 'matrix', roleId] as const,
+  },
+  settings: {
+    firm: ['settings', 'firm'] as const,
+    team: ['settings', 'team'] as const,
+    integrations: ['settings', 'integrations'] as const,
+  },
+  compliance: {
+    all: (moduleKey: ComplianceModuleKey) => ['compliance', moduleKey] as const,
+    lists: (moduleKey: ComplianceModuleKey) => [...queryKeys.compliance.all(moduleKey), 'list'] as const,
+    list: (moduleKey: ComplianceModuleKey, filters: ComplianceFilingListFilters) =>
+      [...queryKeys.compliance.lists(moduleKey), filters] as const,
+    details: (moduleKey: ComplianceModuleKey) => [...queryKeys.compliance.all(moduleKey), 'detail'] as const,
+    detail: (moduleKey: ComplianceModuleKey, id: string) => [...queryKeys.compliance.details(moduleKey), id] as const,
+  },
+  // Client-facing billing (Invoices/Expenses/Payments to the firm's own clients) - distinct from
+  // the `billing` section above, which is the tenant's own SaaS subscription billing.
+  clientInvoices: {
+    all: ['client-billing', 'invoices'] as const,
+    lists: () => [...queryKeys.clientInvoices.all, 'list'] as const,
+    list: (filters: ClientInvoiceListFilters) => [...queryKeys.clientInvoices.lists(), filters] as const,
+    details: () => [...queryKeys.clientInvoices.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.clientInvoices.details(), id] as const,
+  },
+  clientExpenses: {
+    all: ['client-billing', 'expenses'] as const,
+    lists: () => [...queryKeys.clientExpenses.all, 'list'] as const,
+    list: (filters: ExpenseListFilters) => [...queryKeys.clientExpenses.lists(), filters] as const,
+    details: () => [...queryKeys.clientExpenses.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.clientExpenses.details(), id] as const,
+  },
+  clientPayments: {
+    all: ['client-billing', 'payments'] as const,
+    lists: () => [...queryKeys.clientPayments.all, 'list'] as const,
+    list: (filters: PaymentListFilters) => [...queryKeys.clientPayments.lists(), filters] as const,
+    details: () => [...queryKeys.clientPayments.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.clientPayments.details(), id] as const,
   },
 } as const
