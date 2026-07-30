@@ -1,6 +1,5 @@
 // TypeScript types and interfaces scoped to users.
-// Field shapes mirror the User/UserInvitation Prisma models (backend/prisma/schema.prisma) - the
-// backend has a full schema for this but no mounted routes yet.
+// Field shapes mirror backend/src/modules/users/dto/user.res.dto.ts exactly.
 
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'INVITED' | 'SUSPENDED' | 'DELETED'
 

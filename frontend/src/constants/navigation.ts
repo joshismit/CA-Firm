@@ -26,6 +26,7 @@ import {
   Bell,
   FileBarChart,
   History,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -39,6 +40,8 @@ export interface NavItem {
 export interface NavGroup {
   label: string
   items: NavItem[]
+  /** Restricts this entire group to users whose `role` is one of these - omit to show to everyone. */
+  roles?: string[]
 }
 
 export const NAV_GROUPS: NavGroup[] = [
@@ -108,5 +111,12 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: 'Notifications', path: '/notifications', icon: Bell },
       { label: 'Settings', path: '/settings', icon: Settings },
     ],
+  },
+  {
+    label: 'Platform',
+    // Same 'MASTER_ADMIN' role literal MasterAdminGuard (routes/master-admin.routes.tsx) already
+    // gates on - a tenant user would just hit /403 if this were visible without the filter.
+    roles: ['MASTER_ADMIN'],
+    items: [{ label: 'Master Admin', path: '/master-admin', icon: ShieldCheck }],
   },
 ]

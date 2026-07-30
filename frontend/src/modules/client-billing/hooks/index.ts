@@ -1,9 +1,5 @@
 // client-billing-scoped React hooks - data-fetching wrappers (TanStack Query) for Invoices,
-// Expenses, and Payments. Every query/mutation genuinely calls the real (currently-stubbed) API
-// functions, so isError/error reflect a real 501 rejection, not a fabricated empty result - same
-// convention as modules/billing, modules/compliance, modules/reports, etc. `retry: false` on every
-// query: a 501 NOT_IMPLEMENTED will never succeed on retry, so there's no reason to pay React
-// Query's default 3-retry backoff before the honest error shows.
+// Expenses, and Payments.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/services/query-keys'
 import {
@@ -38,11 +34,11 @@ import type {
 // ─── Invoices ─────────────────────────────────────────────────────────────────
 
 export function useInvoicesQuery(filters: InvoiceListFilters) {
-  return useQuery({ queryKey: queryKeys.clientInvoices.list(filters), queryFn: () => listInvoices(filters), retry: false })
+  return useQuery({ queryKey: queryKeys.clientInvoices.list(filters), queryFn: () => listInvoices(filters) })
 }
 
 export function useInvoiceQuery(id: string) {
-  return useQuery({ queryKey: queryKeys.clientInvoices.detail(id), queryFn: () => getInvoice(id), enabled: !!id, retry: false })
+  return useQuery({ queryKey: queryKeys.clientInvoices.detail(id), queryFn: () => getInvoice(id), enabled: !!id })
 }
 
 export function useCreateInvoiceMutation() {
@@ -75,11 +71,11 @@ export function useDeleteInvoiceMutation() {
 // ─── Expenses ─────────────────────────────────────────────────────────────────
 
 export function useExpensesQuery(filters: ExpenseListFilters) {
-  return useQuery({ queryKey: queryKeys.clientExpenses.list(filters), queryFn: () => listExpenses(filters), retry: false })
+  return useQuery({ queryKey: queryKeys.clientExpenses.list(filters), queryFn: () => listExpenses(filters) })
 }
 
 export function useExpenseQuery(id: string) {
-  return useQuery({ queryKey: queryKeys.clientExpenses.detail(id), queryFn: () => getExpense(id), enabled: !!id, retry: false })
+  return useQuery({ queryKey: queryKeys.clientExpenses.detail(id), queryFn: () => getExpense(id), enabled: !!id })
 }
 
 export function useCreateExpenseMutation() {
@@ -112,11 +108,11 @@ export function useDeleteExpenseMutation() {
 // ─── Payments ─────────────────────────────────────────────────────────────────
 
 export function usePaymentsQuery(filters: PaymentListFilters) {
-  return useQuery({ queryKey: queryKeys.clientPayments.list(filters), queryFn: () => listPayments(filters), retry: false })
+  return useQuery({ queryKey: queryKeys.clientPayments.list(filters), queryFn: () => listPayments(filters) })
 }
 
 export function usePaymentQuery(id: string) {
-  return useQuery({ queryKey: queryKeys.clientPayments.detail(id), queryFn: () => getPayment(id), enabled: !!id, retry: false })
+  return useQuery({ queryKey: queryKeys.clientPayments.detail(id), queryFn: () => getPayment(id), enabled: !!id })
 }
 
 export function useCreatePaymentMutation() {

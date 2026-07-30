@@ -13,18 +13,17 @@ import {
 } from '../api'
 import type { NotificationListFilters, NotificationPreference } from '../types'
 
-// retry: false on every query below - a 501 NOT_IMPLEMENTED will never succeed on retry, so
-// there's no reason to pay React Query's default 3-retry backoff before the honest error shows
-// (same convention as modules/compliance and modules/client-billing).
-
 export function useNotificationsQuery(filters: NotificationListFilters) {
-  return useQuery({ queryKey: queryKeys.notifications.list(filters), queryFn: () => listNotifications(filters), retry: false })
+  return useQuery({ queryKey: queryKeys.notifications.list(filters), queryFn: () => listNotifications(filters) })
 }
 
 export function useNotificationQuery(id: string) {
-  return useQuery({ queryKey: queryKeys.notifications.detail(id), queryFn: () => getNotification(id), enabled: !!id, retry: false })
+  return useQuery({ queryKey: queryKeys.notifications.detail(id), queryFn: () => getNotification(id), enabled: !!id })
 }
 
+// retry: false - getNotificationPreferences has no backend counterpart yet (out of scope for the
+// Notifications backend module - see api/index.ts's header comment), so a 501 NOT_IMPLEMENTED will
+// never succeed on retry.
 export function useNotificationPreferencesQuery() {
   return useQuery({ queryKey: queryKeys.notifications.preferences, queryFn: getNotificationPreferences, retry: false })
 }

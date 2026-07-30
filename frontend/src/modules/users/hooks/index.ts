@@ -1,7 +1,4 @@
 // users-scoped React hooks - data-fetching wrappers (TanStack Query) and local UI state.
-// retry: false everywhere - a 501 NOT_IMPLEMENTED will never succeed on retry (same convention as
-// modules/compliance, modules/client-billing, modules/notifications, modules/reports, modules/audit,
-// modules/settings).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/services/query-keys'
@@ -19,19 +16,19 @@ import {
 import type { InviteUserPayload, UpdateUserPayload, UserListFilters } from '../types'
 
 export function useUsersQuery(filters: UserListFilters) {
-  return useQuery({ queryKey: queryKeys.users.list(filters), queryFn: () => listUsers(filters), retry: false })
+  return useQuery({ queryKey: queryKeys.users.list(filters), queryFn: () => listUsers(filters) })
 }
 
 export function useUserQuery(id: string) {
-  return useQuery({ queryKey: queryKeys.users.detail(id), queryFn: () => getUser(id), enabled: !!id, retry: false })
+  return useQuery({ queryKey: queryKeys.users.detail(id), queryFn: () => getUser(id), enabled: !!id })
 }
 
 export function useUserRolesQuery(id: string) {
-  return useQuery({ queryKey: queryKeys.users.roles(id), queryFn: () => getUserRoles(id), enabled: !!id, retry: false })
+  return useQuery({ queryKey: queryKeys.users.roles(id), queryFn: () => getUserRoles(id), enabled: !!id })
 }
 
 export function useUserSessionsQuery(id: string) {
-  return useQuery({ queryKey: queryKeys.users.sessions(id), queryFn: () => getUserSessions(id), enabled: !!id, retry: false })
+  return useQuery({ queryKey: queryKeys.users.sessions(id), queryFn: () => getUserSessions(id), enabled: !!id })
 }
 
 export function useInviteUserMutation() {

@@ -5,8 +5,26 @@ import { useNavigate } from 'react-router-dom'
 import { queryKeys } from '@/services/query-keys'
 import { useAuthStore } from '@/store/auth.store'
 import { useTenantStore } from '@/store/tenant.store'
-import { changePassword, getMe, listSessions, loginRequest, revokeSession } from '../api'
-import type { ChangePasswordPayload } from '../types'
+import {
+  acceptInviteRequest,
+  changePassword,
+  forgotPasswordRequest,
+  getInviteInfo,
+  getMe,
+  listSessions,
+  loginRequest,
+  logoutRequest,
+  registerRequest,
+  resetPasswordRequest,
+  revokeSession,
+} from '../api'
+import type {
+  AcceptInviteRequest,
+  ChangePasswordPayload,
+  ForgotPasswordRequest,
+  RegisterRequest,
+  ResetPasswordRequest,
+} from '../types'
 
 export function useLoginMutation() {
   const login = useAuthStore((s) => s.login)
@@ -16,9 +34,28 @@ export function useLoginMutation() {
   return useMutation({
     mutationFn: loginRequest,
     onSuccess: (data) => {
-      login(data.accessToken, data.user)
+      login(data.accessToken, data.refreshToken, data.user)
       setTenant(data.tenant)
       navigate('/dashboard', { replace: true })
+    },
+  })
+}
+
+/** Best-effort: revokes the session server-side, but clears local state and navigates to /login
+ * regardless of whether the request succeeds (a network failure shouldn't trap the user in a
+ * "signed in" state they can no longer act on). */
+export function useLogoutMutation() {
+  const refreshToken = useAuthStore((s) => s.refreshToken)
+  const logout = useAuthStore((s) => s.logout)
+  const navigate = useNavigate()
+
+  return useMutation({
+    mutationFn: async () => {
+      if (refreshToken) await logoutRequest({ refreshToken }).catch(() => undefined)
+    },
+    onSettled: () => {
+      logout()
+      navigate('/login', { replace: true })
     },
   })
 }
@@ -56,4 +93,32 @@ export function useChangePasswordMutation() {
       navigate('/login', { replace: true })
     },
   })
+}
+
+// `retry: false` below - every one of these genuinely 501s today (see api/index.ts), no point
+// retry-storming a guaranteed failure.
+
+export function useRegisterMutation() {
+  return useMutation({ mutationFn: (payload: RegisterRequest) => registerRequest(payload) })
+}
+
+export function useForgotPasswordMutation() {
+  return useMutation({ mutationFn: (payload: ForgotPasswordRequest) => forgotPasswordRequest(payload) })
+}
+
+export function useResetPasswordMutation() {
+  return useMutation({ mutationFn: (payload: ResetPasswordRequest) => resetPasswordRequest(payload) })
+}
+
+export function useInviteInfoQuery(token: string) {
+  return useQuery({
+    queryKey: queryKeys.auth.invite(token),
+    queryFn: () => getInviteInfo(token),
+    enabled: !!token,
+    retry: false,
+  })
+}
+
+export function useAcceptInviteMutation() {
+  return useMutation({ mutationFn: (payload: AcceptInviteRequest) => acceptInviteRequest(payload) })
 }

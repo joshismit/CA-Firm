@@ -25,6 +25,7 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seeds/index.ts",
     "seed": "npm run prisma:seed",
+    "seed:dev": "ts-node prisma/seeds/dev-data.seed.ts",
     "prisma:reset": "prisma migrate reset"
   },
   "dependencies": {

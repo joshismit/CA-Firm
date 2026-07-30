@@ -226,6 +226,53 @@ const CRM_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   },
 ];
 
+const DOCUMENT_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.CREATE,
+    dbAction: PrismaPermissionAction.CREATE,
+    name: 'Create Documents',
+    description: 'Upload new documents.',
+  },
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Documents',
+    description: 'View document details and lists.',
+  },
+  {
+    action: PermissionAction.UPDATE,
+    dbAction: PrismaPermissionAction.UPDATE,
+    name: 'Update Documents',
+    description: 'Edit document metadata and upload new versions.',
+  },
+  {
+    action: PermissionAction.DELETE,
+    dbAction: PrismaPermissionAction.DELETE,
+    name: 'Delete Documents',
+    description: 'Soft-delete documents.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Documents',
+    description: 'Full control over documents, including restoring soft-deleted documents.',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.APPROVE,
+    dbAction: PrismaPermissionAction.APPROVE,
+    name: 'Approve Documents',
+    description: 'Approve document-level actions requiring sign-off.',
+    isSensitive: true,
+  },
+  {
+    action: PermissionAction.EXPORT,
+    dbAction: PrismaPermissionAction.EXPORT,
+    name: 'Export Documents',
+    description: 'Export/download document lists and reports.',
+  },
+];
+
 const TASK_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   {
     action: PermissionAction.CREATE,
@@ -274,6 +321,81 @@ const TASK_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
 ];
 
 /**
+ * Only READ/MANAGE — the frontend's permission registry
+ * (frontend/src/config/permissions.config.ts) never defines granular
+ * `users:create`/`update`/`delete` for this resource, only
+ * `PERMISSIONS.USERS_READ`/`USERS_MANAGE` (see
+ * `src/modules/users/constants/user.permissions.ts`), so this mirrors that
+ * exactly instead of seeding permissions no role assignment or `<Can>` guard
+ * will ever reference.
+ */
+const USER_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Users',
+    description: 'View staff user details, lists, and their assigned roles/sessions.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Users',
+    description: 'Invite, update, and remove staff users, and manage their invitations.',
+    isSensitive: true,
+  },
+];
+
+/**
+ * Only READ/MANAGE — the frontend's permission registry
+ * (frontend/src/config/permissions.config.ts) never defines granular
+ * `roles:create`/`update`/`delete` for this resource, only
+ * `PERMISSIONS.ROLES_READ`/`ROLES_MANAGE` (see
+ * `src/modules/roles/constants/role.permissions.ts`), so this mirrors that
+ * exactly instead of seeding permissions no role assignment or `<Can>` guard
+ * will ever reference.
+ */
+const ROLE_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Roles',
+    description: 'View role details, lists, and the users assigned to each role.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Roles',
+    description: 'Create, update, and delete custom roles, and assign/revoke roles for users.',
+    isSensitive: true,
+  },
+];
+
+/**
+ * Client Billing (Invoices/Expenses/Payments to the firm's own clients) —
+ * only READ/MANAGE, shared across all three sub-resources; the frontend's
+ * permission registry defines only `PERMISSIONS.CLIENT_BILLING_READ`/
+ * `MANAGE`, no granular `invoice:*`/`expense:*`/`payment:*` codes (see
+ * `src/modules/client-billing/constants/client-billing.permissions.ts`).
+ * Deliberately distinct from `PermissionResource.BILLING` (the unrelated
+ * SaaS-subscription resource) — never conflated with it.
+ */
+const CLIENT_BILLING_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Client Billing',
+    description: 'View invoices, expenses, and payments for the firm\'s own clients.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Client Billing',
+    description: 'Create, update, and delete invoices, expenses, and payments for the firm\'s own clients.',
+    isSensitive: true,
+  },
+];
+
+/**
  * Upserts every permission for a single resource, keyed on the unique `code`
  * column. Safe to run any number of times — never creates duplicates.
  */
@@ -309,10 +431,12 @@ async function upsertResourcePermissions(
 }
 
 /**
- * Seeds all `Permission` records for the Projects, Tasks, Business, Contacts, and CRM modules.
- * Idempotent — re-running upserts on the unique `code` column instead of
- * inserting duplicates. Does not touch `Role`, `PermissionGroup`, or
- * `RolePermission` — role/grant seeding is explicitly out of scope here.
+ * Seeds all `Permission` records for the Projects, Tasks, Business, Contacts,
+ * CRM, Documents, Users, and Roles modules — i.e. every module actually
+ * wired up in `src/app.ts`. Idempotent — re-running upserts on the unique
+ * `code` column instead of inserting duplicates. Does not touch `Role` rows
+ * themselves or `RolePermission` grants — role/grant seeding is explicitly
+ * out of scope here.
  */
 export async function seedPermissions(prisma: PrismaClient): Promise<void> {
   await upsertResourcePermissions(
@@ -324,4 +448,8 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
   await upsertResourcePermissions(prisma, PermissionResource.BUSINESS, BUSINESS_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.CONTACTS, CONTACT_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.CRM, CRM_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.DOCUMENTS, DOCUMENT_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.USERS, USER_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.ROLES, ROLE_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.CLIENT_BILLING, CLIENT_BILLING_PERMISSION_DEFINITIONS);
 }

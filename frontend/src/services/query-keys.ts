@@ -9,7 +9,7 @@ import type { TaskListFilters } from '@/modules/tasks/types'
 import type { BusinessListFilters } from '@/modules/business/types'
 import type { ContactListFilters } from '@/modules/contacts/types'
 import type { LeadListFilters } from '@/modules/crm/types'
-import type { DocumentListFilters } from '@/modules/documents/types'
+import type { DocumentListFilters, DocumentTemplateListFilters } from '@/modules/documents/types'
 import type { InvoiceListFilters } from '@/modules/billing/types'
 import type { NotificationListFilters } from '@/modules/notifications/types'
 import type { ReportFilters, ReportType } from '@/modules/reports/types'
@@ -22,14 +22,15 @@ import type {
   InvoiceListFilters as ClientInvoiceListFilters,
   PaymentListFilters,
 } from '@/modules/client-billing/types'
+import type { TenantListFilters } from '@/modules/master-admin/types'
+import type { SharedDocumentListFilters } from '@/modules/client-portal/types'
+import type { AnalyticsFilters } from '@/modules/dashboard/types'
 
 export const queryKeys = {
-  // No GET-based session/profile query exists yet (login is a mutation) - reserved for when a
-  // real /auth/me endpoint lands.
   auth: {
-    session: ['auth', 'session'] as const,
     me: ['auth', 'me'] as const,
     sessions: ['auth', 'sessions'] as const,
+    invite: (token: string) => ['auth', 'invite', token] as const,
   },
 
   projects: {
@@ -40,8 +41,6 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.projects.details(), id] as const,
     overdue: () => [...queryKeys.projects.all, 'overdue'] as const,
     byClient: (clientId: string) => [...queryKeys.projects.all, 'client', clientId] as const,
-    byManager: (managerId: string) => [...queryKeys.projects.all, 'manager', managerId] as const,
-    byCode: (code: string) => [...queryKeys.projects.all, 'code', code] as const,
   },
   tasks: {
     all: ['tasks'] as const,
@@ -85,6 +84,8 @@ export const queryKeys = {
     details: () => [...queryKeys.documents.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.documents.details(), id] as const,
     downloadUrl: (id: string) => [...queryKeys.documents.all, 'download-url', id] as const,
+    templates: ['documents', 'templates'] as const,
+    templatesList: (filters: DocumentTemplateListFilters) => [...queryKeys.documents.templates, filters] as const,
   },
   billing: {
     subscription: ['billing', 'subscription'] as const,
@@ -164,5 +165,20 @@ export const queryKeys = {
     list: (filters: PaymentListFilters) => [...queryKeys.clientPayments.lists(), filters] as const,
     details: () => [...queryKeys.clientPayments.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.clientPayments.details(), id] as const,
+  },
+  masterAdmin: {
+    tenants: ['master-admin', 'tenants'] as const,
+    tenantsList: (filters: TenantListFilters) => [...queryKeys.masterAdmin.tenants, filters] as const,
+    plans: ['master-admin', 'plans'] as const,
+  },
+  clientPortal: {
+    summary: ['client-portal', 'summary'] as const,
+    documents: ['client-portal', 'documents'] as const,
+    documentsList: (filters: SharedDocumentListFilters) => [...queryKeys.clientPortal.documents, filters] as const,
+  },
+  dashboard: {
+    analyticsSummary: (filters: AnalyticsFilters) => ['dashboard', 'analytics-summary', filters] as const,
+    revenueTrend: (filters: AnalyticsFilters) => ['dashboard', 'revenue-trend', filters] as const,
+    clientGrowthTrend: (filters: AnalyticsFilters) => ['dashboard', 'client-growth-trend', filters] as const,
   },
 } as const

@@ -11,7 +11,10 @@ export const PERMISSION_RESOURCES = {
   TASKS: 'tasks',
   PROJECTS: 'projects',
   CRM: 'crm',
+  /** SaaS subscription billing (tenant -> ERP vendor) - NOT the firm's client-facing billing. */
   BILLING: 'billing',
+  /** The firm's client-facing billing (Invoices/Expenses/Payments to its own clients) - a separate domain from BILLING above. */
+  CLIENT_BILLING: 'client_billing',
   REPORTS: 'reports',
   AUDIT_LOGS: 'audit_logs',
   SETTINGS: 'settings',
@@ -105,6 +108,9 @@ export const PERMISSIONS = {
 
   BILLING_READ: perm(PERMISSION_RESOURCES.BILLING, PERMISSION_ACTIONS.READ),
   BILLING_MANAGE: perm(PERMISSION_RESOURCES.BILLING, PERMISSION_ACTIONS.MANAGE),
+
+  CLIENT_BILLING_READ: perm(PERMISSION_RESOURCES.CLIENT_BILLING, PERMISSION_ACTIONS.READ),
+  CLIENT_BILLING_MANAGE: perm(PERMISSION_RESOURCES.CLIENT_BILLING, PERMISSION_ACTIONS.MANAGE),
 
   NOTIFICATIONS_READ: perm(PERMISSION_RESOURCES.NOTIFICATIONS, PERMISSION_ACTIONS.READ),
   NOTIFICATIONS_MANAGE: perm(PERMISSION_RESOURCES.NOTIFICATIONS, PERMISSION_ACTIONS.MANAGE),

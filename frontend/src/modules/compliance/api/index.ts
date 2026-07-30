@@ -1,12 +1,11 @@
 // Compliance API request functions, built on the shared Axios instance from src/services/axios.ts.
-//
-// NOT YET AVAILABLE: no GST/ITR/TDS/MCA backend module exists (see types/index.ts's header comment
-// for the full explanation). Every function below is a typed placeholder - wire the real
-// apiClient call once each area's backend module exists. No mock data, no guessed endpoint path
-// beyond the plausible, provisional `/${moduleKey}` base that already matches this app's sidebar
-// route naming (/gst, /itr, /tds, /mca) - not a confirmed contract.
-import type { ApiError } from '@/services/api-error'
-import type { PaginatedResponse } from '@/types/api.types'
+// Hits the real backend at ${env.apiBaseUrl}/${moduleKey} (backend/src/modules/compliance/routes/
+// compliance-filing.routes.ts, mounted once per category at /gst, /itr, /tds, /mca) - mirrors
+// modules/contacts/api/index.ts now that the Compliance backend module exists. The `/${moduleKey}`
+// base this file already called before the backend existed turned out to be the real, confirmed
+// contract (not a guess that needed changing).
+import { apiClient } from '@/services/axios'
+import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type {
   ComplianceFiling,
   ComplianceFilingListFilters,
@@ -14,47 +13,37 @@ import type {
   CreateComplianceFilingPayload,
   UpdateComplianceFilingPayload,
 } from '../types'
-import { COMPLIANCE_MODULES } from '../constants'
 
-function notImplemented(moduleKey: ComplianceModuleKey, action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `${COMPLIANCE_MODULES[moduleKey].label} API is not available yet (${action}).`,
-  } satisfies ApiError
-}
-
-// TODO: GET /${moduleKey}
 export async function listComplianceFilings(
   moduleKey: ComplianceModuleKey,
-  _filters: ComplianceFilingListFilters
+  filters: ComplianceFilingListFilters
 ): Promise<PaginatedResponse<ComplianceFiling>> {
-  return notImplemented(moduleKey, 'listComplianceFilings')
+  const { data } = await apiClient.get<PaginatedResponse<ComplianceFiling>>(`/${moduleKey}`, { params: filters })
+  return data
 }
 
-// TODO: GET /${moduleKey}/:id
-export async function getComplianceFiling(moduleKey: ComplianceModuleKey, _id: string): Promise<ComplianceFiling> {
-  return notImplemented(moduleKey, 'getComplianceFiling')
+export async function getComplianceFiling(moduleKey: ComplianceModuleKey, id: string): Promise<ComplianceFiling> {
+  const { data } = await apiClient.get<ApiResponse<ComplianceFiling>>(`/${moduleKey}/${id}`)
+  return data.data
 }
 
-// TODO: POST /${moduleKey}
 export async function createComplianceFiling(
   moduleKey: ComplianceModuleKey,
-  _payload: CreateComplianceFilingPayload
+  payload: CreateComplianceFilingPayload
 ): Promise<ComplianceFiling> {
-  return notImplemented(moduleKey, 'createComplianceFiling')
+  const { data } = await apiClient.post<ApiResponse<ComplianceFiling>>(`/${moduleKey}`, payload)
+  return data.data
 }
 
-// TODO: PATCH /${moduleKey}/:id
 export async function updateComplianceFiling(
   moduleKey: ComplianceModuleKey,
-  _id: string,
-  _payload: UpdateComplianceFilingPayload
+  id: string,
+  payload: UpdateComplianceFilingPayload
 ): Promise<ComplianceFiling> {
-  return notImplemented(moduleKey, 'updateComplianceFiling')
+  const { data } = await apiClient.patch<ApiResponse<ComplianceFiling>>(`/${moduleKey}/${id}`, payload)
+  return data.data
 }
 
-// TODO: DELETE /${moduleKey}/:id
-export async function deleteComplianceFiling(moduleKey: ComplianceModuleKey, _id: string): Promise<void> {
-  return notImplemented(moduleKey, 'deleteComplianceFiling')
+export async function deleteComplianceFiling(moduleKey: ComplianceModuleKey, id: string): Promise<void> {
+  await apiClient.delete(`/${moduleKey}/${id}`)
 }

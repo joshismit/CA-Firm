@@ -1,9 +1,5 @@
 // compliance-scoped React hooks - data-fetching wrappers (TanStack Query) shared by all four
-// Compliance areas. Every query/mutation genuinely calls the real (currently-stubbed) API
-// functions - so `isError`/`error` reflect a real 501 rejection, not a fabricated empty result.
-// This lets every page use the exact same isLoading/isError/data pattern as Business/Projects/etc.,
-// with StatCard, DataTable, and ErrorState all rendering the honest "not available yet" state
-// through their existing, unmodified error paths.
+// Compliance areas.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/services/query-keys'
 import {
@@ -24,7 +20,6 @@ export function useComplianceFilingsQuery(moduleKey: ComplianceModuleKey, filter
   return useQuery({
     queryKey: queryKeys.compliance.list(moduleKey, filters),
     queryFn: () => listComplianceFilings(moduleKey, filters),
-    retry: false,
   })
 }
 
@@ -33,7 +28,6 @@ export function useComplianceFilingQuery(moduleKey: ComplianceModuleKey, id: str
     queryKey: queryKeys.compliance.detail(moduleKey, id),
     queryFn: () => getComplianceFiling(moduleKey, id),
     enabled: !!id,
-    retry: false,
   })
 }
 

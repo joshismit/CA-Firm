@@ -1,37 +1,26 @@
 // permissions API request functions, built on the shared Axios instance from src/services/axios.ts.
-//
-// NOT YET AVAILABLE: backend/src/modules has no `permissions` module (no routes mounted in
-// backend/src/app.ts), even though Permission/PermissionGroup are fully defined in Prisma. Every
-// function below is a typed placeholder - wire the real apiClient call once the backend
-// implements it. No mock data, no guessed endpoint path.
+// Hits the real backend at ${env.apiBaseUrl}/permissions (backend/src/modules/permissions/routes/permission.routes.ts) -
+// mirrors modules/roles/api/index.ts now that the Permissions backend module exists.
 
-import type { ApiError } from '@/services/api-error'
+import { apiClient } from '@/services/axios'
+import type { ApiResponse } from '@/types/api.types'
 import type { Permission, PermissionGroup, PermissionMatrixEntry, UpdatePermissionMatrixPayload } from '../types'
 
-function notImplemented(action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `Permissions API is not available yet (${action}).`,
-  } satisfies ApiError
-}
-
-// TODO: GET /api/v1/permissions
 export async function listPermissions(): Promise<Permission[]> {
-  return notImplemented('listPermissions')
+  const { data } = await apiClient.get<ApiResponse<Permission[]>>('/permissions')
+  return data.data
 }
 
-// TODO: GET /api/v1/permissions/groups
 export async function listPermissionGroups(): Promise<PermissionGroup[]> {
-  return notImplemented('listPermissionGroups')
+  const { data } = await apiClient.get<ApiResponse<PermissionGroup[]>>('/permissions/groups')
+  return data.data
 }
 
-// TODO: GET /api/v1/permissions/matrix/:roleId
-export async function getPermissionMatrix(_roleId: string): Promise<PermissionMatrixEntry[]> {
-  return notImplemented('getPermissionMatrix')
+export async function getPermissionMatrix(roleId: string): Promise<PermissionMatrixEntry[]> {
+  const { data } = await apiClient.get<ApiResponse<PermissionMatrixEntry[]>>(`/permissions/matrix/${roleId}`)
+  return data.data
 }
 
-// TODO: PATCH /api/v1/permissions/matrix
-export async function updatePermissionMatrix(_payload: UpdatePermissionMatrixPayload): Promise<void> {
-  return notImplemented('updatePermissionMatrix')
+export async function updatePermissionMatrix(payload: UpdatePermissionMatrixPayload): Promise<void> {
+  await apiClient.patch('/permissions/matrix', payload)
 }

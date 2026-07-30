@@ -118,8 +118,10 @@ export function LoginPage() {
       </Card>
 
       <p className="mt-6 text-center text-[12px] text-[var(--color-text-muted)]">
-        Demo credentials: <span className="font-mono">ca@demo.firm</span> /{' '}
-        <span className="font-mono">Password123!</span>
+        Don't have an account?{' '}
+        <Link to="/register" className="text-[var(--color-text-link)] hover:text-[var(--color-text-link-hover)]">
+          Create one
+        </Link>
       </p>
     </div>
   )

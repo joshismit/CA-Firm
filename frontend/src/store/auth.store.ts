@@ -18,11 +18,14 @@ export interface AuthUser {
 
 interface AuthState {
   accessToken: string | null
+  refreshToken: string | null
   user: AuthUser | null
   isAuthenticated: boolean
   /** True once persisted state has been read from localStorage - guards against a login-page flash on refresh. */
   hydrated: boolean
-  login: (accessToken: string, user: AuthUser) => void
+  login: (accessToken: string, refreshToken: string, user: AuthUser) => void
+  /** Updates both tokens after a refresh rotation (services/interceptors.ts) without touching `user`. */
+  setTokens: (accessToken: string, refreshToken: string) => void
   logout: () => void
 }
 
@@ -39,17 +42,20 @@ export const useAuthStore = create<AuthState>()(
       setAuthState = set
       return {
         accessToken: null,
+        refreshToken: null,
         user: null,
         isAuthenticated: false,
         hydrated: false,
-        login: (accessToken, user) => set({ accessToken, user, isAuthenticated: true }),
-        logout: () => set({ accessToken: null, user: null, isAuthenticated: false }),
+        login: (accessToken, refreshToken, user) => set({ accessToken, refreshToken, user, isAuthenticated: true }),
+        setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
+        logout: () => set({ accessToken: null, refreshToken: null, user: null, isAuthenticated: false }),
       }
     },
     {
       name: STORAGE_KEYS.AUTH,
       partialize: (state) => ({
         accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),

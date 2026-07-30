@@ -2,6 +2,7 @@
 
 export * from './DocumentStatusBadge'
 export * from './DocumentTableColumns'
+export * from './DocumentTemplateTableColumns'
 export * from './DocumentFilters'
 export * from './DocumentForm'
 export * from './DocumentQuickActions'

@@ -4,10 +4,9 @@ import type { RouteObject } from 'react-router-dom'
 import { Navigate } from 'react-router-dom'
 import { ProtectedRoute } from './guards/ProtectedRoute'
 import { AppLayout } from '@/layouts/AppLayout/AppLayout'
-import { ComingSoon } from '@/components/common/ComingSoon'
 import { DashboardPage } from '@/modules/dashboard/pages/DashboardPage'
 import { AnalyticsPage } from '@/modules/dashboard/pages/AnalyticsPage'
-import { ClientsPage } from '@/modules/clients/pages/ClientsPage'
+import { ClientsPage, ClientCreatePage } from '@/modules/clients/pages'
 import { ProjectsPage } from '@/modules/projects/pages/ProjectsPage'
 import { ProjectDetailPage } from '@/modules/projects/pages/ProjectDetailPage'
 import { ProjectCreatePage } from '@/modules/projects/pages/ProjectCreatePage'
@@ -54,7 +53,9 @@ import {
   DocumentDetailPage,
   DocumentUploadPage,
   DocumentEditPage,
+  DocumentTemplatesPage,
 } from '@/modules/documents/pages'
+import { HelpPage } from '@/modules/help/pages'
 import { settingsRoutes } from './settings.routes'
 
 export const protectedRoutes: RouteObject = {
@@ -68,7 +69,7 @@ export const protectedRoutes: RouteObject = {
         { path: 'dashboard', element: <DashboardPage /> },
         { path: 'analytics', element: <AnalyticsPage /> },
         { path: 'clients', element: <ClientsPage /> },
-        { path: 'clients/new', element: <ComingSoon name="Add Client" /> },
+        { path: 'clients/new', element: <ClientCreatePage /> },
         { path: 'business', element: <BusinessListPage /> },
         { path: 'business/new', element: <BusinessCreatePage /> },
         { path: 'business/:id', element: <BusinessDetailPage /> },
@@ -118,7 +119,7 @@ export const protectedRoutes: RouteObject = {
         { path: 'tasks/:id', element: <TaskDetailPage /> },
         { path: 'documents', element: <DocumentListPage /> },
         { path: 'documents/upload', element: <DocumentUploadPage /> },
-        { path: 'documents/templates', element: <ComingSoon name="Templates" /> },
+        { path: 'documents/templates', element: <DocumentTemplatesPage /> },
         { path: 'documents/:id', element: <DocumentDetailPage /> },
         { path: 'documents/:id/edit', element: <DocumentEditPage /> },
         { path: 'staff', element: <AdministrationHomePage /> },
@@ -139,6 +140,7 @@ export const protectedRoutes: RouteObject = {
         { path: 'audit', element: <AuditListPage /> },
         { path: 'audit/:id', element: <AuditDetailPage /> },
         { path: 'settings', children: settingsRoutes },
+        { path: 'help', element: <HelpPage /> },
       ],
     },
   ],

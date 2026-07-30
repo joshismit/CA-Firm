@@ -480,6 +480,9 @@ model User {
   uploadedDocuments Document[] @relation("DocumentUploadedBy")
   deletedDocuments  Document[] @relation("DocumentDeletedBy")
 
+  // ── Relations: Notifications ──────────────────────────────────────────
+  notifications Notification[]
+
   @@unique([tenantId, email], name: "uq_users_tenant_email")
   @@index([tenantId, status], name: "idx_users_tenant_status")
   @@index([tenantId, deletedAt], name: "idx_users_soft_delete")
@@ -886,6 +889,7 @@ model Business {
   client        Client?
   leads         Lead[]
   documents     Document[]
+  invoices      Invoice[]
 
   @@index([tenantId, status])
   @@index([tenantId, pan])
@@ -1117,6 +1121,7 @@ model Client {
   tags        ClientTagAssignment[]
   conversion  LeadConversion?
   projects    Project[]
+  invoices    Invoice[]
 
   @@index([tenantId, status])
   @@index([tenantId, categoryId])
@@ -1475,4 +1480,264 @@ enum DocumentCategory {
   OTHER
 
   @@map("document_category")
+}
+
+// =============================================================================
+// SECTION 12 — COMPLIANCE MODULE
+// =============================================================================
+//
+// One generic `ComplianceFiling` table shared by all four Compliance areas
+// (GST/ITR/TDS/MCA), discriminated by `category` — matches
+// frontend/src/modules/compliance/types/index.ts's `ComplianceFiling`
+// exactly: a deliberately generic "filing tracker" shape (reference/period/
+// status/dueDate/filedDate/notes), not four real domain-specific schemas
+// (no gstin/assessmentYear/form26Q), per that file's own header comment
+// ("this generic type should be split into four real, module-specific ones"
+// once real per-area requirements exist). `tenantId` is a plain scalar
+// column with no `@relation`/FK to `Tenant`, mirroring `Contact`'s identical
+// pattern (tenant scoping enforced at the application layer via
+// `BaseRepository`, not a DB-level foreign key). No `createdBy`/`deletedBy`
+// columns — the frontend's response type never reads a creator/deleter, and
+// nothing else in this module needs one.
+//
+// `status`/`filedDate` are stored but not exposed as user-settable in either
+// `CreateComplianceFilingPayload` or `UpdateComplianceFilingPayload` (the
+// frontend form never collects them) — every filing is created as DRAFT and
+// stays that way via this API. See the Compliance module's final report for
+// this known limitation.
+
+model ComplianceFiling {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  category ComplianceCategory @map("category")
+
+  reference String                 @map("reference") @db.VarChar(100)
+  period    String                 @map("period") @db.VarChar(50)
+  status    ComplianceFilingStatus @default(DRAFT) @map("status")
+  dueDate   DateTime?              @map("due_date") @db.Timestamptz
+  filedDate DateTime?              @map("filed_date") @db.Timestamptz
+  notes     String?                @map("notes") @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  @@index([tenantId, category, status], name: "idx_compliance_tenant_category_status")
+  @@index([tenantId, category, deletedAt], name: "idx_compliance_soft_delete")
+  @@index([reference(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("compliance_filings")
+}
+
+enum ComplianceCategory {
+  GST
+  ITR
+  TDS
+  MCA
+
+  @@map("compliance_category")
+}
+
+enum ComplianceFilingStatus {
+  DRAFT
+  PENDING
+  FILED
+  OVERDUE
+
+  @@map("compliance_filing_status")
+}
+
+// =============================================================================
+// SECTION 13 — CLIENT BILLING MODULE
+// =============================================================================
+//
+// Three generic tables — `Invoice`, `Expense`, `Payment` — matching
+// frontend/src/modules/client-billing/types/index.ts exactly. This is the
+// firm's client-facing billing (invoices issued to / expenses incurred for
+// its own clients) — a completely separate domain from the tenant's own
+// SaaS-subscription billing to the ERP vendor (frontend/src/modules/billing,
+// which has no backend model at all yet and must not be touched here).
+//
+// Deliberately minimal, matching the same scope discipline as Compliance:
+// no ledger, no journal entries, no tax engine, no payment gateway, no
+// invoice-numbering engine, no PDF/email generation, no account balances.
+// `clientId`/`businessId`/`invoiceId` are real FKs (for referential
+// integrity, `onDelete: SetNull` mirrors `Document`'s identical pattern for
+// optional business/contact references) but the API never exposes a nested
+// Client/Business/Invoice object or a lookup endpoint — only the raw ID
+// string, matching the frontend's own plain-UUID-input `InvoiceForm`/
+// `PaymentForm` exactly. `status` is stored with a sensible default but not
+// user-settable via create/update — none of the three forms collect one, so
+// (like Compliance) there is no status-transition endpoint to build.
+
+model Invoice {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  invoiceNumber String  @map("invoice_number") @db.VarChar(50)
+  clientId      String? @map("client_id") @db.Uuid
+  businessId    String? @map("business_id") @db.Uuid
+
+  amount     Decimal       @db.Decimal(14, 2)
+  tax        Decimal       @default(0) @db.Decimal(14, 2)
+  issuedDate DateTime?     @map("issued_date") @db.Timestamptz
+  dueDate    DateTime?     @map("due_date") @db.Timestamptz
+  status     InvoiceStatus @default(DRAFT)
+  notes      String?       @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  client   Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  payments Payment[]
+
+  @@unique([tenantId, invoiceNumber], name: "uq_invoices_tenant_number")
+  @@index([tenantId, status], name: "idx_invoices_tenant_status")
+  @@index([tenantId, clientId], name: "idx_invoices_tenant_client")
+  @@index([tenantId, businessId], name: "idx_invoices_tenant_business")
+  @@index([tenantId, deletedAt], name: "idx_invoices_soft_delete")
+  @@index([invoiceNumber(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("invoices")
+}
+
+model Expense {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  expenseNumber String  @map("expense_number") @db.VarChar(50)
+  category      String  @db.VarChar(100)
+  vendor        String? @db.VarChar(255)
+
+  amount        Decimal       @db.Decimal(14, 2)
+  date          DateTime?     @db.Timestamptz
+  paymentMethod String?       @map("payment_method") @db.VarChar(50)
+  status        ExpenseStatus @default(DRAFT)
+  notes         String?       @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  @@unique([tenantId, expenseNumber], name: "uq_expenses_tenant_number")
+  @@index([tenantId, status], name: "idx_expenses_tenant_status")
+  @@index([tenantId, category], name: "idx_expenses_tenant_category")
+  @@index([tenantId, deletedAt], name: "idx_expenses_soft_delete")
+  @@index([expenseNumber(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("expenses")
+}
+
+model Payment {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  paymentNumber String  @map("payment_number") @db.VarChar(50)
+  invoiceId     String? @map("invoice_id") @db.Uuid
+
+  amount    Decimal       @db.Decimal(14, 2)
+  method    String?       @db.VarChar(50)
+  reference String?       @db.VarChar(100)
+  paidDate  DateTime?     @map("paid_date") @db.Timestamptz
+  status    PaymentStatus @default(PENDING)
+  notes     String?       @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, paymentNumber], name: "uq_payments_tenant_number")
+  @@index([tenantId, status], name: "idx_payments_tenant_status")
+  @@index([tenantId, invoiceId], name: "idx_payments_tenant_invoice")
+  @@index([tenantId, deletedAt], name: "idx_payments_soft_delete")
+  @@index([paymentNumber(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("payments")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  VOID
+
+  @@map("invoice_status")
+}
+
+enum ExpenseStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+
+  @@map("expense_status")
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+
+  @@map("payment_status")
+}
+
+// =============================================================================
+// SECTION 14 — NOTIFICATIONS MODULE
+// =============================================================================
+//
+// Matches frontend/src/modules/notifications/types/index.ts exactly. Deliberately
+// minimal — no template/provider/preference/scheduling/topic/subscription tables.
+// Notifications are system-generated (some future module inserts rows directly);
+// this module only ever reads, marks-read, and deletes — there is no create
+// endpoint. `userId` is a real FK (`onDelete: Cascade` — a deleted user's
+// notifications have no reason to remain), unlike `tenantId` on most other
+// models in this schema, because ownership (not just tenant membership) is the
+// core access-control dimension here: every query is scoped by `(tenantId,
+// userId)` together, enforced in the service layer since `BaseRepository` only
+// has built-in tenant/soft-delete scoping.
+
+model Notification {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  channel NotificationChannel
+  status  NotificationStatus  @default(PENDING)
+  title   String              @db.VarChar(255)
+  message String              @db.Text
+  isRead  Boolean             @default(false) @map("is_read")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, isRead], name: "idx_notifications_user_unread")
+  @@index([tenantId, userId, status], name: "idx_notifications_user_status")
+  @@index([tenantId, userId, createdAt], name: "idx_notifications_user_created")
+  @@index([tenantId, userId, deletedAt], name: "idx_notifications_soft_delete")
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("notifications")
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  EMAIL
+  SMS
+  IN_APP
+
+  @@map("notification_channel")
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+
+  @@map("notification_status")
 }

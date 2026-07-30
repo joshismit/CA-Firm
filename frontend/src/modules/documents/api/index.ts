@@ -4,11 +4,14 @@
 // now that the Documents backend module exists.
 
 import { apiClient } from '@/services/axios'
+import type { ApiError } from '@/services/api-error'
 import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type {
   DocumentDownloadUrl,
   DocumentFile,
   DocumentListFilters,
+  DocumentTemplate,
+  DocumentTemplateListFilters,
   UpdateDocumentPayload,
   UploadDocumentPayload,
 } from '../types'
@@ -66,4 +69,20 @@ export async function deleteDocument(id: string): Promise<void> {
 export async function getDocumentDownloadUrl(id: string): Promise<DocumentDownloadUrl> {
   const { data } = await apiClient.get<ApiResponse<DocumentDownloadUrl>>(`/documents/${id}/download`)
   return data.data
+}
+
+// NOT YET AVAILABLE: reusable document templates have no backend Prisma model or routes yet,
+// unlike the rest of this file which hits the real Documents backend. Same notImplemented()/
+// ApiError(501) shape as modules/compliance/api/index.ts and modules/reports/api/index.ts.
+function notImplemented(action: string): never {
+  throw {
+    status: 501,
+    code: 'NOT_IMPLEMENTED',
+    message: `Document templates API is not available yet (${action}).`,
+  } satisfies ApiError
+}
+
+// TODO: GET /documents/templates
+export async function listDocumentTemplates(_filters: DocumentTemplateListFilters): Promise<PaginatedResponse<DocumentTemplate>> {
+  return notImplemented('listDocumentTemplates')
 }

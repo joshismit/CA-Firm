@@ -4,7 +4,7 @@ import type { RouteObject } from 'react-router-dom'
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth.store'
 import { ClientPortalLayout } from '@/layouts/ClientPortalLayout/ClientPortalLayout'
-import { ComingSoon } from '@/components/common/ComingSoon'
+import { ClientPortalHomePage, ClientPortalDocumentsPage } from '@/modules/client-portal/pages'
 
 function ClientPortalGuard() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -23,8 +23,8 @@ export const clientPortalRoutes: RouteObject = {
     {
       element: <ClientPortalLayout />,
       children: [
-        { index: true, element: <ComingSoon name="Client Portal" /> },
-        { path: 'documents', element: <ComingSoon name="My Documents" /> },
+        { index: true, element: <ClientPortalHomePage /> },
+        { path: 'documents', element: <ClientPortalDocumentsPage /> },
       ],
     },
   ],

@@ -8,7 +8,7 @@ import type { RouteObject } from 'react-router-dom'
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth.store'
 import { MasterAdminLayout } from '@/layouts/MasterAdminLayout/MasterAdminLayout'
-import { ComingSoon } from '@/components/common/ComingSoon'
+import { MasterAdminDashboardPage, TenantsListPage, SubscriptionsPage } from '@/modules/master-admin/pages'
 
 function MasterAdminGuard() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -29,9 +29,9 @@ export const masterAdminRoutes: RouteObject = {
     {
       element: <MasterAdminLayout />,
       children: [
-        { index: true, element: <ComingSoon name="Master Admin Dashboard" /> },
-        { path: 'tenants', element: <ComingSoon name="Tenant Management" /> },
-        { path: 'subscriptions', element: <ComingSoon name="Subscriptions & Plans" /> },
+        { index: true, element: <MasterAdminDashboardPage /> },
+        { path: 'tenants', element: <TenantsListPage /> },
+        { path: 'subscriptions', element: <SubscriptionsPage /> },
       ],
     },
   ],

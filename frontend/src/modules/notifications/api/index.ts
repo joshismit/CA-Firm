@@ -1,11 +1,16 @@
 // notifications API request functions, built on the shared Axios instance from src/services/axios.ts.
+// Hits the real backend at ${env.apiBaseUrl}/notifications (backend/src/modules/notifications/
+// routes/notification.routes.ts) - mirrors modules/compliance/api/index.ts now that the
+// Notifications backend module exists.
 //
-// NOT YET AVAILABLE: there is no Notification Prisma model or backend module yet. Every function
-// below is a typed placeholder - wire the real apiClient call once the backend implements this
-// module. No mock data, no guessed endpoint path.
-
+// getNotificationPreferences/updateNotificationPreference remain NOT_IMPLEMENTED deliberately -
+// the backend module was scoped to only the read/mark-read/mark-all-read/delete operations the
+// rest of this module actually consumes (list/detail/mark-read/mark-all-read/delete); per-channel
+// notification preferences were explicitly out of scope for that module and have no backend
+// counterpart yet.
+import { apiClient } from '@/services/axios'
 import type { ApiError } from '@/services/api-error'
-import type { PaginatedResponse } from '@/types/api.types'
+import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type { Notification, NotificationListFilters, NotificationPreference } from '../types'
 
 function notImplemented(action: string): never {
@@ -16,29 +21,26 @@ function notImplemented(action: string): never {
   } satisfies ApiError
 }
 
-// TODO: GET /api/v1/notifications
-export async function listNotifications(_filters: NotificationListFilters): Promise<PaginatedResponse<Notification>> {
-  return notImplemented('listNotifications')
+export async function listNotifications(filters: NotificationListFilters): Promise<PaginatedResponse<Notification>> {
+  const { data } = await apiClient.get<PaginatedResponse<Notification>>('/notifications', { params: filters })
+  return data
 }
 
-// TODO: GET /api/v1/notifications/:id
-export async function getNotification(_id: string): Promise<Notification> {
-  return notImplemented('getNotification')
+export async function getNotification(id: string): Promise<Notification> {
+  const { data } = await apiClient.get<ApiResponse<Notification>>(`/notifications/${id}`)
+  return data.data
 }
 
-// TODO: DELETE /api/v1/notifications/:id
-export async function deleteNotification(_id: string): Promise<void> {
-  return notImplemented('deleteNotification')
+export async function deleteNotification(id: string): Promise<void> {
+  await apiClient.delete(`/notifications/${id}`)
 }
 
-// TODO: PATCH /api/v1/notifications/:id/read
-export async function markNotificationAsRead(_id: string): Promise<void> {
-  return notImplemented('markNotificationAsRead')
+export async function markNotificationAsRead(id: string): Promise<void> {
+  await apiClient.patch(`/notifications/${id}/read`)
 }
 
-// TODO: POST /api/v1/notifications/read-all
 export async function markAllNotificationsAsRead(): Promise<void> {
-  return notImplemented('markAllNotificationsAsRead')
+  await apiClient.post('/notifications/read-all')
 }
 
 // TODO: GET /api/v1/notifications/preferences

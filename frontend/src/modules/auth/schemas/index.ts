@@ -23,3 +23,49 @@ export const changePasswordSchema = z
   })
 
 export type ChangePasswordFormValues = z.infer<typeof changePasswordSchema>
+
+export const registerSchema = z
+  .object({
+    fullName: z.string().trim().min(1, 'Full name is required'),
+    email: z.string().trim().min(1, 'Email is required').email('Enter a valid email address'),
+    password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+    confirmPassword: z.string().min(1, 'Confirm your password'),
+    acceptTerms: z.boolean().refine((v) => v === true, { message: 'You must accept the terms to continue' }),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ['confirmPassword'],
+  })
+
+export type RegisterFormValues = z.infer<typeof registerSchema>
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().min(1, 'Email is required').email('Enter a valid email address'),
+})
+
+export type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>
+
+export const resetPasswordSchema = z
+  .object({
+    newPassword: z.string().min(8, 'Password must be at least 8 characters').max(128),
+    confirmPassword: z.string().min(1, 'Confirm your new password'),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ['confirmPassword'],
+  })
+
+export type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>
+
+export const acceptInviteSchema = z
+  .object({
+    fullName: z.string().trim().min(1, 'Full name is required'),
+    password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+    confirmPassword: z.string().min(1, 'Confirm your password'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ['confirmPassword'],
+  })
+
+export type AcceptInviteFormValues = z.infer<typeof acceptInviteSchema>

@@ -1,14 +1,11 @@
 // client-billing API request functions, built on the shared Axios instance from src/services/axios.ts.
-//
-// NOT YET AVAILABLE: no backend module exists for Invoices/Expenses/Payments-to-clients (see
-// types/index.ts's header comment). Every function below is a typed placeholder that throws a real
-// 501 NOT_IMPLEMENTED ApiError - mirrors the exact pattern already established in modules/billing,
-// modules/reports, modules/notifications, and modules/audit. No mock data, no guessed endpoint path
-// beyond the plausible, provisional `/billing/{invoices|expenses|payments}` base that already
-// matches this app's sidebar route naming - not a confirmed contract. Never returns a fabricated
-// empty/successful response.
-import type { ApiError } from '@/services/api-error'
-import type { PaginatedResponse } from '@/types/api.types'
+// Hits the real backend at ${env.apiBaseUrl}/billing/{invoices|expenses|payments}
+// (backend/src/modules/client-billing/routes/*.routes.ts) - mirrors modules/compliance/api/index.ts
+// now that the Client Billing backend module exists. The `/billing/{invoices|expenses|payments}`
+// base this file already called before the backend existed turned out to be the real, confirmed
+// contract (not a guess that needed changing).
+import { apiClient } from '@/services/axios'
+import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type {
   CreateExpensePayload,
   CreateInvoicePayload,
@@ -24,91 +21,80 @@ import type {
   UpdatePaymentPayload,
 } from '../types'
 
-function notImplemented(resource: string, action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `${resource} API is not available yet (${action}).`,
-  } satisfies ApiError
-}
-
 // ─── Invoices ─────────────────────────────────────────────────────────────────
 
-// TODO: GET /billing/invoices
-export async function listInvoices(_filters: InvoiceListFilters): Promise<PaginatedResponse<Invoice>> {
-  return notImplemented('Invoices', 'listInvoices')
+export async function listInvoices(filters: InvoiceListFilters): Promise<PaginatedResponse<Invoice>> {
+  const { data } = await apiClient.get<PaginatedResponse<Invoice>>('/billing/invoices', { params: filters })
+  return data
 }
 
-// TODO: GET /billing/invoices/:id
-export async function getInvoice(_id: string): Promise<Invoice> {
-  return notImplemented('Invoices', 'getInvoice')
+export async function getInvoice(id: string): Promise<Invoice> {
+  const { data } = await apiClient.get<ApiResponse<Invoice>>(`/billing/invoices/${id}`)
+  return data.data
 }
 
-// TODO: POST /billing/invoices
-export async function createInvoice(_payload: CreateInvoicePayload): Promise<Invoice> {
-  return notImplemented('Invoices', 'createInvoice')
+export async function createInvoice(payload: CreateInvoicePayload): Promise<Invoice> {
+  const { data } = await apiClient.post<ApiResponse<Invoice>>('/billing/invoices', payload)
+  return data.data
 }
 
-// TODO: PATCH /billing/invoices/:id
-export async function updateInvoice(_id: string, _payload: UpdateInvoicePayload): Promise<Invoice> {
-  return notImplemented('Invoices', 'updateInvoice')
+export async function updateInvoice(id: string, payload: UpdateInvoicePayload): Promise<Invoice> {
+  const { data } = await apiClient.patch<ApiResponse<Invoice>>(`/billing/invoices/${id}`, payload)
+  return data.data
 }
 
-// TODO: DELETE /billing/invoices/:id
-export async function deleteInvoice(_id: string): Promise<void> {
-  return notImplemented('Invoices', 'deleteInvoice')
+export async function deleteInvoice(id: string): Promise<void> {
+  await apiClient.delete(`/billing/invoices/${id}`)
 }
 
 // ─── Expenses ─────────────────────────────────────────────────────────────────
 
-// TODO: GET /billing/expenses
-export async function listExpenses(_filters: ExpenseListFilters): Promise<PaginatedResponse<Expense>> {
-  return notImplemented('Expenses', 'listExpenses')
+export async function listExpenses(filters: ExpenseListFilters): Promise<PaginatedResponse<Expense>> {
+  const { data } = await apiClient.get<PaginatedResponse<Expense>>('/billing/expenses', { params: filters })
+  return data
 }
 
-// TODO: GET /billing/expenses/:id
-export async function getExpense(_id: string): Promise<Expense> {
-  return notImplemented('Expenses', 'getExpense')
+export async function getExpense(id: string): Promise<Expense> {
+  const { data } = await apiClient.get<ApiResponse<Expense>>(`/billing/expenses/${id}`)
+  return data.data
 }
 
-// TODO: POST /billing/expenses
-export async function createExpense(_payload: CreateExpensePayload): Promise<Expense> {
-  return notImplemented('Expenses', 'createExpense')
+export async function createExpense(payload: CreateExpensePayload): Promise<Expense> {
+  const { data } = await apiClient.post<ApiResponse<Expense>>('/billing/expenses', payload)
+  return data.data
 }
 
-// TODO: PATCH /billing/expenses/:id
-export async function updateExpense(_id: string, _payload: UpdateExpensePayload): Promise<Expense> {
-  return notImplemented('Expenses', 'updateExpense')
+export async function updateExpense(id: string, payload: UpdateExpensePayload): Promise<Expense> {
+  const { data } = await apiClient.patch<ApiResponse<Expense>>(`/billing/expenses/${id}`, payload)
+  return data.data
 }
 
-// TODO: DELETE /billing/expenses/:id
-export async function deleteExpense(_id: string): Promise<void> {
-  return notImplemented('Expenses', 'deleteExpense')
+export async function deleteExpense(id: string): Promise<void> {
+  await apiClient.delete(`/billing/expenses/${id}`)
 }
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
 
-// TODO: GET /billing/payments
-export async function listPayments(_filters: PaymentListFilters): Promise<PaginatedResponse<Payment>> {
-  return notImplemented('Payments', 'listPayments')
+export async function listPayments(filters: PaymentListFilters): Promise<PaginatedResponse<Payment>> {
+  const { data } = await apiClient.get<PaginatedResponse<Payment>>('/billing/payments', { params: filters })
+  return data
 }
 
-// TODO: GET /billing/payments/:id
-export async function getPayment(_id: string): Promise<Payment> {
-  return notImplemented('Payments', 'getPayment')
+export async function getPayment(id: string): Promise<Payment> {
+  const { data } = await apiClient.get<ApiResponse<Payment>>(`/billing/payments/${id}`)
+  return data.data
 }
 
-// TODO: POST /billing/payments
-export async function createPayment(_payload: CreatePaymentPayload): Promise<Payment> {
-  return notImplemented('Payments', 'createPayment')
+export async function createPayment(payload: CreatePaymentPayload): Promise<Payment> {
+  const { data } = await apiClient.post<ApiResponse<Payment>>('/billing/payments', payload)
+  return data.data
 }
 
-// TODO: PATCH /billing/payments/:id
-export async function updatePayment(_id: string, _payload: UpdatePaymentPayload): Promise<Payment> {
-  return notImplemented('Payments', 'updatePayment')
+export async function updatePayment(id: string, payload: UpdatePaymentPayload): Promise<Payment> {
+  const { data } = await apiClient.patch<ApiResponse<Payment>>(`/billing/payments/${id}`, payload)
+  return data.data
 }
 
-// TODO: DELETE /billing/payments/:id
-export async function deletePayment(_id: string): Promise<void> {
-  return notImplemented('Payments', 'deletePayment')
+export async function deletePayment(id: string): Promise<void> {
+  await apiClient.delete(`/billing/payments/${id}`)
 }

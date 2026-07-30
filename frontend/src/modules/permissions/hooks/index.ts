@@ -1,7 +1,4 @@
 // permissions-scoped React hooks - data-fetching wrappers (TanStack Query) and local UI state.
-// retry: false everywhere - a 501 NOT_IMPLEMENTED will never succeed on retry (same convention as
-// modules/compliance, modules/client-billing, modules/notifications, modules/reports, modules/audit,
-// modules/settings, modules/users, modules/roles).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/services/query-keys'
@@ -9,11 +6,11 @@ import { getPermissionMatrix, listPermissionGroups, listPermissions, updatePermi
 import type { UpdatePermissionMatrixPayload } from '../types'
 
 export function usePermissionsQuery() {
-  return useQuery({ queryKey: queryKeys.permissions.list, queryFn: listPermissions, retry: false })
+  return useQuery({ queryKey: queryKeys.permissions.list, queryFn: listPermissions })
 }
 
 export function usePermissionGroupsQuery() {
-  return useQuery({ queryKey: queryKeys.permissions.groups, queryFn: listPermissionGroups, retry: false })
+  return useQuery({ queryKey: queryKeys.permissions.groups, queryFn: listPermissionGroups })
 }
 
 export function usePermissionMatrixQuery(roleId: string) {
@@ -21,7 +18,6 @@ export function usePermissionMatrixQuery(roleId: string) {
     queryKey: queryKeys.permissions.matrix(roleId),
     queryFn: () => getPermissionMatrix(roleId),
     enabled: !!roleId,
-    retry: false,
   })
 }
 

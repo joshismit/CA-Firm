@@ -6,11 +6,17 @@ import {
   deleteDocument,
   getDocument,
   getDocumentDownloadUrl,
+  listDocumentTemplates,
   listDocuments,
   updateDocument,
   uploadDocument,
 } from '../api'
-import type { DocumentListFilters, UpdateDocumentPayload, UploadDocumentPayload } from '../types'
+import type {
+  DocumentListFilters,
+  DocumentTemplateListFilters,
+  UpdateDocumentPayload,
+  UploadDocumentPayload,
+} from '../types'
 
 export function useDocumentsQuery(filters: DocumentListFilters) {
   return useQuery({ queryKey: queryKeys.documents.list(filters), queryFn: () => listDocuments(filters) })
@@ -80,5 +86,14 @@ export function useDocumentDownloadUrlQuery(id: string, enabled: boolean) {
     queryFn: () => getDocumentDownloadUrl(id),
     enabled: enabled && !!id,
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+/** `retry: false` - the templates API is a guaranteed 501 today, no point retry-storming it. */
+export function useDocumentTemplatesQuery(filters: DocumentTemplateListFilters) {
+  return useQuery({
+    queryKey: queryKeys.documents.templatesList(filters),
+    queryFn: () => listDocumentTemplates(filters),
+    retry: false,
   })
 }

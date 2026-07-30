@@ -1,6 +1,6 @@
 // TypeScript types and interfaces scoped to crm.
 // Field shapes mirror the Lead/LeadSource/LeadStage/LeadActivity/LeadNote/LeadConversion Prisma
-// models - no backend routes are mounted for this module yet.
+// models - the backend module is real and mounted (see api/index.ts), matching these shapes.
 
 export type LeadActivityType = 'CALL' | 'MEETING' | 'EMAIL' | 'WHATSAPP' | 'SYSTEM_LOG'
 

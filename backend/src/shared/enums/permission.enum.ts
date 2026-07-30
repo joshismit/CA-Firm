@@ -26,7 +26,10 @@ export enum PermissionResource {
   TASKS = 'tasks',
   PROJECTS = 'projects',
   CRM = 'crm',
+  /** SaaS subscription billing (tenant → ERP vendor) — NOT the firm's client-facing billing. */
   BILLING = 'billing',
+  /** The firm's client-facing billing (Invoices/Expenses/Payments to its own clients) — a separate domain from BILLING above. */
+  CLIENT_BILLING = 'client_billing',
   REPORTS = 'reports',
   AUDIT_LOGS = 'audit_logs',
   SETTINGS = 'settings',

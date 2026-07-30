@@ -1,69 +1,54 @@
 // users API request functions, built on the shared Axios instance from src/services/axios.ts.
-//
-// NOT YET AVAILABLE: backend/src/modules has no `users` module (no routes mounted in
-// backend/src/app.ts), even though the User/UserInvitation Prisma models are fully defined.
-// Every function below is a typed placeholder - wire the real apiClient call once the backend
-// implements it. No mock data, no guessed endpoint path.
+// Hits the real backend at ${env.apiBaseUrl}/users (backend/src/modules/users/routes/user.routes.ts) -
+// mirrors modules/contacts/api/index.ts now that the Users backend module exists.
 
-import type { ApiError } from '@/services/api-error'
-import type { PaginatedResponse } from '@/types/api.types'
+import { apiClient } from '@/services/axios'
+import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type { AuthSession } from '@/modules/auth/types'
 import type { Role } from '@/modules/roles/types'
 import type { InviteUserPayload, UpdateUserPayload, User, UserInvitation, UserListFilters } from '../types'
 
-function notImplemented(action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `Users API is not available yet (${action}).`,
-  } satisfies ApiError
+export async function listUsers(filters: UserListFilters): Promise<PaginatedResponse<User>> {
+  const { data } = await apiClient.get<PaginatedResponse<User>>('/users', { params: filters })
+  return data
 }
 
-// TODO: GET /api/v1/users
-export async function listUsers(_filters: UserListFilters): Promise<PaginatedResponse<User>> {
-  return notImplemented('listUsers')
+export async function getUser(id: string): Promise<User> {
+  const { data } = await apiClient.get<ApiResponse<User>>(`/users/${id}`)
+  return data.data
 }
 
-// TODO: GET /api/v1/users/:id
-export async function getUser(_id: string): Promise<User> {
-  return notImplemented('getUser')
+export async function inviteUser(payload: InviteUserPayload): Promise<UserInvitation> {
+  const { data } = await apiClient.post<ApiResponse<UserInvitation>>('/users/invite', payload)
+  return data.data
 }
 
-// TODO: POST /api/v1/users/invite
-export async function inviteUser(_payload: InviteUserPayload): Promise<UserInvitation> {
-  return notImplemented('inviteUser')
+export async function updateUser(id: string, payload: UpdateUserPayload): Promise<User> {
+  const { data } = await apiClient.patch<ApiResponse<User>>(`/users/${id}`, payload)
+  return data.data
 }
 
-// TODO: PATCH /api/v1/users/:id
-export async function updateUser(_id: string, _payload: UpdateUserPayload): Promise<User> {
-  return notImplemented('updateUser')
+export async function deleteUser(id: string): Promise<void> {
+  await apiClient.delete(`/users/${id}`)
 }
 
-// TODO: DELETE /api/v1/users/:id
-export async function deleteUser(_id: string): Promise<void> {
-  return notImplemented('deleteUser')
+export async function resendInvitation(invitationId: string): Promise<void> {
+  await apiClient.post(`/users/invitations/${invitationId}/resend`)
 }
 
-// TODO: POST /api/v1/users/invitations/:id/resend
-export async function resendInvitation(_invitationId: string): Promise<void> {
-  return notImplemented('resendInvitation')
+export async function revokeInvitation(invitationId: string): Promise<void> {
+  await apiClient.delete(`/users/invitations/${invitationId}`)
 }
 
-// TODO: DELETE /api/v1/users/invitations/:id
-export async function revokeInvitation(_invitationId: string): Promise<void> {
-  return notImplemented('revokeInvitation')
-}
-
-// TODO: GET /api/v1/users/:id/roles
-export async function getUserRoles(_userId: string): Promise<Role[]> {
-  return notImplemented('getUserRoles')
+export async function getUserRoles(userId: string): Promise<Role[]> {
+  const { data } = await apiClient.get<ApiResponse<Role[]>>(`/users/${userId}/roles`)
+  return data.data
 }
 
 // Deliberately distinct from the real, self-service GET /auth/sessions (modules/auth) - that
 // endpoint always returns the *caller's own* sessions with no userId param, so it cannot be reused
-// here to show an arbitrary user's sessions to an admin. This is a separate, still-provisional
-// admin-facing endpoint.
-// TODO: GET /api/v1/users/:id/sessions
-export async function getUserSessions(_userId: string): Promise<AuthSession[]> {
-  return notImplemented('getUserSessions')
+// here to show an arbitrary user's sessions to an admin. This is a separate, admin-facing endpoint.
+export async function getUserSessions(userId: string): Promise<AuthSession[]> {
+  const { data } = await apiClient.get<ApiResponse<AuthSession[]>>(`/users/${userId}/sessions`)
+  return data.data
 }

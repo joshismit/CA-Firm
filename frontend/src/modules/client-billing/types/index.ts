@@ -5,14 +5,13 @@
 // billing to the ERP vendor - Subscription/SubscriptionPlan/CheckoutSession/Razorpay - a
 // completely different concern that already owns the word "billing" as a module name and the
 // `billing:*` permission resource). This module is named `client-billing` specifically to avoid
-// colliding with that pre-existing, unrelated module - do not merge the two.
+// colliding with that pre-existing, unrelated module - do not merge the two. Gated on the separate
+// `PERMISSIONS.CLIENT_BILLING_READ`/`MANAGE` pair (config/permissions.config.ts).
 //
-// NOT YET AVAILABLE: there is no backend module, Prisma model, or permission resource for
-// invoices/expenses/payments-to-clients (backend/src/app.ts mounts only auth/business/contacts/
-// crm/documents/projects/tasks; backend/src/shared/enums/permission.enum.ts has no resource for
-// this feature - `BILLING` there is the unrelated SaaS-subscription resource). Every field below is
-// a deliberately generic, provisional placeholder per explicit product direction - it must not be
-// read as a confirmed backend contract, and each interface documents that individually below.
+// Field shapes mirror backend/src/modules/client-billing/dto/*.res.dto.ts exactly. `status` is
+// stored server-side but not yet settable via create/update (no form in this module collects one,
+// so there is no status-transition endpoint). `clientId`/`businessId`/`invoiceId` are plain UUID
+// references only, matching this module's raw-UUID-input forms - no lookup API, no nested objects.
 
 export type InvoiceStatus = 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'VOID'
 export type ExpenseStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'PAID'

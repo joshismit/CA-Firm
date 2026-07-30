@@ -1,7 +1,6 @@
 // src/modules/client-billing/pages/PaymentListPage.tsx
 // Reference composition: PageLayout > PageHeader (+ PageActions) > PageContent > DataTable, same
-// as BusinessListPage/ProjectsPage. No PERMISSIONS.* entry exists for this feature - actions
-// aren't wrapped in <Can>.
+// as BusinessListPage/ProjectsPage. Mutating actions are gated on PERMISSIONS.CLIENT_BILLING_MANAGE.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Trash2 } from 'lucide-react'
@@ -9,8 +8,10 @@ import type { RowSelectionState, SortingState } from '@tanstack/react-table'
 import { PageLayout, PageHeader, PageContent, PageActions } from '@/components/page'
 import { DataTable } from '@/components/tables'
 import { Button } from '@/components/ui/button'
+import { Can } from '@/components/common/Can'
 import { ExportButton } from '@/components/shared/ExportButton/ExportButton'
 import { FilterChips, type FilterChip } from '@/components/shared/FilterChips/FilterChips'
+import { PERMISSIONS } from '@/config/permissions.config'
 import { normalizeApiError } from '@/services/api-error'
 import { useDebounce } from '@/hooks'
 import { usePaymentsQuery, useDeletePaymentMutation } from '../hooks'
@@ -88,9 +89,11 @@ export function PaymentListPage() {
                 { header: 'Created', accessor: (p) => p.createdAt },
               ]}
             />
-            <Button leadingIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => navigate('/billing/payments/new')}>
-              New payment
-            </Button>
+            <Can permission={PERMISSIONS.CLIENT_BILLING_MANAGE}>
+              <Button leadingIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => navigate('/billing/payments/new')}>
+                New payment
+              </Button>
+            </Can>
           </PageActions>
         }
       />
@@ -141,15 +144,17 @@ export function PaymentListPage() {
             onRowSelectionChange={setRowSelection}
             getRowId={(row) => row.id}
             bulkActions={(selected) => (
-              <Button
-                variant="ghost"
-                size="sm"
-                leadingIcon={<Trash2 className="w-3.5 h-3.5" />}
-                onClick={() => handleBulkDelete(selected)}
-                loading={deleteMutation.isPending}
-              >
-                Delete selected
-              </Button>
+              <Can permission={PERMISSIONS.CLIENT_BILLING_MANAGE}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leadingIcon={<Trash2 className="w-3.5 h-3.5" />}
+                  onClick={() => handleBulkDelete(selected)}
+                  loading={deleteMutation.isPending}
+                >
+                  Delete selected
+                </Button>
+              </Can>
             )}
             onRowClick={(row) => navigate(`/billing/payments/${row.id}`)}
           />

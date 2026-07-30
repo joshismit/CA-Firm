@@ -1,6 +1,5 @@
 // TypeScript types and interfaces scoped to roles.
-// Field shapes mirror the Role/RolePermission/UserRole Prisma models - the backend has a full
-// RBAC schema but no mounted routes for managing it yet.
+// Field shapes mirror backend/src/modules/roles/dto/role.res.dto.ts exactly.
 
 export type RoleType = 'SYSTEM' | 'CUSTOM'
 

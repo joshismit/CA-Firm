@@ -1,8 +1,8 @@
 // TypeScript types and interfaces scoped to permissions.
-// Field shapes mirror the Permission/PermissionGroup Prisma models. Distinct from config/permissions.config.ts
-// (the frontend's local ACL string registry, used by usePermission/<Can>) - this module is about
-// fetching the authoritative permission catalog and role-permission matrix from the backend once
-// it exists, e.g. for a Roles & Permissions admin screen.
+// Field shapes mirror backend/src/modules/permissions/dto/permission.res.dto.ts exactly. Distinct
+// from config/permissions.config.ts (the frontend's local ACL string registry, used by
+// usePermission/<Can>) - this module fetches the authoritative permission catalog and
+// role-permission matrix from the backend.
 
 export interface PermissionGroup {
   id: string

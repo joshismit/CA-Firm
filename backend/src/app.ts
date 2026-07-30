@@ -18,6 +18,13 @@ import { businessRoutes } from '@modules/business';
 import { contactRoutes } from '@modules/contacts';
 import { crmRoutes } from '@modules/crm';
 import { documentRoutes } from '@modules/documents';
+import { userRoutes } from '@modules/users';
+import { roleRoutes } from '@modules/roles';
+import { permissionRoutes } from '@modules/permissions';
+import { createComplianceFilingRoutes } from '@modules/compliance';
+import { ComplianceCategory } from '@prisma/client';
+import { invoiceRoutes, expenseRoutes, paymentRoutes } from '@modules/client-billing';
+import { notificationRoutes } from '@modules/notifications';
 
 const app: Application = express();
 
@@ -51,6 +58,29 @@ app.use(`${API.PREFIX}/business`, businessRoutes);
 app.use(`${API.PREFIX}/contacts`, contactRoutes);
 app.use(`${API.PREFIX}/crm`, crmRoutes);
 app.use(`${API.PREFIX}/documents`, documentRoutes);
+app.use(`${API.PREFIX}/users`, userRoutes);
+app.use(`${API.PREFIX}/roles`, roleRoutes);
+app.use(`${API.PREFIX}/permissions`, permissionRoutes);
+
+// One generic Compliance module, mounted 4x — matches the frontend's own
+// sidebar route naming (/gst, /itr, /tds, /mca) exactly. See
+// modules/compliance/routes/compliance-filing.routes.ts's header comment
+// for why these routes have no requirePermission() gate.
+app.use(`${API.PREFIX}/gst`, createComplianceFilingRoutes(ComplianceCategory.GST));
+app.use(`${API.PREFIX}/itr`, createComplianceFilingRoutes(ComplianceCategory.ITR));
+app.use(`${API.PREFIX}/tds`, createComplianceFilingRoutes(ComplianceCategory.TDS));
+app.use(`${API.PREFIX}/mca`, createComplianceFilingRoutes(ComplianceCategory.MCA));
+
+// Client Billing (Invoices/Expenses/Payments to the firm's own clients) — a
+// completely separate domain from the unrelated, still-unbuilt SaaS
+// subscription billing module. Both may eventually share the `/billing`
+// prefix (this module's own sub-paths are /invoices, /expenses, /payments;
+// SaaS billing's would be e.g. /subscription, /plans) with no route
+// collision, since Express dispatches on the full path, not just the prefix.
+app.use(`${API.PREFIX}/billing/invoices`, invoiceRoutes);
+app.use(`${API.PREFIX}/billing/expenses`, expenseRoutes);
+app.use(`${API.PREFIX}/billing/payments`, paymentRoutes);
+app.use(`${API.PREFIX}/notifications`, notificationRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

@@ -1,6 +1,7 @@
 // TypeScript types and interfaces scoped to notifications.
-// PROVISIONAL: no Notification Prisma model or backend module exists yet - shapes follow the
-// PRD's provider-based WhatsApp/Email/SMS notification engine description (section 11).
+// Field shapes mirror backend/src/modules/notifications/dto/notification.res.dto.ts exactly.
+// NotificationPreference remains provisional - no backend counterpart exists (per-channel
+// notification preferences were explicitly out of scope for the Notifications backend module).
 
 export type NotificationChannel = 'WHATSAPP' | 'EMAIL' | 'SMS' | 'IN_APP'
 

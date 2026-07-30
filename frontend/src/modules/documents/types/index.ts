@@ -58,3 +58,23 @@ export interface DocumentDownloadUrl {
   url: string
   expiresInSeconds: number
 }
+
+/**
+ * Reusable document template (e.g. an engagement-letter or NOC boilerplate a firm fills in per
+ * client) - PROVISIONAL: no backend Prisma model or routes exist for this yet, distinct from the
+ * real, backend-backed `DocumentFile` above. See api/index.ts's `notImplemented()` block.
+ */
+export interface DocumentTemplate {
+  id: string
+  name: string
+  description: string | null
+  category: DocumentCategory
+  updatedAt: string
+}
+
+export interface DocumentTemplateListFilters {
+  page?: number
+  limit?: number
+  search?: string
+  category?: DocumentCategory
+}

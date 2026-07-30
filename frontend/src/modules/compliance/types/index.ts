@@ -1,14 +1,19 @@
 // TypeScript types shared by all four Compliance areas (GST Returns, ITR, TDS/26Q, MCA/ROC).
 //
-// NOT YET AVAILABLE: there is no backend module, Prisma model, or permission resource for any of
-// gst/itr/tds/mca (backend/src/app.ts mounts only auth/business/contacts/crm/documents/projects/
-// tasks; backend/src/shared/enums/permission.enum.ts has no GST/ITR/TDS/MCA resource either). GST,
-// ITR, TDS, and MCA filings are, in reality, four quite different domains (different real-world
-// identifiers, periods, and filing rules) - this file deliberately does NOT invent domain-specific
-// fields (no "gstin", "assessmentYear", "form26Q", etc.) for any of them. It defines one generic,
-// clearly-provisional "filing tracker" shape (reference/period/status/dueDate/notes) common to any
-// of the four, per explicit product direction, until each area's real backend contract exists -
-// at that point this generic type should be split into four real, module-specific ones.
+// Field shapes mirror backend/src/modules/compliance/dto/compliance-filing.res.dto.ts exactly - one
+// generic `ComplianceFiling` backend model/module, mounted once per category at /gst, /itr, /tds,
+// /mca (backend/src/app.ts). There is still no dedicated compliance permission resource in either
+// backend/src/shared/enums/permission.enum.ts or config/permissions.config.ts - by explicit product
+// decision, these routes are reachable by any authenticated tenant user (auth + tenant scoping
+// only), matching this module's ungated <Can>-free UI. GST, ITR, TDS, and MCA filings are, in
+// reality, four quite different domains (different real-world identifiers, periods, and filing
+// rules) - this file deliberately does NOT invent domain-specific fields (no "gstin",
+// "assessmentYear", "form26Q", etc.) for any of them. It defines one generic "filing tracker" shape
+// (reference/period/status/dueDate/notes) common to any of the four, per explicit product
+// direction - `status`/`filedDate` are stored server-side but not yet settable via this API (no
+// status-transition endpoint exists, since no form in this module ever collects one). Splitting
+// this into four real, module-specific types remains future work once each area's real domain
+// requirements land.
 
 export type ComplianceModuleKey = 'gst' | 'itr' | 'tds' | 'mca'
 

@@ -1,59 +1,45 @@
 // roles API request functions, built on the shared Axios instance from src/services/axios.ts.
-//
-// NOT YET AVAILABLE: backend/src/modules has no `roles` module (no routes mounted in
-// backend/src/app.ts), even though Role/Permission/RolePermission/UserRole are fully defined in
-// Prisma. Every function below is a typed placeholder - wire the real apiClient call once the
-// backend implements it. No mock data, no guessed endpoint path.
+// Hits the real backend at ${env.apiBaseUrl}/roles (backend/src/modules/roles/routes/role.routes.ts) -
+// mirrors modules/users/api/index.ts now that the Roles backend module exists.
 
-import type { ApiError } from '@/services/api-error'
-import type { PaginatedResponse } from '@/types/api.types'
+import { apiClient } from '@/services/axios'
+import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type { User } from '@/modules/users/types'
 import type { AssignRolePayload, CreateRolePayload, Role, RoleListFilters, UpdateRolePayload } from '../types'
 
-function notImplemented(action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `Roles API is not available yet (${action}).`,
-  } satisfies ApiError
+export async function listRoles(filters: RoleListFilters): Promise<PaginatedResponse<Role>> {
+  const { data } = await apiClient.get<PaginatedResponse<Role>>('/roles', { params: filters })
+  return data
 }
 
-// TODO: GET /api/v1/roles
-export async function listRoles(_filters: RoleListFilters): Promise<PaginatedResponse<Role>> {
-  return notImplemented('listRoles')
+export async function getRole(id: string): Promise<Role> {
+  const { data } = await apiClient.get<ApiResponse<Role>>(`/roles/${id}`)
+  return data.data
 }
 
-// TODO: GET /api/v1/roles/:id
-export async function getRole(_id: string): Promise<Role> {
-  return notImplemented('getRole')
+export async function createRole(payload: CreateRolePayload): Promise<Role> {
+  const { data } = await apiClient.post<ApiResponse<Role>>('/roles', payload)
+  return data.data
 }
 
-// TODO: POST /api/v1/roles
-export async function createRole(_payload: CreateRolePayload): Promise<Role> {
-  return notImplemented('createRole')
+export async function updateRole(id: string, payload: UpdateRolePayload): Promise<Role> {
+  const { data } = await apiClient.patch<ApiResponse<Role>>(`/roles/${id}`, payload)
+  return data.data
 }
 
-// TODO: PATCH /api/v1/roles/:id
-export async function updateRole(_id: string, _payload: UpdateRolePayload): Promise<Role> {
-  return notImplemented('updateRole')
+export async function deleteRole(id: string): Promise<void> {
+  await apiClient.delete(`/roles/${id}`)
 }
 
-// TODO: DELETE /api/v1/roles/:id
-export async function deleteRole(_id: string): Promise<void> {
-  return notImplemented('deleteRole')
+export async function assignRole(payload: AssignRolePayload): Promise<void> {
+  await apiClient.post('/roles/assign', payload)
 }
 
-// TODO: POST /api/v1/roles/assign
-export async function assignRole(_payload: AssignRolePayload): Promise<void> {
-  return notImplemented('assignRole')
+export async function revokeRole(payload: AssignRolePayload): Promise<void> {
+  await apiClient.post('/roles/revoke', payload)
 }
 
-// TODO: POST /api/v1/roles/revoke
-export async function revokeRole(_payload: AssignRolePayload): Promise<void> {
-  return notImplemented('revokeRole')
-}
-
-// TODO: GET /api/v1/roles/:id/users
-export async function getRoleUsers(_roleId: string): Promise<User[]> {
-  return notImplemented('getRoleUsers')
+export async function getRoleUsers(roleId: string): Promise<User[]> {
+  const { data } = await apiClient.get<ApiResponse<User[]>>(`/roles/${roleId}/users`)
+  return data.data
 }
