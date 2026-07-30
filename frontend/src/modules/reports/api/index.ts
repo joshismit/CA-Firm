@@ -1,27 +1,21 @@
 // reports API request functions, built on the shared Axios instance from src/services/axios.ts.
-//
-// NOT YET AVAILABLE: reports depend on Business/CRM/Documents/Billing data that doesn't have
-// real backend routes yet either. Every function below is a typed placeholder - wire the real
-// apiClient call once the backend implements reporting endpoints. No mock data, no guessed
-// endpoint path.
-
-import type { ApiError } from '@/services/api-error'
+// Hits the real backend at ${env.apiBaseUrl}/reports/:type[/export] (backend/src/modules/reports/
+// routes/report.routes.ts) - mirrors modules/compliance/api/index.ts now that the Reports backend
+// module exists. exportReport uses responseType: 'blob' since the backend returns a raw file body
+// (text/csv), not a JSON envelope - matches this function's own Promise<Blob> return type exactly.
+import { apiClient } from '@/services/axios'
+import type { ApiResponse } from '@/types/api.types'
 import type { ReportExportFormat, ReportFilters, ReportResult, ReportType } from '../types'
 
-function notImplemented(action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `Reports API is not available yet (${action}).`,
-  } satisfies ApiError
+export async function generateReport(type: ReportType, filters: ReportFilters): Promise<ReportResult> {
+  const { data } = await apiClient.get<ApiResponse<ReportResult>>(`/reports/${type}`, { params: filters })
+  return data.data
 }
 
-// TODO: GET /api/v1/reports/:type
-export async function generateReport(_type: ReportType, _filters: ReportFilters): Promise<ReportResult> {
-  return notImplemented('generateReport')
-}
-
-// TODO: GET /api/v1/reports/:type/export
-export async function exportReport(_type: ReportType, _filters: ReportFilters, _format: ReportExportFormat): Promise<Blob> {
-  return notImplemented('exportReport')
+export async function exportReport(type: ReportType, filters: ReportFilters, format: ReportExportFormat): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(`/reports/${type}/export`, {
+    params: { ...filters, format },
+    responseType: 'blob',
+  })
+  return data
 }

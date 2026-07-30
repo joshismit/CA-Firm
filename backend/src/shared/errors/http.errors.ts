@@ -123,6 +123,23 @@ export class TooManyRequestsError extends AppError {
   }
 }
 
+// ─── 501 Not Implemented ─────────────────────────────────────────────────────
+
+/**
+ * A genuinely valid request for a feature that does not exist yet in this
+ * backend — distinct from `InternalServerError` (an unexpected crash).
+ * Always operational: the client should treat the message as authoritative,
+ * not retry expecting a transient failure to resolve itself.
+ */
+export class NotImplementedError extends AppError {
+  constructor(
+    message = 'This feature is not yet available',
+    code: ErrorCode = ErrorCode.NOT_IMPLEMENTED,
+  ) {
+    super(message, HTTP_STATUS.NOT_IMPLEMENTED, code, true);
+  }
+}
+
 // ─── 500 Internal Server Error ───────────────────────────────────────────────
 
 /**

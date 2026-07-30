@@ -1,6 +1,8 @@
 // TypeScript types and interfaces scoped to reports.
-// PROVISIONAL: reports are computed/aggregated views, not a Prisma model - the report type list
-// matches PRD section 13.2 exactly.
+// Reports are computed/aggregated views, not a Prisma model - field shapes mirror
+// backend/src/modules/reports/dto/report.res.dto.ts exactly. PENDING_DOCUMENTS and PDF/XLSX export
+// return a real 501 (no document review/signature status or PDF/XLSX generation library exists
+// yet) - every other report type and CSV export are real.
 
 export type ReportType =
   | 'NEW_LEADS'

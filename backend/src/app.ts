@@ -25,6 +25,7 @@ import { createComplianceFilingRoutes } from '@modules/compliance';
 import { ComplianceCategory } from '@prisma/client';
 import { invoiceRoutes, expenseRoutes, paymentRoutes } from '@modules/client-billing';
 import { notificationRoutes } from '@modules/notifications';
+import { reportRoutes } from '@modules/reports';
 
 const app: Application = express();
 
@@ -81,6 +82,7 @@ app.use(`${API.PREFIX}/billing/invoices`, invoiceRoutes);
 app.use(`${API.PREFIX}/billing/expenses`, expenseRoutes);
 app.use(`${API.PREFIX}/billing/payments`, paymentRoutes);
 app.use(`${API.PREFIX}/notifications`, notificationRoutes);
+app.use(`${API.PREFIX}/reports`, reportRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

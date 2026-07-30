@@ -7,8 +7,8 @@ import type { ReportExportFormat, ReportFilters, ReportType } from '../types'
 
 // `enabled` defaults to true only for backward compatibility with any existing caller - the
 // report-generation page passes `enabled: hasGenerated` so nothing is attempted until the user
-// clicks "Generate", not on page load. retry:false: a 501 NOT_IMPLEMENTED will never succeed on
-// retry (same convention as modules/compliance and modules/client-billing).
+// clicks "Generate", not on page load. retry:false: PENDING_DOCUMENTS (and PDF/XLSX export) return
+// a real 501 that will never succeed on retry - other report types succeed normally.
 export function useReportQuery(type: ReportType, filters: ReportFilters, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.reports.report(type, filters),

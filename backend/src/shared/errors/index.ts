@@ -12,6 +12,7 @@ export {
   GoneError,
   ValidationError,
   TooManyRequestsError,
+  NotImplementedError,
   InternalServerError,
   ServiceUnavailableError,
 } from './http.errors';

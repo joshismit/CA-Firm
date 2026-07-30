@@ -396,6 +396,29 @@ const CLIENT_BILLING_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
 ];
 
 /**
+ * Reports (read-only generated projections over existing data) — only
+ * READ/EXPORT, matching the frontend's own `PERMISSIONS.REPORTS_READ`/
+ * `REPORTS_EXPORT` pair exactly (see
+ * `src/modules/reports/constants/report.permissions.ts`). No
+ * CREATE/UPDATE/DELETE — reports are never created, updated, or deleted,
+ * only generated and exported.
+ */
+const REPORT_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Reports',
+    description: 'Generate and view reports across clients, finances, and operations.',
+  },
+  {
+    action: PermissionAction.EXPORT,
+    dbAction: PrismaPermissionAction.EXPORT,
+    name: 'Export Reports',
+    description: 'Export generated reports as files (CSV).',
+  },
+];
+
+/**
  * Upserts every permission for a single resource, keyed on the unique `code`
  * column. Safe to run any number of times — never creates duplicates.
  */
@@ -452,4 +475,5 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
   await upsertResourcePermissions(prisma, PermissionResource.USERS, USER_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.ROLES, ROLE_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.CLIENT_BILLING, CLIENT_BILLING_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.REPORTS, REPORT_PERMISSION_DEFINITIONS);
 }
