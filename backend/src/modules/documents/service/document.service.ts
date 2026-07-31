@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Document } from '@prisma/client';
+import { Document, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { storageConfig } from '@config/storage';
 import { BaseService } from '@shared/base';
@@ -8,6 +8,7 @@ import { PaginationMeta } from '@shared/types';
 import { UPLOAD } from '@shared/constants';
 import { CryptoUtils } from '@shared/utils';
 import { S3StorageService } from '@storage/s3-storage.service';
+import { AuditLogRecorder } from '@modules/audit';
 import { DocumentRepository } from '../repository/document.repository';
 import { CreateDocumentDto, UpdateDocumentDto, ListDocumentsQueryDto } from '../dto/document.req.dto';
 import { DocumentDownloadUrlResponseDto } from '../dto/document.res.dto';
@@ -41,6 +42,7 @@ export class DocumentService extends BaseService {
     req: Request,
     private readonly documentRepository: DocumentRepository = new DocumentRepository(prisma),
     private readonly storageService: S3StorageService = new S3StorageService(),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -73,7 +75,7 @@ export class DocumentService extends BaseService {
     // before any Document metadata is persisted.
     await this.storageService.upload(storageKey, file.buffer, file.mimetype);
 
-    return this.documentRepository.create(
+    const document = await this.documentRepository.create(
       {
         businessId: dto.businessId ?? null,
         contactId: dto.contactId ?? null,
@@ -87,6 +89,18 @@ export class DocumentService extends BaseService {
       },
       { tenantId: this.tenantId },
     );
+
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId as string,
+      actorId: userId,
+      eventType: AuditEventType.UPLOAD,
+      description: `Uploaded document "${document.fileName}"`,
+      targetType: 'Document',
+      targetId: document.id,
+      ipAddress: this.req.ip ?? null,
+    });
+
+    return document;
   }
 
   async updateDocument(id: string, dto: UpdateDocumentDto): Promise<Document> {
@@ -134,6 +148,19 @@ export class DocumentService extends BaseService {
   async getDownloadUrl(id: string): Promise<DocumentDownloadUrlResponseDto> {
     const document = await this.getDocumentById(id);
     const url = await this.storageService.getDownloadUrl(document.storageKey);
+
+    if (this.userId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId as string,
+        actorId: this.userId,
+        eventType: AuditEventType.DOWNLOAD,
+        description: `Downloaded document "${document.fileName}"`,
+        targetType: 'Document',
+        targetId: document.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
     return { url, expiresInSeconds: storageConfig.presignedUrlExpirySeconds };
   }
 }

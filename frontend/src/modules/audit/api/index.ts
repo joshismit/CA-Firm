@@ -1,27 +1,17 @@
 // audit API request functions, built on the shared Axios instance from src/services/axios.ts.
-//
-// NOT YET AVAILABLE: only LoginHistory exists on the backend (auth events only) - there is no
-// generic audit-log module covering uploads/shares/role changes/etc. This is a typed placeholder -
-// wire the real apiClient call once the backend implements it. No mock data, no guessed endpoint path.
-
-import type { ApiError } from '@/services/api-error'
-import type { PaginatedResponse } from '@/types/api.types'
+// Hits the real backend at ${env.apiBaseUrl}/audit-logs (backend/src/modules/audit/routes/
+// audit-log.routes.ts) - mirrors modules/notifications/api/index.ts now that the Audit Logs
+// backend module exists (PRD section 14.1).
+import { apiClient } from '@/services/axios'
+import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type { AuditLogEntry, AuditLogFilters } from '../types'
 
-function notImplemented(action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `Audit API is not available yet (${action}).`,
-  } satisfies ApiError
+export async function listAuditLogs(filters: AuditLogFilters): Promise<PaginatedResponse<AuditLogEntry>> {
+  const { data } = await apiClient.get<PaginatedResponse<AuditLogEntry>>('/audit-logs', { params: filters })
+  return data
 }
 
-// TODO: GET /api/v1/audit-logs
-export async function listAuditLogs(_filters: AuditLogFilters): Promise<PaginatedResponse<AuditLogEntry>> {
-  return notImplemented('listAuditLogs')
-}
-
-// TODO: GET /api/v1/audit-logs/:id
-export async function getAuditLogEntry(_id: string): Promise<AuditLogEntry> {
-  return notImplemented('getAuditLogEntry')
+export async function getAuditLogEntry(id: string): Promise<AuditLogEntry> {
+  const { data } = await apiClient.get<ApiResponse<AuditLogEntry>>(`/audit-logs/${id}`)
+  return data.data
 }

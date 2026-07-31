@@ -1,8 +1,7 @@
 // src/modules/audit/pages/AuditListPage.tsx
 // Reference composition: PageLayout > PageHeader (+ PageActions) > PageContent > DataTable, same
 // as BusinessListPage/NotificationListPage. A List/Timeline Tabs toggle offers the same data as
-// either a sortable table or a chronological feed - both honestly empty/erroring today since
-// listAuditLogs always 501s.
+// either a sortable table or a chronological feed.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { SortingState } from '@tanstack/react-table'

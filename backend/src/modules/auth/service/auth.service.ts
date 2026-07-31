@@ -12,6 +12,7 @@ import {
   RefreshTokenRevokeReason,
   LoginEventType,
   LoginEventStatus,
+  AuditEventType,
 } from '@prisma/client';
 import { prisma } from '@config/database';
 import { jwtConfig } from '@config/jwt';
@@ -21,6 +22,7 @@ import { ErrorCode, UserRole } from '@shared/enums';
 import { MESSAGES, PASSWORD, TOKEN } from '@shared/constants';
 import { CryptoUtils } from '@shared/utils';
 import { JwtPayload } from '@middlewares/auth.middleware';
+import { AuditLogRecorder } from '@modules/audit';
 import { AuthRepository } from '../repository/auth.repository';
 import { AuthMapper } from '../mapper/auth.mapper';
 import { detectBrowser, detectOs } from '../utils/user-agent.util';
@@ -66,6 +68,7 @@ export class AuthService extends BaseService {
   constructor(
     req: Request,
     private readonly authRepository: AuthRepository = new AuthRepository(prisma),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -146,6 +149,13 @@ export class AuthService extends BaseService {
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
       sessionId: session.id,
+    });
+    await this.auditLogRecorder.record({
+      tenantId: user.tenantId,
+      actorId: user.id,
+      eventType: AuditEventType.LOGIN,
+      description: `${user.email} logged in`,
+      ipAddress: meta.ipAddress,
     });
 
     this.logger.info({ userId: user.id }, 'User logged in');
@@ -233,6 +243,19 @@ export class AuthService extends BaseService {
     if (tokenRow && tokenRow.userId === userId) {
       await this.authRepository.revokeRefreshTokensBySession(tokenRow.sessionId, RefreshTokenRevokeReason.LOGOUT);
       await this.authRepository.revokeSession(tokenRow.sessionId, SessionRevokeReason.LOGOUT);
+    }
+
+    // `req.user.tenantId`/`email` come straight off the JWT (authMiddleware), not `this.tenantId`
+    // (only set once tenantMiddleware runs, which auth routes don't) — see AuditLogRecorder's
+    // header comment on why every param here is explicit rather than derived from BaseService.
+    if (this.req.user?.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.req.user.tenantId,
+        actorId: userId,
+        eventType: AuditEventType.LOGOUT,
+        description: `${this.req.user.email} logged out`,
+        ipAddress: this.req.ip ?? null,
+      });
     }
 
     this.logger.info({ userId }, 'User logged out');

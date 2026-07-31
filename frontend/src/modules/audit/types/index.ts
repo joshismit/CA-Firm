@@ -1,7 +1,7 @@
 // TypeScript types and interfaces scoped to audit.
-// PROVISIONAL: the backend only has LoginHistory (auth events only) - there is no generic
-// AuditLog Prisma model yet covering uploads/downloads/shares/role changes/etc as the PRD
-// describes (section 14.1). This type follows that PRD description.
+// Field-for-field match with the backend's AuditLogResponseDto
+// (backend/src/modules/audit/dto/audit.res.dto.ts), which itself follows the PRD's
+// section 14.1 tracked-event list.
 
 export type AuditEventType =
   | 'UPLOAD'

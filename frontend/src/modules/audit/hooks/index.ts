@@ -5,8 +5,8 @@ import { queryKeys } from '@/services/query-keys'
 import { getAuditLogEntry, listAuditLogs } from '../api'
 import type { AuditLogFilters } from '../types'
 
-// retry: false - a 501 NOT_IMPLEMENTED will never succeed on retry (same convention as
-// modules/compliance, modules/client-billing, modules/notifications, modules/reports).
+// retry: false - matches modules/notifications/hooks/index.ts's own convention for list/detail
+// queries (a 403/404 won't succeed on retry either).
 export function useAuditLogsQuery(filters: AuditLogFilters) {
   return useQuery({ queryKey: queryKeys.audit.list(filters), queryFn: () => listAuditLogs(filters), retry: false })
 }

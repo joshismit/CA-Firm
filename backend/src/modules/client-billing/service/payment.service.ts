@@ -1,9 +1,10 @@
 import { Request } from 'express';
-import { Payment } from '@prisma/client';
+import { Payment, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { NotFoundError } from '@shared/errors';
 import { PaginationMeta } from '@shared/types';
+import { AuditLogRecorder } from '@modules/audit';
 import { PaymentRepository } from '../repository/payment.repository';
 import { InvoiceRepository } from '../repository/invoice.repository';
 import { CreatePaymentDto, UpdatePaymentDto, ListPaymentsQueryDto } from '../dto/payment.req.dto';
@@ -23,6 +24,7 @@ export class PaymentService extends BaseService {
     req: Request,
     private readonly repository: PaymentRepository = new PaymentRepository(prisma),
     private readonly invoiceRepository: InvoiceRepository = new InvoiceRepository(prisma),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -46,7 +48,7 @@ export class PaymentService extends BaseService {
 
     this.logger.info({ paymentNumber: dto.paymentNumber }, 'Creating payment');
 
-    return this.repository.create(
+    const payment = await this.repository.create(
       {
         paymentNumber: dto.paymentNumber,
         invoiceId: dto.invoiceId ?? null,
@@ -58,6 +60,18 @@ export class PaymentService extends BaseService {
       },
       { tenantId: this.tenantId },
     );
+
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId as string,
+      actorId: this.userId as string,
+      eventType: AuditEventType.PAYMENT_ACTION,
+      description: `Recorded payment "${payment.paymentNumber}" of ${payment.amount}`,
+      targetType: 'Payment',
+      targetId: payment.id,
+      ipAddress: this.req.ip ?? null,
+    });
+
+    return payment;
   }
 
   async updatePayment(id: string, dto: UpdatePaymentDto): Promise<Payment> {
@@ -70,11 +84,21 @@ export class PaymentService extends BaseService {
   }
 
   async deletePayment(id: string): Promise<void> {
-    await this.getPaymentById(id);
+    const existing = await this.getPaymentById(id);
 
     this.logger.info({ paymentId: id }, 'Deleting payment');
 
     await this.repository.delete(id, { tenantId: this.tenantId });
+
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId as string,
+      actorId: this.userId as string,
+      eventType: AuditEventType.PAYMENT_ACTION,
+      description: `Deleted payment "${existing.paymentNumber}"`,
+      targetType: 'Payment',
+      targetId: id,
+      ipAddress: this.req.ip ?? null,
+    });
   }
 
   private async validateInvoiceReference(invoiceId: string | undefined): Promise<void> {

@@ -28,6 +28,7 @@ import { notificationRoutes } from '@modules/notifications';
 import { reportRoutes } from '@modules/reports';
 import { masterAdminRoutes } from '@modules/master-admin';
 import { billingRoutes } from '@modules/billing';
+import { auditRoutes } from '@modules/audit';
 
 const app: Application = express();
 
@@ -98,6 +99,11 @@ app.use(`${API.PREFIX}/master-admin`, masterAdminRoutes);
 // billing of ITS clients). Mounted at `/subscription`, not `/billing`, to avoid colliding with
 // that prefix — see modules/billing/routes/billing.routes.ts's header comment.
 app.use(`${API.PREFIX}/subscription`, billingRoutes);
+
+// General activity trail (PRD §14.1) — read-only; entries are written by
+// `AuditLogRecorder` from inside other modules' own services, not through
+// an endpoint of this module.
+app.use(`${API.PREFIX}/audit-logs`, auditRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

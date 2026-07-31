@@ -1,7 +1,6 @@
 // src/modules/audit/components/AuditStatsCards.tsx
-// Same real, separately-cached GET+limit=1 pattern as BusinessStatsCards - except every one of
-// these genuinely 501s (no backend module exists yet), so StatCard's existing isError branch
-// renders "—" honestly instead of a fabricated number.
+// Same real, separately-cached GET+limit=1 pattern as BusinessStatsCards - each card reads
+// `meta.total` off its own filtered query rather than a dedicated stats endpoint.
 import { Activity, LogIn, Upload, ShieldAlert } from 'lucide-react'
 import { StatCard, StatsGrid } from '@/components/shared/StatCard/StatCard'
 import { useAuditLogsQuery } from '../hooks'

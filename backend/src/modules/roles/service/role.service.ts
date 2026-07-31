@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { RoleType } from '@prisma/client';
+import { RoleType, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { ConflictError, ForbiddenError, NotFoundError } from '@shared/errors';
@@ -7,6 +7,7 @@ import { ErrorCode } from '@shared/enums';
 import { PaginationMeta } from '@shared/types';
 import { UserMapper } from '@modules/users/mapper/user.mapper';
 import { UserResponseDto } from '@modules/users/dto/user.res.dto';
+import { AuditLogRecorder } from '@modules/audit';
 import { RoleRepository } from '../repository/role.repository';
 import { RoleWithPermissions } from '../mapper/role.mapper';
 import { CreateRoleDto, UpdateRoleDto, ListRolesQueryDto, AssignRoleDto } from '../dto/role.req.dto';
@@ -33,6 +34,7 @@ export class RoleService extends BaseService {
   constructor(
     req: Request,
     private readonly roleRepository: RoleRepository = new RoleRepository(prisma),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -114,6 +116,18 @@ export class RoleService extends BaseService {
       }
     });
 
+    if (permissionIds) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId as string,
+        actorId: this.userId as string,
+        eventType: AuditEventType.PERMISSION_CHANGE,
+        description: `Changed permissions for role "${existing.name}"`,
+        targetType: 'Role',
+        targetId: id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
     return this.getRoleById(id);
   }
 
@@ -158,6 +172,16 @@ export class RoleService extends BaseService {
       assignedById: this.userId as string,
       expiresAt: dto.expiresAt ?? null,
     });
+
+    await this.auditLogRecorder.record({
+      tenantId,
+      actorId: this.userId as string,
+      eventType: AuditEventType.ROLE_CHANGE,
+      description: `Assigned role "${role.name}"`,
+      targetType: 'User',
+      targetId: dto.userId,
+      ipAddress: this.req.ip ?? null,
+    });
   }
 
   async revokeRole(dto: AssignRoleDto): Promise<void> {
@@ -166,8 +190,20 @@ export class RoleService extends BaseService {
     const assignment = await this.roleRepository.findUserRoleAssignment(dto.userId, dto.roleId, tenantId);
     this.validateExists(assignment, 'Role assignment');
 
+    const role = await this.roleRepository.findById(dto.roleId, { tenantId });
+
     this.logger.info({ userId: dto.userId, roleId: dto.roleId }, 'Revoking role');
 
     await this.roleRepository.deleteUserRoleAssignment(assignment.id);
+
+    await this.auditLogRecorder.record({
+      tenantId,
+      actorId: this.userId as string,
+      eventType: AuditEventType.ROLE_CHANGE,
+      description: `Revoked role "${role?.name ?? dto.roleId}"`,
+      targetType: 'User',
+      targetId: dto.userId,
+      ipAddress: this.req.ip ?? null,
+    });
   }
 }

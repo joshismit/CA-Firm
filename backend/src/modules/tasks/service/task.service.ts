@@ -1,9 +1,10 @@
 import { Request } from 'express';
-import { Task, TaskStatus } from '@prisma/client';
+import { Task, TaskStatus, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { ConflictError, ValidationError } from '@shared/errors';
 import { PaginationMeta } from '@shared/types';
+import { AuditLogRecorder } from '@modules/audit';
 import { TaskRepository } from '../repository/task.repository';
 import {
   CreateTaskDto,
@@ -57,6 +58,7 @@ export class TaskService extends BaseService {
   constructor(
     req: Request,
     private readonly taskRepository: TaskRepository = new TaskRepository(prisma),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -162,6 +164,16 @@ export class TaskService extends BaseService {
     // TaskDependency exists, IN_PROGRESS should also validate no incomplete
     // blocking predecessor.
     const updated = await this.taskRepository.update(id, data, { tenantId: this.tenantId });
+
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId as string,
+      actorId: this.userId as string,
+      eventType: AuditEventType.TASK_UPDATE,
+      description: `Changed task "${existing.title}" status from ${existing.status} to ${dto.status}`,
+      targetType: 'Task',
+      targetId: id,
+      ipAddress: this.req.ip ?? null,
+    });
 
     // TODO: emit TaskStatusChanged (and TaskCompleted/TaskReopened where
     // applicable) once the domain event bus exists.

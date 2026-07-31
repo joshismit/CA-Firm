@@ -1861,3 +1861,66 @@ model MasterAdmin {
 
   @@map("master_admins")
 }
+
+// =============================================================================
+// SECTION 17 — AUDIT LOG MODULE (PRD §14.1)
+// =============================================================================
+//
+// General-purpose, cross-module activity trail — separate from `LoginHistory`
+// (Section 5-ish, auth-only: failed logins/token refresh/IP-country-city
+// detail) even though the two overlap on LOGIN/LOGOUT. `LoginHistory` stays
+// the detailed security record for auth events specifically; `AuditLog` is
+// the PRD's broader "who did what" feed spanning every module (uploads,
+// downloads, role/permission changes, task updates, payment actions), so a
+// LOGIN/LOGOUT success is written to both — `LoginHistory` isn't reused here
+// because it has no `targetType`/`targetId`/`description` columns generic
+// modules can address.
+//
+// `actorName` is denormalized (captured at write-time) rather than joined
+// through `actorId` at read-time, so a later-renamed or deleted user doesn't
+// rewrite/blank out history — matches this codebase's general preference for
+// point-in-time-accurate audit/financial records over live joins (see
+// `PlatformInvoice` for the same reasoning applied to money instead of
+// identity). No `deletedAt` — audit records are compliance records
+// (`AUDIT.RETENTION_DAYS` = 8 years per Indian CA regulations) and are never
+// user-deletable; a scheduled purge job past the retention window is a
+// separate, later concern.
+
+model AuditLog {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  eventType AuditEventType @map("event_type")
+
+  actorId   String @map("actor_id") @db.Uuid
+  actorName String @map("actor_name") @db.VarChar(200)
+
+  targetType String? @map("target_type") @db.VarChar(50)
+  targetId   String? @map("target_id") @db.Uuid
+
+  description String  @db.Text
+  ipAddress   String? @map("ip_address") @db.VarChar(45)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([tenantId, createdAt(sort: Desc)], name: "idx_audit_logs_tenant_timeline")
+  @@index([tenantId, eventType, createdAt(sort: Desc)], name: "idx_audit_logs_event_type")
+  @@index([tenantId, actorId, createdAt(sort: Desc)], name: "idx_audit_logs_actor")
+  @@index([tenantId, targetType, targetId], name: "idx_audit_logs_target")
+  @@map("audit_logs")
+}
+
+/// Matches frontend/src/modules/audit/types/index.ts's `AuditEventType` exactly.
+enum AuditEventType {
+  UPLOAD
+  DOWNLOAD
+  SHARE
+  LOGIN
+  LOGOUT
+  ROLE_CHANGE
+  TASK_UPDATE
+  PAYMENT_ACTION
+  PERMISSION_CHANGE
+
+  @@map("audit_event_type")
+}
