@@ -12,6 +12,7 @@ const SETTINGS_NAV_ITEMS = [
   { to: '/settings/firm', label: 'Firm' },
   { to: '/settings/billing', label: 'Billing' },
   { to: '/settings/team', label: 'Team' },
+  { to: '/settings/white-label', label: 'White Label' },
   { to: '/settings/integrations', label: 'Integrations' },
 ]
 

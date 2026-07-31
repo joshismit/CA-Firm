@@ -185,6 +185,18 @@ export const AUDIT = {
   MAX_QUERY_LIMIT: 500,
 } as const;
 
+// ─── White-Label (PRD §4.3) ───────────────────────────────────────────────────
+
+export const WHITE_LABEL = {
+  /** Custom-domain DNS ownership is proven via a TXT record at this fixed subdomain of the
+   *  tenant's own domain (`_cafirm-verify.<domain>`) — never at the domain's bare root, so this
+   *  never clobbers a TXT record the tenant already has there (SPF/DKIM/etc). Platform subdomains
+   *  (`<slug>.PLATFORM_DOMAIN`) skip verification entirely — the platform already owns that DNS. */
+  VERIFICATION_TXT_PREFIX: '_cafirm-verify',
+  /** Byte length for the random verification token placed in the TXT record's value. */
+  VERIFICATION_TOKEN_BYTES: 16,
+} as const;
+
 // ─── Platform Billing (SaaS subscription, PRD §12) ───────────────────────────
 
 export const BILLING = {

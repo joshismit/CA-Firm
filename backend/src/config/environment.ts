@@ -14,6 +14,11 @@ const envSchema = z.object({
   APP_URL: z.string().url().default('http://localhost:4000'),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
   API_PREFIX: z.string().default('/api/v1'),
+  /** The platform's own base domain — a tenant's subdomain white-label URL is `<subdomain>.<PLATFORM_DOMAIN>`
+   *  (PRD §4.3's "firmname.yourdomain.com" example). `localhost` in dev: modern browsers/OS resolvers treat
+   *  any `*.localhost` hostname as loopback (RFC 6761), so subdomain white-labeling is genuinely testable
+   *  locally without editing `/etc/hosts` or configuring real DNS. */
+  PLATFORM_DOMAIN: z.string().default('localhost'),
 
   // ─── Database ────────────────────────────────────────────────────────────
   DATABASE_URL: z.string().url(),

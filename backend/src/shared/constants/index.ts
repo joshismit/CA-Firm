@@ -28,6 +28,7 @@ export {
   RATE_LIMIT,
   AUDIT,
   BILLING,
+  WHITE_LABEL,
   API,
 } from './api.constants';
 

@@ -437,6 +437,28 @@ const AUDIT_LOGS_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
 ];
 
 /**
+ * Settings — READ/MANAGE, matching the frontend's own
+ * `PERMISSIONS.SETTINGS_READ`/`SETTINGS_MANAGE` exactly. Gates firm-wide
+ * settings generally; `modules/tenant`'s branding/custom-domain endpoints
+ * (PRD §4.3 white-label) are its first real consumer.
+ */
+const SETTINGS_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Settings',
+    description: 'View firm-wide settings, including branding and custom domain configuration.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Settings',
+    description: 'Change firm-wide settings, including branding and custom domain configuration.',
+    isSensitive: true,
+  },
+];
+
+/**
  * Reports (read-only generated projections over existing data) — only
  * READ/EXPORT, matching the frontend's own `PERMISSIONS.REPORTS_READ`/
  * `REPORTS_EXPORT` pair exactly (see
@@ -519,4 +541,5 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
   await upsertResourcePermissions(prisma, PermissionResource.REPORTS, REPORT_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.BILLING, BILLING_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.AUDIT_LOGS, AUDIT_LOGS_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.SETTINGS, SETTINGS_PERMISSION_DEFINITIONS);
 }

@@ -29,6 +29,7 @@ import { reportRoutes } from '@modules/reports';
 import { masterAdminRoutes } from '@modules/master-admin';
 import { billingRoutes } from '@modules/billing';
 import { auditRoutes } from '@modules/audit';
+import { brandingRoutes, domainRoutes, publicBrandingRoutes } from '@modules/tenant';
 
 const app: Application = express();
 
@@ -104,6 +105,13 @@ app.use(`${API.PREFIX}/subscription`, billingRoutes);
 // `AuditLogRecorder` from inside other modules' own services, not through
 // an endpoint of this module.
 app.use(`${API.PREFIX}/audit-logs`, auditRoutes);
+
+// White-label (PRD §4.3): tenant-scoped branding/custom-domain settings, plus the one PUBLIC
+// endpoint (`/public/white-label`) an unauthenticated login page uses to resolve a hostname's
+// branding before any login has happened.
+app.use(`${API.PREFIX}/settings/branding`, brandingRoutes);
+app.use(`${API.PREFIX}/settings/domain`, domainRoutes);
+app.use(`${API.PREFIX}/public`, publicBrandingRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);
