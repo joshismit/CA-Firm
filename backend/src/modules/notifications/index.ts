@@ -1,11 +1,15 @@
 // notifications module — public exports
 //
-// Only the module's actual public surface is exported here: the router (for
-// mounting) and DTO types. `NotificationRepository`, `NotificationController`,
-// `NotificationMapper`, and `NotificationService` are deliberately NOT
-// exported — no other module needs to compose with this one. Mirrors
-// `modules/contacts/index.ts`.
+// The router (for mounting) and DTO types, plus `NotificationDispatchService`
+// (PRD §11 delivery engine) for other modules to compose with once they wire
+// in real triggers — the same "explicit public surface" precedent as
+// `modules/audit`'s `AuditLogRecorder`. `NotificationRepository`,
+// `NotificationController`, `NotificationMapper`, and the read-only
+// `NotificationService` remain deliberately NOT exported — no other module
+// needs to compose with those. Mirrors `modules/contacts/index.ts`.
 
 export { default as notificationRoutes } from './routes/notification.routes';
 export type { NotificationResponseDto } from './dto/notification.res.dto';
 export type { ListNotificationsQueryDto } from './dto/notification.req.dto';
+export { NotificationDispatchService } from './service/notification-dispatch.service';
+export type { SendNotificationInput } from './service/notification-dispatch.service';

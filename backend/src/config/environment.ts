@@ -46,6 +46,20 @@ const envSchema = z.object({
   MAIL_FROM: z.string().email().default('noreply@cafirm.com'),
   MAIL_FROM_NAME: z.string().default('CA Firm ERP'),
 
+  // ─── WhatsApp (PRD §11.1) ────────────────────────────────────────────────
+  // No default URL/token — unlike Mail, there is no "always works against
+  // localhost" fallback for a WhatsApp Business API. All optional; absence
+  // means `WhatsAppProvider.isConfigured` is false and sends are rejected
+  // before any network call, mirroring `razorpayConfig.isConfigured`.
+  WHATSAPP_API_URL: z.string().url().optional(),
+  WHATSAPP_API_TOKEN: z.string().optional(),
+  WHATSAPP_SENDER_ID: z.string().optional(),
+
+  // ─── SMS (PRD §11.3 — "configurable provider-based option") ─────────────
+  SMS_API_URL: z.string().url().optional(),
+  SMS_API_KEY: z.string().optional(),
+  SMS_SENDER_ID: z.string().optional(),
+
   // ─── Logging ─────────────────────────────────────────────────────────────
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
 
