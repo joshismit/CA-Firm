@@ -185,6 +185,15 @@ export const AUDIT = {
   MAX_QUERY_LIMIT: 500,
 } as const;
 
+// ─── Platform Billing (SaaS subscription, PRD §12) ───────────────────────────
+
+export const BILLING = {
+  /** Length of the free trial granted on signup. */
+  TRIAL_DAYS: 7,
+  /** Every Plan/PlatformInvoice amount is INR — no multi-currency support. */
+  CURRENCY: 'INR',
+} as const;
+
 // ─── API Versioning ───────────────────────────────────────────────────────────
 
 export const API = {

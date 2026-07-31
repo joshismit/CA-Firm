@@ -77,15 +77,5 @@ export interface MasterAdminLoginResponse {
   admin: MasterAdminProfile
 }
 
-// ─── Subscriptions & Plans ──────────────────────────────────────────────────────
-// PROVISIONAL: no platform-level Subscription/Plan backend model exists yet (see
-// api/index.ts's header comment) - this describes the eventual API contract only.
-// This is the SaaS-subscription-billing scope (PRD §12), a separate initiative
-// from the tenant management above.
-
-export interface SubscriptionPlan {
-  id: string
-  name: string
-  priceMonthly: number
-  tenantCount: number
-}
+// Plan catalog types (`AdminPlan` etc.) live in @/modules/billing/types - that module owns `Plan`
+// end-to-end (see backend/src/modules/billing/index.ts's header comment).

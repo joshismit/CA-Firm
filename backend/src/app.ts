@@ -27,6 +27,7 @@ import { invoiceRoutes, expenseRoutes, paymentRoutes } from '@modules/client-bil
 import { notificationRoutes } from '@modules/notifications';
 import { reportRoutes } from '@modules/reports';
 import { masterAdminRoutes } from '@modules/master-admin';
+import { billingRoutes } from '@modules/billing';
 
 const app: Application = express();
 
@@ -38,7 +39,10 @@ app.use(requestLoggerMiddleware);
 app.use(helmet());
 app.use(cors());
 app.use(compression());
-app.use(express.json());
+// `verify` captures the exact raw bytes onto req.rawBody before JSON-parsing replaces
+// req.body — needed by the Razorpay webhook route to verify the HMAC signature, which is
+// computed over the raw payload, not the re-serialized parsed object (see shared/types/express.d.ts).
+app.use(express.json({ verify: (req, _res, buf) => { (req as express.Request).rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true }));
 
 // 3. Health Check
@@ -88,6 +92,12 @@ app.use(`${API.PREFIX}/reports`, reportRoutes);
 // Platform-level admin panel (PRD §4.1 "Master Login") — cross-tenant, gated by
 // requireRole(MASTER_ADMIN) inside the router itself rather than tenantMiddleware.
 app.use(`${API.PREFIX}/master-admin`, masterAdminRoutes);
+
+// Platform subscription billing (PRD §12: plans, trial, Razorpay) — the tenant's OWN payment to
+// this SaaS, a separate domain from `/billing/invoices|expenses|payments` above (the firm's
+// billing of ITS clients). Mounted at `/subscription`, not `/billing`, to avoid colliding with
+// that prefix — see modules/billing/routes/billing.routes.ts's header comment.
+app.use(`${API.PREFIX}/subscription`, billingRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

@@ -57,6 +57,14 @@ const envSchema = z.object({
   MASTER_ADMIN_EMAIL: z.string().email().optional(),
   MASTER_ADMIN_PASSWORD: z.string().min(8).optional(),
 
+  // ─── Razorpay (platform subscription billing) ───────────────────────────
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_KEY_SECRET: z.string().optional(),
+  /** Configured separately in the Razorpay dashboard against a public webhook URL — optional
+   *  because local dev has no such URL; checkout still works via `validatePaymentVerification()`
+   *  on the client's own success callback (see modules/billing/service/billing.service.ts). */
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+
   // ─── Swagger ─────────────────────────────────────────────────────────────
   ENABLE_SWAGGER: z.coerce.boolean().default(true),
 });

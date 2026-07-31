@@ -79,6 +79,8 @@ export const MESSAGES = {
   TENANT_SUSPENDED: 'This organisation account has been suspended.',
   PLAN_LIMIT_EXCEEDED: 'You have reached the limit for your current plan. Please upgrade to continue.',
   FEATURE_NOT_ENABLED: 'This feature is not enabled for your plan.',
+  TRIAL_EXPIRED: 'Your free trial has ended. Please subscribe to a plan to continue.',
+  SUBSCRIPTION_INACTIVE: 'Your subscription is not active. Please check your billing.',
 
   // ─── Users ────────────────────────────────────────────────────────────────
 

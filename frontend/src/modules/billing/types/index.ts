@@ -1,15 +1,16 @@
 // TypeScript types and interfaces scoped to billing.
-// The Tenant Prisma model already has planCode/subscriptionStatus/subscriptionExpiresAt fields,
-// but there is no Subscription/Invoice/Payment table or backend module yet - these types follow
-// the PRD's plan/trial/Razorpay description (section 12) and are provisional.
-
-export type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'CANCELLED' | 'EXPIRED'
+// Field-for-field match with backend/src/modules/billing/dto/billing.res.dto.ts - the platform
+// subscription billing backend module is real and mounted at /subscription (backend/src/modules/
+// billing), not /billing (that prefix belongs to modules/client-billing, an unrelated domain).
 
 export type BillingCycle = 'MONTHLY' | 'QUARTERLY' | 'YEARLY'
 
-export type InvoiceStatus = 'PAID' | 'PENDING' | 'OVERDUE' | 'VOID'
+export type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'CANCELLED' | 'EXPIRED'
+
+export type PlatformInvoiceStatus = 'PENDING' | 'PAID' | 'FAILED' | 'VOID'
 
 export interface SubscriptionPlan {
+  id: string
   code: string
   name: string
   billingCycle: BillingCycle
@@ -17,37 +18,83 @@ export interface SubscriptionPlan {
   maxUsers: number | null
   maxClients: number | null
   maxStorageGb: number | null
+  maxDocuments: number | null
+  isActive: boolean
+  displayOrder: number
+}
+
+/** Master-admin-only view — GET /master-admin/plans. */
+export interface AdminPlan extends SubscriptionPlan {
+  tenantCount: number
 }
 
 export interface Subscription {
-  planCode: string
-  status: SubscriptionStatus
-  expiresAt: string | null
-  trialEndsAt: string | null
+  subscriptionStatus: SubscriptionStatus
+  subscriptionExpiresAt: string | null
+  plan: SubscriptionPlan | null
 }
 
 export interface Invoice {
   id: string
-  number: string
+  planCode: string
+  planName: string
+  billingCycle: BillingCycle
   amountInPaise: number
-  status: InvoiceStatus
-  issuedAt: string
-  dueAt: string
+  status: PlatformInvoiceStatus
+  razorpayOrderId: string
+  razorpayPaymentId: string | null
+  createdAt: string
+  paidAt: string | null
 }
 
 export interface InvoiceListFilters {
   page?: number
   limit?: number
-  status?: InvoiceStatus
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 export interface CreateCheckoutSessionPayload {
   planCode: string
-  billingCycle: BillingCycle
 }
 
 export interface CheckoutSession {
-  /** Razorpay (or future provider) checkout session/order id to hand off to their client SDK. */
-  sessionId: string
-  redirectUrl: string
+  invoiceId: string
+  /** Razorpay order id to hand off to Checkout.js. */
+  razorpayOrderId: string
+  amountInPaise: number
+  currency: string
+  /** Razorpay's public key id — safe to expose client-side, required by Checkout.js. */
+  razorpayKeyId: string
+}
+
+export interface VerifyCheckoutPaymentPayload {
+  razorpayOrderId: string
+  razorpayPaymentId: string
+  razorpaySignature: string
+}
+
+// ─── Master-admin plan management ───────────────────────────────────────────────
+
+export interface CreatePlanPayload {
+  code: string
+  name: string
+  billingCycle: BillingCycle
+  priceInPaise: number
+  maxUsers?: number | null
+  maxClients?: number | null
+  maxStorageGb?: number | null
+  maxDocuments?: number | null
+  displayOrder?: number
+}
+
+export interface UpdatePlanPayload {
+  name?: string
+  priceInPaise?: number
+  maxUsers?: number | null
+  maxClients?: number | null
+  maxStorageGb?: number | null
+  maxDocuments?: number | null
+  displayOrder?: number
+  isActive?: boolean
 }

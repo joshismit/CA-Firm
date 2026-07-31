@@ -12,6 +12,7 @@ import {
   updateTenantStatusSchema,
   updateTenantLimitsSchema,
 } from '../schemas/master-admin.schema';
+import { PlanController, createPlanSchema, updatePlanSchema, planIdParamSchema } from '@modules/billing';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -191,6 +192,77 @@ router.patch(
   requireRole(UserRole.MASTER_ADMIN),
   validate({ params: tenantIdParamSchema, body: updateTenantLimitsSchema }),
   TenantController.updateLimits,
+);
+
+// ─── Plan catalog (PRD §4.1 "Manage plans and add-ons") ──────────────────────
+// `Plan` conceptually belongs to `modules/billing` (the tenant-facing
+// subscription catalog) — these routes just add a role-gated admin surface
+// on top of that module's own `PlanController`, matching the same
+// composition precedent as importing `TenantController`... except that one
+// lives in this module already. No create/update route conflict: `/billing`
+// only exposes a read-only `GET /plans` for tenants.
+
+/**
+ * @swagger
+ * /master-admin/plans:
+ *   get:
+ *     tags: [Master Admin]
+ *     summary: List every plan, including inactive ones, with tenant counts
+ *     security: [{ BearerAuth: [] }]
+ *     responses:
+ *       200: { description: Every plan., content: { application/json: { schema: { type: object } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller is not a master admin., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.get('/plans', authMiddleware, requireRole(UserRole.MASTER_ADMIN), PlanController.listForAdmin);
+
+/**
+ * @swagger
+ * /master-admin/plans:
+ *   post:
+ *     tags: [Master Admin]
+ *     summary: Create a plan
+ *     security: [{ BearerAuth: [] }]
+ *     responses:
+ *       201: { description: Plan created., content: { application/json: { schema: { type: object } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller is not a master admin., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       409: { description: A plan with this code already exists., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post(
+  '/plans',
+  authMiddleware,
+  requireRole(UserRole.MASTER_ADMIN),
+  validate({ body: createPlanSchema }),
+  PlanController.create,
+);
+
+/**
+ * @swagger
+ * /master-admin/plans/{id}:
+ *   patch:
+ *     tags: [Master Admin]
+ *     summary: Update a plan's price, limits, or active status
+ *     security: [{ BearerAuth: [] }]
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Plan updated., content: { application/json: { schema: { type: object } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller is not a master admin., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No plan with this ID exists., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.patch(
+  '/plans/:id',
+  authMiddleware,
+  requireRole(UserRole.MASTER_ADMIN),
+  validate({ params: planIdParamSchema, body: updatePlanSchema }),
+  PlanController.update,
 );
 
 export default router;

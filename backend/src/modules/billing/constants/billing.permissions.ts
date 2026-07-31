@@ -1,37 +1,21 @@
+import { PermissionAction, PermissionResource } from '@shared/enums';
+
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- * shared/constants — Barrel Export
+ * Billing Permissions
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * PURPOSE:
- *   Single entry point for all application-wide constants.
- *   Import from '@shared/constants' everywhere.
- *
+ * Only READ/MANAGE — mirrors `modules/client-billing/constants/client-billing.permissions.ts`'s
+ * shape exactly. `PermissionResource.BILLING` (the tenant's own SaaS
+ * subscription) is deliberately distinct from `PermissionResource.CLIENT_BILLING`
+ * (the firm's billing of its own clients) — never conflated.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+const RESOURCE = PermissionResource.BILLING;
 
-export { HTTP_STATUS } from './http-status';
-export type { HttpStatus } from './http-status';
+export const BILLING_PERMISSIONS = {
+  READ: `${RESOURCE}:${PermissionAction.READ}`,
+  MANAGE: `${RESOURCE}:${PermissionAction.MANAGE}`,
+} as const;
 
-export { MESSAGES } from './messages';
-export type { MessageKey } from './messages';
-
-export {
-  PAGINATION,
-  OTP,
-  UPLOAD,
-  CACHE_TTL,
-  PASSWORD,
-  TOKEN,
-  SESSION,
-  LOCALE,
-  RATE_LIMIT,
-  AUDIT,
-  BILLING,
-  API,
-} from './api.constants';
-
-export { REGEX } from './regex';
-export type { RegexKey } from './regex';
-
-export { DATE_FORMAT, TIMEZONE } from './date-formats';
+export type BillingPermission = (typeof BILLING_PERMISSIONS)[keyof typeof BILLING_PERMISSIONS];

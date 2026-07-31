@@ -3,12 +3,10 @@
 // platform-level tenant-management module now exists, mirroring modules/business/api/index.ts.
 
 import { apiClient } from '@/services/axios'
-import type { ApiError } from '@/services/api-error'
 import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type {
   MasterAdminLoginRequest,
   MasterAdminLoginResponse,
-  SubscriptionPlan,
   Tenant,
   TenantDetail,
   TenantListFilters,
@@ -41,20 +39,6 @@ export async function updateTenantLimits(id: string, payload: UpdateTenantLimits
   return data.data
 }
 
-// ─── NOT YET AVAILABLE (no platform-level Subscription/Plan backend model exists) ──────────────
-// Same notImplemented()/ApiError(501) shape as every other stub module (see modules/compliance/
-// api/index.ts). This is the SaaS-subscription-billing scope (PRD §12, Razorpay/plans/trial) - a
-// separate, still-unbuilt initiative from the tenant management above.
-
-function notImplemented(action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `Master Admin API is not available yet (${action}).`,
-  } satisfies ApiError
-}
-
-// TODO: GET /master-admin/subscriptions/plans
-export async function listSubscriptionPlans(): Promise<SubscriptionPlan[]> {
-  return notImplemented('listSubscriptionPlans')
-}
+// Plan catalog management (GET/POST/PATCH /master-admin/plans) lives in @/modules/billing's api -
+// that module owns `Plan` end-to-end (see backend/src/modules/billing/index.ts's header comment),
+// this module just adds the role-gated route surface on top of it.

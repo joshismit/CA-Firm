@@ -4,14 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { queryKeys } from '@/services/query-keys'
 import { useAuthStore } from '@/store/auth.store'
-import {
-  getTenant,
-  listSubscriptionPlans,
-  listTenants,
-  masterAdminLoginRequest,
-  updateTenantLimits,
-  updateTenantStatus,
-} from '../api'
+import { getTenant, listTenants, masterAdminLoginRequest, updateTenantLimits, updateTenantStatus } from '../api'
 import type { TenantListFilters, UpdateTenantLimitsPayload, UpdateTenantStatusPayload } from '../types'
 
 // Real endpoints (backend/src/modules/master-admin) - not NOT_IMPLEMENTED stubs.
@@ -69,13 +62,5 @@ export function useUpdateTenantLimitsMutation(id: string) {
   })
 }
 
-// `retry: false` below - this one genuinely 501s today (see api/index.ts's header comment) - no
-// point retry-storming a guaranteed failure. This is the still-unbuilt SaaS-subscription-billing
-// scope (PRD §12), a separate initiative from the tenant management above.
-export function useSubscriptionPlansQuery() {
-  return useQuery({
-    queryKey: queryKeys.masterAdmin.plans,
-    queryFn: () => listSubscriptionPlans(),
-    retry: false,
-  })
-}
+// Plan catalog queries/mutations (useAdminPlansQuery etc.) live in @/modules/billing/hooks -
+// that module owns `Plan` end-to-end (see backend/src/modules/billing/index.ts's header comment).

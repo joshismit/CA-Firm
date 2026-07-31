@@ -59,4 +59,24 @@ export const CryptoUtils = {
   sha256(data: string): string {
     return crypto.createHash('sha256').update(data).digest('hex');
   },
+
+  /**
+   * Computes an HMAC-SHA256 hex digest — used to verify Razorpay's payment/webhook
+   * signatures (`modules/billing`), which are signed the same way.
+   */
+  hmacSha256Hex(data: string, secret: string): string {
+    return crypto.createHmac('sha256', secret).update(data).digest('hex');
+  },
+
+  /**
+   * Constant-time comparison of two hex digests of potentially different lengths —
+   * `crypto.timingSafeEqual` throws if buffer lengths differ, so length is checked first
+   * (a length mismatch alone leaking via timing is not a meaningful attack surface here).
+   */
+  timingSafeEqualHex(a: string, b: string): boolean {
+    const bufA = Buffer.from(a, 'hex');
+    const bufB = Buffer.from(b, 'hex');
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  },
 };

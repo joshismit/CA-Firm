@@ -97,6 +97,14 @@ declare global {
        * Always present after `tenantMiddleware` runs (which requires authMiddleware).
        */
       tenant?: RequestTenant;
+
+      /**
+       * The raw, unparsed request body bytes — captured by `express.json()`'s `verify`
+       * callback in `app.ts` for every request. Razorpay webhook signature verification
+       * (`modules/billing`) needs the exact byte sequence that was signed; the parsed
+       * `req.body` object re-serializes differently and would fail HMAC verification.
+       */
+      rawBody?: Buffer;
     }
   }
 }

@@ -396,6 +396,29 @@ const CLIENT_BILLING_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
 ];
 
 /**
+ * Platform Billing (the tenant's own subscription to the ERP vendor — plans,
+ * checkout, invoice history) — only READ/MANAGE, mirroring
+ * `CLIENT_BILLING_PERMISSION_DEFINITIONS`'s shape exactly. Deliberately
+ * distinct from `PermissionResource.CLIENT_BILLING` (the unrelated
+ * firm-to-its-own-clients resource) — never conflated with it.
+ */
+const BILLING_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Billing',
+    description: 'View the firm\'s current plan, usage limits, and platform invoice history.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Billing',
+    description: 'Change the firm\'s subscription plan and complete checkout.',
+    isSensitive: true,
+  },
+];
+
+/**
  * Reports (read-only generated projections over existing data) — only
  * READ/EXPORT, matching the frontend's own `PERMISSIONS.REPORTS_READ`/
  * `REPORTS_EXPORT` pair exactly (see
@@ -476,4 +499,5 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
   await upsertResourcePermissions(prisma, PermissionResource.ROLES, ROLE_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.CLIENT_BILLING, CLIENT_BILLING_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.REPORTS, REPORT_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.BILLING, BILLING_PERMISSION_DEFINITIONS);
 }

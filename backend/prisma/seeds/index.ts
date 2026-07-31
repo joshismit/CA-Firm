@@ -4,6 +4,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { seedPermissions } from './permissions.seed';
 import { seedBusinessTypes } from './business-type.seed';
 import { seedMasterAdmin } from './master-admin.seed';
+import { seedPlans } from './plan.seed';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -33,6 +34,10 @@ async function main(): Promise<void> {
   console.log('Seeding master admin...');
   await seedMasterAdmin(prisma);
   console.log('Master admin seeded successfully.');
+
+  console.log('Seeding plans...');
+  await seedPlans(prisma);
+  console.log('Plans seeded successfully.');
 }
 
 main()

@@ -1756,6 +1756,95 @@ enum NotificationStatus {
 // `modules/master-admin/service/master-admin-auth.service.ts`'s header
 // comment); a lapsed token just means logging in again.
 
+// =============================================================================
+// SECTION 16 — PLATFORM BILLING MODULE (SaaS subscription, PRD §12)
+// =============================================================================
+//
+// Completely separate domain from SECTION 13 (Invoice/Expense/Payment) — this
+// is the tenant's payment TO the platform (Razorpay), not the firm's billing
+// of its own clients. `Plan` is a shared, cross-tenant catalog (like
+// `BusinessType`), one row per (tier, billing cycle) combination rather than
+// a tier row plus cycle-multiplier math — e.g. "Professional" has separate
+// MONTHLY/QUARTERLY/YEARLY rows, each with its own already-discounted price,
+// so there's no proration/rounding logic to get wrong.
+//
+// `Tenant.planCode`/`subscriptionStatus`/`subscriptionExpiresAt` (Section 2)
+// remain the single source of truth for "what a tenant currently has" —
+// `tenantMiddleware` reads those directly for fast per-request checks. `Plan`
+// and `PlatformInvoice` don't duplicate that; `PlatformInvoice.planId` is the
+// only real FK here (financial records benefit from referential integrity),
+// while `Tenant.planCode` <-> `Plan.code` stays a soft string association
+// (matching `Tenant.planCode`'s existing type — no migration of that column).
+
+model Plan {
+  id   String @id @default(uuid()) @db.Uuid
+  code String @unique @db.VarChar(50)
+  name String @db.VarChar(100)
+
+  billingCycle BillingCycle @map("billing_cycle")
+  priceInPaise Int          @map("price_in_paise")
+
+  maxUsers     Int? @map("max_users")
+  maxClients   Int? @map("max_clients")
+  maxStorageGb Int? @map("max_storage_gb")
+  maxDocuments Int? @map("max_documents")
+
+  isActive     Boolean @default(true) @map("is_active")
+  displayOrder Int     @default(0) @map("display_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  invoices PlatformInvoice[]
+
+  @@index([isActive, displayOrder])
+  @@map("plans")
+}
+
+enum BillingCycle {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+
+  @@map("billing_cycle")
+}
+
+model PlatformInvoice {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  planId   String @map("plan_id") @db.Uuid
+
+  billingCycle  BillingCycle          @map("billing_cycle")
+  amountInPaise Int                   @map("amount_in_paise")
+  status        PlatformInvoiceStatus @default(PENDING)
+
+  razorpayOrderId   String  @unique @map("razorpay_order_id") @db.VarChar(100)
+  razorpayPaymentId String? @unique @map("razorpay_payment_id") @db.VarChar(100)
+  razorpaySignature String? @map("razorpay_signature") @db.VarChar(255)
+
+  periodStart DateTime? @map("period_start") @db.Timestamptz
+  periodEnd   DateTime? @map("period_end") @db.Timestamptz
+  paidAt      DateTime? @map("paid_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, status], name: "idx_platform_invoices_tenant_status")
+  @@index([tenantId, createdAt(sort: Desc)], name: "idx_platform_invoices_tenant_created")
+  @@map("platform_invoices")
+}
+
+enum PlatformInvoiceStatus {
+  PENDING
+  PAID
+  FAILED
+  VOID
+
+  @@map("platform_invoice_status")
+}
+
 model MasterAdmin {
   id String @id @default(uuid()) @db.Uuid
 
