@@ -71,10 +71,16 @@ function createMockRepository(): MockedRoleRepository {
   };
 }
 
-function createFakeRequest(): Request {
+/**
+ * Defaults to holding `users:read` — the permission code every DTO/mock role
+ * in this file uses — so tests that aren't specifically exercising the
+ * permission-containment guard (see the dedicated block below) don't need to
+ * think about it. Pass an explicit list to test the guard itself.
+ */
+function createFakeRequest(permissions: string[] = ['users:read']): Request {
   return {
     tenant: { id: TENANT_ID, slug: 'acme', name: 'Acme & Co', planCode: 'professional', isActive: true },
-    user: { id: CALLER_ID, email: 'admin@acme.test', role: JwtUserRole.TENANT_ADMIN, tenantId: TENANT_ID, permissions: [] },
+    user: { id: CALLER_ID, email: 'admin@acme.test', role: JwtUserRole.TENANT_ADMIN, tenantId: TENANT_ID, permissions },
     correlationId: 'test-correlation-id',
   } as unknown as Request;
 }
@@ -162,8 +168,8 @@ function createMockUserRoleAssignment(overrides: Partial<UserRole> = {}): UserRo
   };
 }
 
-function createService(repository: MockedRoleRepository): RoleService {
-  return new RoleService(createFakeRequest(), repository as unknown as RoleRepository);
+function createService(repository: MockedRoleRepository, permissions?: string[]): RoleService {
+  return new RoleService(createFakeRequest(permissions), repository as unknown as RoleRepository);
 }
 
 describe('RoleService', () => {
@@ -267,6 +273,17 @@ describe('RoleService', () => {
       expect(repo.create).not.toHaveBeenCalled();
     });
 
+    it('throws ForbiddenError when granting a permission the caller does not hold', async () => {
+      const repo = createMockRepository();
+      repo.findPermissionsByCodes.mockResolvedValue([createMockPermission({ code: 'billing:manage' })]);
+
+      const service = createService(repo); // caller only holds 'users:read'
+      const escalationDto: CreateRoleDto = { name: 'Escalated', permissionCodes: ['billing:manage'] };
+
+      await expect(service.createRole(escalationDto)).rejects.toThrow(ForbiddenError);
+      expect(repo.create).not.toHaveBeenCalled();
+    });
+
     it('creates the role and replaces its permission set within a transaction', async () => {
       const repo = createMockRepository();
       repo.findPermissionsByCodes.mockResolvedValue([createMockPermission()]);
@@ -320,6 +337,18 @@ describe('RoleService', () => {
 
       await expect(service.updateRole(ROLE_ID, dto)).rejects.toThrow(NotFoundError);
       expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('throws ForbiddenError when granting a permission the caller does not hold', async () => {
+      const repo = createMockRepository();
+      repo.findByIdWithPermissions.mockResolvedValue(createMockRoleWithPermissions());
+      repo.findPermissionsByCodes.mockResolvedValue([createMockPermission({ code: 'billing:manage' })]);
+
+      const service = createService(repo); // caller only holds 'users:read'
+      const escalationDto: UpdateRoleDto = { permissionCodes: ['billing:manage'] };
+
+      await expect(service.updateRole(ROLE_ID, escalationDto)).rejects.toThrow(ForbiddenError);
+      expect(repo.replacePermissions).not.toHaveBeenCalled();
     });
 
     it('updates only role fields when permissionCodes is not provided', async () => {
@@ -392,18 +421,39 @@ describe('RoleService', () => {
   describe('assignRole', () => {
     const dto: AssignRoleDto = { userId: TARGET_USER_ID, roleId: ROLE_ID };
 
+    it('throws ForbiddenError when assigning a role to oneself', async () => {
+      const repo = createMockRepository();
+      const service = createService(repo);
+
+      await expect(service.assignRole({ userId: CALLER_ID, roleId: ROLE_ID })).rejects.toThrow(ForbiddenError);
+      expect(repo.findByIdWithPermissions).not.toHaveBeenCalled();
+    });
+
     it('throws NotFoundError when the role does not exist in this tenant', async () => {
       const repo = createMockRepository();
-      repo.findById.mockResolvedValue(null);
+      repo.findByIdWithPermissions.mockResolvedValue(null);
 
       const service = createService(repo);
 
       await expect(service.assignRole(dto)).rejects.toThrow(NotFoundError);
     });
 
+    it('throws ForbiddenError when the role grants a permission the caller does not hold', async () => {
+      const repo = createMockRepository();
+      repo.findByIdWithPermissions.mockResolvedValue({
+        ...createMockRoleWithPermissions(),
+        rolePermissions: [{ permission: { code: 'billing:manage' } }],
+      });
+
+      const service = createService(repo); // caller only holds 'users:read'
+
+      await expect(service.assignRole(dto)).rejects.toThrow(ForbiddenError);
+      expect(repo.userExistsInTenant).not.toHaveBeenCalled();
+    });
+
     it('throws NotFoundError when the user does not exist in this tenant (cross-tenant guard)', async () => {
       const repo = createMockRepository();
-      repo.findById.mockResolvedValue(createMockRole());
+      repo.findByIdWithPermissions.mockResolvedValue(createMockRoleWithPermissions());
       repo.userExistsInTenant.mockResolvedValue(false);
 
       const service = createService(repo);
@@ -414,7 +464,7 @@ describe('RoleService', () => {
 
     it('throws ConflictError when this (user, role) assignment already exists', async () => {
       const repo = createMockRepository();
-      repo.findById.mockResolvedValue(createMockRole());
+      repo.findByIdWithPermissions.mockResolvedValue(createMockRoleWithPermissions());
       repo.userExistsInTenant.mockResolvedValue(true);
       repo.findUserRoleAssignment.mockResolvedValue(createMockUserRoleAssignment());
 
@@ -426,7 +476,7 @@ describe('RoleService', () => {
 
     it('creates the assignment once role/user/no-duplicate checks pass', async () => {
       const repo = createMockRepository();
-      repo.findById.mockResolvedValue(createMockRole());
+      repo.findByIdWithPermissions.mockResolvedValue(createMockRoleWithPermissions());
       repo.userExistsInTenant.mockResolvedValue(true);
       repo.findUserRoleAssignment.mockResolvedValue(null);
 

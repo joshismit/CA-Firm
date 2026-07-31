@@ -67,11 +67,30 @@ export class RoleService extends BaseService {
   // Create / Update / Delete
   // ────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Prevents privilege escalation: a `roles:manage` holder may only grant
+   * permissions they themselves already hold — otherwise they could create a
+   * role containing e.g. `billing:manage` without holding it, then assign it
+   * to themselves or an accomplice. `req.user.permissions` is the caller's
+   * own JWT-verified permission set, not client-suppliable input.
+   */
+  private assertCallerHoldsPermissions(codes: string[]): void {
+    const callerPermissions = new Set(this.req.user?.permissions ?? []);
+    const notHeld = codes.filter((code) => !callerPermissions.has(code));
+    if (notHeld.length > 0) {
+      throw new ForbiddenError(
+        `Cannot grant permissions you do not hold: ${notHeld.join(', ')}`,
+        ErrorCode.PERMISSION_DENIED,
+      );
+    }
+  }
+
   async createRole(dto: CreateRoleDto): Promise<RoleWithPermissions> {
     const permissions = await this.roleRepository.findPermissionsByCodes(dto.permissionCodes);
     if (permissions.length !== dto.permissionCodes.length) {
       throw new NotFoundError('Permission');
     }
+    this.assertCallerHoldsPermissions(dto.permissionCodes);
 
     this.logger.info({ name: dto.name }, 'Creating role');
 
@@ -100,6 +119,7 @@ export class RoleService extends BaseService {
       if (permissions.length !== dto.permissionCodes.length) {
         throw new NotFoundError('Permission');
       }
+      this.assertCallerHoldsPermissions(dto.permissionCodes);
       permissionIds = permissions.map((p) => p.id);
     }
 
@@ -150,8 +170,20 @@ export class RoleService extends BaseService {
   async assignRole(dto: AssignRoleDto): Promise<void> {
     const tenantId = this.tenantId as string;
 
-    const role = await this.roleRepository.findById(dto.roleId, { tenantId });
+    // A `roles:manage` holder must not be able to grant themselves a role —
+    // including one they just created with a broader permission set than
+    // their own — via a self-service assignment call. Any legitimate change
+    // to the caller's own access must go through someone else's action.
+    if (dto.userId === this.userId) {
+      throw new ForbiddenError('You cannot assign a role to yourself.', ErrorCode.PERMISSION_DENIED);
+    }
+
+    const role = await this.roleRepository.findByIdWithPermissions(dto.roleId, { tenantId });
     this.validateExists(role, 'Role');
+    // Defense in depth against escalation via a second/accomplice account:
+    // the role being assigned may not grant any permission the caller
+    // themselves doesn't already hold.
+    this.assertCallerHoldsPermissions(role.rolePermissions.map((rp) => rp.permission.code));
 
     const userExists = await this.roleRepository.userExistsInTenant(dto.userId, tenantId);
     if (!userExists) {

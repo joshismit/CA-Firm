@@ -7,6 +7,7 @@ import swaggerUi from 'swagger-ui-express';
 import { correlationIdMiddleware } from '@middlewares/correlation-id.middleware';
 import { requestLoggerMiddleware } from '@middlewares/request-logger.middleware';
 import { errorMiddleware } from '@middlewares/error.middleware';
+import { generalRateLimiter } from '@middlewares/rate-limit.middleware';
 import { ApiResponseHelper } from '@shared/response/api-response';
 import { API } from '@shared/constants';
 import { env } from '@config/environment';
@@ -46,6 +47,7 @@ app.use(compression());
 // computed over the raw payload, not the re-serialized parsed object (see shared/types/express.d.ts).
 app.use(express.json({ verify: (req, _res, buf) => { (req as express.Request).rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true }));
+app.use(generalRateLimiter);
 
 // 3. Health Check
 app.get('/health', (req: Request, res: Response) => {

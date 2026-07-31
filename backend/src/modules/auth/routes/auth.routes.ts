@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware } from '@middlewares/auth.middleware';
 import { tenantMiddleware } from '@middlewares/tenant.middleware';
 import { validate } from '@middlewares/validation.middleware';
+import { authRateLimiter } from '@middlewares/rate-limit.middleware';
 import { AuthController } from '../controller/auth.controller';
 import {
   loginSchema,
@@ -72,7 +73,7 @@ const router = Router();
  *       403: { description: Account locked/inactive, or tenant inactive., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
  *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
  */
-router.post('/login', validate({ body: loginSchema }), AuthController.login);
+router.post('/login', authRateLimiter, validate({ body: loginSchema }), AuthController.login);
 
 /**
  * @swagger
@@ -88,7 +89,7 @@ router.post('/login', validate({ body: loginSchema }), AuthController.login);
  *       401: { description: Invalid, expired, revoked, or reused refresh token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
  *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
  */
-router.post('/refresh', validate({ body: refreshTokenSchema }), AuthController.refresh);
+router.post('/refresh', authRateLimiter, validate({ body: refreshTokenSchema }), AuthController.refresh);
 
 /**
  * @swagger

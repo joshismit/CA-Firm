@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware } from '@middlewares/auth.middleware';
 import { requireRole } from '@middlewares/permission.middleware';
 import { validate } from '@middlewares/validation.middleware';
+import { masterAdminAuthRateLimiter } from '@middlewares/rate-limit.middleware';
 import { UserRole } from '@shared/enums';
 import { MasterAdminAuthController } from '../controller/master-admin-auth.controller';
 import { TenantController } from '../controller/tenant.controller';
@@ -54,7 +55,7 @@ const router = Router();
  *       403: { description: Account is inactive., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
  *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
  */
-router.post('/auth/login', validate({ body: masterAdminLoginSchema }), MasterAdminAuthController.login);
+router.post('/auth/login', masterAdminAuthRateLimiter, validate({ body: masterAdminLoginSchema }), MasterAdminAuthController.login);
 
 /**
  * @swagger

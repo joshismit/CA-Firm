@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { Application } from 'express';
-import { AuditEventType } from '@prisma/client';
+import { AuditEventType, UserStatus } from '@prisma/client';
 import { prisma } from '@config/database';
 import { createAuditTestApp } from '../../helpers/audit-test-app';
 import { signAccessToken } from '../../helpers/jwt';
@@ -33,10 +33,23 @@ describe('Audit Logs API — integration', () => {
   let fixtures: TestFixtures;
   /** The role created in the write-path test below — cleaned up before `cleanupFixtures` runs, since `roles.tenant_id_fkey` is RESTRICT and would otherwise block deleting the fixture tenants. */
   let createdRoleId: string | undefined;
+  /** A role assignment must target someone other than the caller (self-assignment is rejected — see `RoleService.assignRole`), so the write-path test below assigns to this second tenant-A user rather than the fixture's own `tenantA.userId`. */
+  let secondUserId: string;
 
   beforeAll(async () => {
     app = createAuditTestApp();
     fixtures = await seedFixtures(prisma);
+
+    const secondUser = await prisma.user.create({
+      data: {
+        tenantId: fixtures.tenantA.tenantId,
+        email: `audit.assignee.${Date.now()}@example.test`,
+        firstName: 'Assignee',
+        lastName: 'User',
+        status: UserStatus.ACTIVE,
+      },
+    });
+    secondUserId = secondUser.id;
   });
 
   afterAll(async () => {
@@ -48,6 +61,7 @@ describe('Audit Logs API — integration', () => {
     await prisma.auditLog.deleteMany({
       where: { tenantId: { in: [fixtures.tenantA.tenantId, fixtures.tenantB.tenantId] } },
     });
+    await prisma.user.deleteMany({ where: { id: secondUserId } });
     await cleanupFixtures(prisma, fixtures);
     await prisma.$disconnect();
   });
@@ -74,7 +88,11 @@ describe('Audit Logs API — integration', () => {
 
   describe('write path — a real role assignment records a real AuditLog row', () => {
     it('creates a ROLE_CHANGE entry visible through GET /audit-logs, and a PERMISSION_CHANGE entry on a permission update', async () => {
-      const roleManageToken = tokenForTenantA([ROLE_PERMISSIONS.MANAGE, ROLE_PERMISSIONS.READ]);
+      // Includes AUDIT_PERMISSIONS.READ because the test below grants that
+      // same code to a role via PATCH — RoleService now requires the caller
+      // to already hold any permission they attempt to grant (see the P0
+      // privilege-escalation fix in RoleService.assertCallerHoldsPermissions).
+      const roleManageToken = tokenForTenantA([ROLE_PERMISSIONS.MANAGE, ROLE_PERMISSIONS.READ, AUDIT_PERMISSIONS.READ]);
       const auditReadToken = tokenForTenantA([AUDIT_PERMISSIONS.READ]);
 
       // A real, already-seeded permission code — guaranteed present regardless of seed order.
@@ -89,7 +107,7 @@ describe('Audit Logs API — integration', () => {
       const assignRes = await request(app)
         .post('/api/v1/roles/assign')
         .set('Authorization', `Bearer ${roleManageToken}`)
-        .send({ userId: fixtures.tenantA.userId, roleId });
+        .send({ userId: secondUserId, roleId });
       expect(assignRes.status).toBe(200);
 
       const roleChangeList = await request(app)
@@ -99,14 +117,14 @@ describe('Audit Logs API — integration', () => {
 
       expect(roleChangeList.status).toBe(200);
       const roleChangeEntry = roleChangeList.body.data.find(
-        (e: { targetId: string }) => e.targetId === fixtures.tenantA.userId,
+        (e: { targetId: string }) => e.targetId === secondUserId,
       );
       expect(roleChangeEntry).toBeDefined();
       expect(roleChangeEntry).toMatchObject({
         eventType: AuditEventType.ROLE_CHANGE,
         actorId: fixtures.tenantA.userId,
         targetType: 'User',
-        targetId: fixtures.tenantA.userId,
+        targetId: secondUserId,
       });
       expect(roleChangeEntry.description).toEqual(expect.stringContaining('Assigned role'));
 
