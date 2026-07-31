@@ -1,13 +1,11 @@
 // src/modules/auth/pages/AcceptInvitePage.tsx
-// Invite lookup -> Form flow. getInviteInfo/acceptInviteRequest are NOT_IMPLEMENTED stubs
-// (api/index.ts), so the lookup genuinely 501s and this honestly shows "invalid or expired
-// invitation" today rather than fabricating invite details or a fake accept form. The full form
-// UI is still built below so it renders correctly the moment a real invite backend exists.
+// Invite lookup -> Form -> Success flow, hitting the real backend (backend/src/modules/auth/
+// routes/auth.routes.ts: GET /auth/invite/:token, POST /auth/invite/:token/accept).
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link, useParams } from 'react-router-dom'
-import { AlertCircle, Eye, EyeOff, Lock, User } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Lock, User } from 'lucide-react'
 import { Card } from '@/components/shared/Card/Card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,6 +19,7 @@ export function AcceptInvitePage() {
   const { token = '' } = useParams<{ token: string }>()
   const inviteQuery = useInviteInfoQuery(token)
   const mutation = useAcceptInviteMutation()
+  const [succeeded, setSucceeded] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
@@ -34,7 +33,27 @@ export function AcceptInvitePage() {
   })
 
   const onSubmit = (values: AcceptInviteFormValues) =>
-    mutation.mutate({ token, fullName: values.fullName, password: values.password })
+    mutation.mutate(
+      { token, fullName: values.fullName, password: values.password },
+      { onSuccess: () => setSucceeded(true) },
+    )
+
+  if (succeeded) {
+    return (
+      <Card padding="lg" className="text-center">
+        <div className="mx-auto w-12 h-12 rounded-[var(--radius-xl)] bg-[var(--color-success-bg)] flex items-center justify-center">
+          <CheckCircle2 className="w-6 h-6 text-[var(--color-success)]" />
+        </div>
+        <h1 className="mt-4 text-[18px] font-semibold text-[var(--color-text-heading)]">You're all set</h1>
+        <p className="mt-1.5 text-[13px] text-[var(--color-text-muted)]">Your account has been activated. Sign in to get started.</p>
+        <Link to="/login" className="mt-6 inline-block">
+          <Button type="button" variant="primary">
+            Go to login
+          </Button>
+        </Link>
+      </Card>
+    )
+  }
 
   if (inviteQuery.isLoading) {
     return (

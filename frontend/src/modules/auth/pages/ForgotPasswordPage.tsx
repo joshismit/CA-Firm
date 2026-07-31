@@ -1,7 +1,7 @@
 // src/modules/auth/pages/ForgotPasswordPage.tsx
-// Form -> Email Sent flow. forgotPasswordRequest is a NOT_IMPLEMENTED stub (api/index.ts), so the
-// "Email Sent" state only ever renders on a genuine mutation success - today that means submitting
-// always surfaces the honest error banner instead, never a fabricated "check your inbox" message.
+// Form -> Email Sent flow, hitting the real backend (backend/src/modules/auth/routes/
+// auth.routes.ts: POST /auth/forgot-password). The backend always responds 200 with the same
+// generic message regardless of whether the email matches an account, to prevent enumeration.
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'

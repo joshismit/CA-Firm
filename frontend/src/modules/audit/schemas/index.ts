@@ -13,6 +13,8 @@ export const auditEventTypeValues = [
   'TASK_UPDATE',
   'PAYMENT_ACTION',
   'PERMISSION_CHANGE',
+  'PASSWORD_RESET',
+  'INVITATION_ACCEPTED',
 ] as const
 
 export const auditLogFiltersSchema = z.object({

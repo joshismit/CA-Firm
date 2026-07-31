@@ -44,3 +44,30 @@ export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
   newPassword: password,
 });
+
+/** Matches the frontend's `ForgotPasswordRequest` exactly (`{ email }` — see frontend/src/modules/auth/types/index.ts). */
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Enter a valid email address'),
+});
+
+/** Matches the frontend's `ResetPasswordRequest` exactly (`{ token, newPassword }`). */
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Reset token is required'),
+  newPassword: password,
+});
+
+/** `:token` path param shared by `GET /auth/invite/:token` and `POST /auth/invite/:token/accept`. */
+export const inviteTokenParamSchema = z.object({
+  token: z.string().min(1, 'Invitation token is required'),
+});
+
+/**
+ * Body for `POST /auth/invite/:token/accept` — the token itself travels in
+ * the URL (see `inviteTokenParamSchema`), not duplicated here, even though
+ * the frontend's `AcceptInviteRequest` type carries `token` alongside
+ * `fullName`/`password` for the mutation's own convenience.
+ */
+export const acceptInviteSchema = z.object({
+  fullName: z.string().trim().min(1, 'Full name is required').max(200, 'Full name must be at most 200 characters'),
+  password,
+});

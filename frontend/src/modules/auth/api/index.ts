@@ -1,6 +1,7 @@
 // auth API request functions, built on the shared Axios instance from src/services/axios.ts.
 // Every function below hits the real, mounted backend (backend/src/modules/auth/routes/
-// auth.routes.ts) - login/refresh/logout are no longer a client-side fixture.
+// auth.routes.ts) - login/refresh/logout/forgot-password/reset-password/invite are no longer a
+// client-side fixture.
 
 import { apiClient } from '@/services/axios'
 import type { ApiError } from '@/services/api-error'
@@ -55,10 +56,29 @@ export async function revokeSession(id: string): Promise<void> {
   await apiClient.delete(`/auth/sessions/${id}`)
 }
 
-// ─── NOT YET AVAILABLE (no register/forgot-password/reset-password/invite backend routes exist) ──
+export async function forgotPasswordRequest(payload: ForgotPasswordRequest): Promise<void> {
+  await apiClient.post('/auth/forgot-password', payload)
+}
+
+export async function resetPasswordRequest(payload: ResetPasswordRequest): Promise<void> {
+  await apiClient.post('/auth/reset-password', payload)
+}
+
+export async function getInviteInfo(token: string): Promise<InviteInfo> {
+  const { data } = await apiClient.get<ApiResponse<InviteInfo>>(`/auth/invite/${token}`)
+  return data.data
+}
+
+export async function acceptInviteRequest(payload: AcceptInviteRequest): Promise<void> {
+  const { token, ...body } = payload
+  await apiClient.post(`/auth/invite/${token}/accept`, body)
+}
+
+// ─── NOT YET AVAILABLE (no tenant self-service signup backend route exists) ──────────────────
 // Same notImplemented()/ApiError(501) shape as every other stub module (see modules/compliance/
-// api/index.ts). No mock success, no guessed endpoint path beyond the plausible base already
-// implied by this app's own route naming (/register, /forgot-password, /reset-password, /invite).
+// api/index.ts). Registering a brand-new tenant is a separate, larger initiative (tenant
+// provisioning, trial setup) that hasn't been built yet - unlike forgot-password/reset-password/
+// invite above, which are real, mounted backend routes as of this module's Auth Lifecycle work.
 
 function notImplemented(action: string): never {
   throw {
@@ -68,27 +88,7 @@ function notImplemented(action: string): never {
   } satisfies ApiError
 }
 
-// TODO: POST /auth/register
+// TODO: POST /auth/register (tenant self-service signup - not yet built)
 export async function registerRequest(_payload: RegisterRequest): Promise<void> {
   return notImplemented('registerRequest')
-}
-
-// TODO: POST /auth/forgot-password
-export async function forgotPasswordRequest(_payload: ForgotPasswordRequest): Promise<void> {
-  return notImplemented('forgotPasswordRequest')
-}
-
-// TODO: POST /auth/reset-password
-export async function resetPasswordRequest(_payload: ResetPasswordRequest): Promise<void> {
-  return notImplemented('resetPasswordRequest')
-}
-
-// TODO: GET /auth/invite/:token
-export async function getInviteInfo(_token: string): Promise<InviteInfo> {
-  return notImplemented('getInviteInfo')
-}
-
-// TODO: POST /auth/invite/:token/accept
-export async function acceptInviteRequest(_payload: AcceptInviteRequest): Promise<void> {
-  return notImplemented('acceptInviteRequest')
 }

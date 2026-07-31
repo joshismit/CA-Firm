@@ -95,8 +95,8 @@ export function useChangePasswordMutation() {
   })
 }
 
-// `retry: false` below - every one of these genuinely 501s today (see api/index.ts), no point
-// retry-storming a guaranteed failure.
+// `useRegisterMutation` still genuinely 501s (see api/index.ts) - no tenant self-service signup
+// backend route exists yet. The other three below hit real, mounted routes.
 
 export function useRegisterMutation() {
   return useMutation({ mutationFn: (payload: RegisterRequest) => registerRequest(payload) })
@@ -110,6 +110,8 @@ export function useResetPasswordMutation() {
   return useMutation({ mutationFn: (payload: ResetPasswordRequest) => resetPasswordRequest(payload) })
 }
 
+// `retry: false` - an invalid/expired/already-accepted token is a permanent 401/404, not a
+// transient failure worth retrying.
 export function useInviteInfoQuery(token: string) {
   return useQuery({
     queryKey: queryKeys.auth.invite(token),

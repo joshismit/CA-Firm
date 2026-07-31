@@ -25,10 +25,16 @@ const BLOCKED_SUBSCRIPTION_STATUSES: PrismaSubscriptionStatus[] = [
  * This middleware ensures req.tenant is always populated for protected routes.
  *
  * Also enforces platform subscription billing (PRD §12): a tenant whose
- * 7-day trial (`BILLING.TRIAL_DAYS`) has lapsed, or whose paid subscription
- * has expired/been cancelled/suspended, is blocked here — the single
- * chokepoint every tenant-scoped request passes through, rather than
- * duplicating this check per module.
+ * 7-day trial (`BILLING.TRIAL_DAYS`) has lapsed, or whose paid (`ACTIVE`)
+ * subscription's `subscriptionExpiresAt` has passed without a renewal ever
+ * landing, or whose subscription has been explicitly
+ * expired/cancelled/suspended, is blocked here — the single chokepoint every
+ * tenant-scoped request passes through, rather than duplicating this check
+ * per module. No scheduled job exists anywhere in this codebase to expire a
+ * lapsed subscription proactively, so this request-time check is the only
+ * enforcement there is; the first request to observe the lapse also persists
+ * the `EXPIRED` transition (see below) so the tenant's real state — e.g. in
+ * the master-admin tenant list — doesn't stay frozen at `ACTIVE` forever.
  *
  * Exported wrapped in `asyncHandler` — Express 4 does not await middleware
  * functions, so an unwrapped `async` middleware that throws (every branch
@@ -75,13 +81,31 @@ async function tenantMiddlewareHandler(
     throw new ForbiddenError(MESSAGES.TENANT_INACTIVE);
   }
 
+  const now = new Date();
+
   const trialExpired =
     tenant.subscriptionStatus === PrismaSubscriptionStatus.TRIAL &&
     tenant.subscriptionExpiresAt !== null &&
-    tenant.subscriptionExpiresAt < new Date();
+    tenant.subscriptionExpiresAt < now;
 
-  if (trialExpired) {
-    throw new ForbiddenError(MESSAGES.TRIAL_EXPIRED);
+  // A paid subscription past its `subscriptionExpiresAt` with no renewal —
+  // e.g. a Razorpay auto-renewal that failed — must not keep granting access
+  // indefinitely just because nothing ever flipped `subscriptionStatus`
+  // itself. `PAST_DUE` intentionally stays out of this check (and out of
+  // `BLOCKED_SUBSCRIPTION_STATUSES` above) — a failed-payment retry is meant
+  // to get a grace period, not an instant lockout the moment the date rolls
+  // over; this only fires for a subscription still marked `ACTIVE`.
+  const paidSubscriptionExpired =
+    tenant.subscriptionStatus === PrismaSubscriptionStatus.ACTIVE &&
+    tenant.subscriptionExpiresAt !== null &&
+    tenant.subscriptionExpiresAt < now;
+
+  if (trialExpired || paidSubscriptionExpired) {
+    await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { subscriptionStatus: PrismaSubscriptionStatus.EXPIRED },
+    });
+    throw new ForbiddenError(trialExpired ? MESSAGES.TRIAL_EXPIRED : MESSAGES.SUBSCRIPTION_INACTIVE);
   }
 
   if (BLOCKED_SUBSCRIPTION_STATUSES.includes(tenant.subscriptionStatus)) {

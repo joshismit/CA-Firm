@@ -13,6 +13,8 @@ export type AuditEventType =
   | 'TASK_UPDATE'
   | 'PAYMENT_ACTION'
   | 'PERMISSION_CHANGE'
+  | 'PASSWORD_RESET'
+  | 'INVITATION_ACCEPTED'
 
 export interface AuditLogEntry {
   id: string

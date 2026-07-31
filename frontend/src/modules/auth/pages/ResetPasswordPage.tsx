@@ -1,7 +1,7 @@
 // src/modules/auth/pages/ResetPasswordPage.tsx
-// Invalid link -> Form -> Success flow. resetPasswordRequest is a NOT_IMPLEMENTED stub
-// (api/index.ts), so "Success" only ever renders on a genuine mutation success - today that means
-// submitting always surfaces the honest error banner instead of a fabricated confirmation.
+// Invalid link -> Form -> Success flow, hitting the real backend (backend/src/modules/auth/
+// routes/auth.routes.ts: POST /auth/reset-password). A successful reset revokes every other
+// active session/refresh token server-side, so the user must sign in again afterward.
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'

@@ -32,7 +32,13 @@ export class UserInvitationRepository {
     return this.prisma.userInvitation.findFirst({ where: { email, tenantId, status: InvitationStatus.PENDING } });
   }
 
-  async update(id: string, data: Prisma.UserInvitationUpdateInput): Promise<UserInvitation> {
-    return this.prisma.userInvitation.update({ where: { id }, data });
+  /** Resolves the invitation a raw invite token hashes to — not tenant-scoped up front, mirroring `AuthRepository.findRefreshTokenByHash()`: the token itself (not a tenant slug) is the only thing `GET /auth/invite/:token` has to resolve by. */
+  async findByTokenHash(tokenHash: string): Promise<UserInvitation | null> {
+    return this.prisma.userInvitation.findUnique({ where: { tokenHash } });
+  }
+
+  async update(id: string, data: Prisma.UserInvitationUpdateInput, tx?: Prisma.TransactionClient): Promise<UserInvitation> {
+    const client = tx ?? this.prisma;
+    return client.userInvitation.update({ where: { id }, data });
   }
 }

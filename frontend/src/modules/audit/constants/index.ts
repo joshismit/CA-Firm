@@ -11,6 +11,8 @@ export const AUDIT_EVENT_LABELS: Record<string, string> = {
   TASK_UPDATE: 'Task Update',
   PAYMENT_ACTION: 'Payment Action',
   PERMISSION_CHANGE: 'Permission Change',
+  PASSWORD_RESET: 'Password Reset',
+  INVITATION_ACCEPTED: 'Invitation Accepted',
 }
 
 export const AUDIT_EVENT_OPTIONS = Object.entries(AUDIT_EVENT_LABELS).map(([value, label]) => ({ value, label }))

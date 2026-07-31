@@ -3,6 +3,7 @@ import {
   User,
   UserSession,
   RefreshToken,
+  PasswordResetToken,
   Prisma,
   SessionStatus,
   SessionRevokeReason,
@@ -61,8 +62,9 @@ export class AuthRepository {
     });
   }
 
-  async updatePassword(userId: string, passwordHash: string): Promise<void> {
-    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash, passwordChangedAt: new Date() } });
+  async updatePassword(userId: string, passwordHash: string, tx?: Prisma.TransactionClient): Promise<void> {
+    const client = tx ?? this.prisma;
+    await client.user.update({ where: { id: userId }, data: { passwordHash, passwordChangedAt: new Date() } });
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -177,6 +179,31 @@ export class AuthRepository {
     await this.prisma.refreshToken.updateMany({
       where: { sessionId, revokedAt: null, isUsed: false },
       data: { revokedAt: new Date(), revokeReason: reason },
+    });
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Password reset tokens
+  // ────────────────────────────────────────────────────────────────────────
+
+  async createPasswordResetToken(data: Prisma.PasswordResetTokenUncheckedCreateInput): Promise<PasswordResetToken> {
+    return this.prisma.passwordResetToken.create({ data });
+  }
+
+  async findPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetToken | null> {
+    return this.prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+  }
+
+  async markPasswordResetTokenUsed(id: string, tx?: Prisma.TransactionClient): Promise<void> {
+    const client = tx ?? this.prisma;
+    await client.passwordResetToken.update({ where: { id }, data: { isUsed: true, usedAt: new Date() } });
+  }
+
+  /** Supersedes every still-usable token from an earlier forgot-password request before issuing a new one — at most one reset link is ever valid for a user at a time. */
+  async invalidatePasswordResetTokens(userId: string): Promise<void> {
+    await this.prisma.passwordResetToken.updateMany({
+      where: { userId, isUsed: false, revokedAt: null },
+      data: { revokedAt: new Date() },
     });
   }
 

@@ -153,6 +153,28 @@ describe('Billing API (tenant-facing) — integration', () => {
       const res = await request(app).get('/api/v1/subscription/plans').set('Authorization', `Bearer ${tokenForTenantB()}`);
       expect(res.status).toBe(200);
     });
+
+    it('returns 403 once an ACTIVE tenant\'s subscriptionExpiresAt has lapsed, and persists the EXPIRED transition', async () => {
+      await prisma.tenant.update({
+        where: { id: fixtures.tenantB.tenantId },
+        data: { subscriptionStatus: 'ACTIVE', subscriptionExpiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      });
+
+      const res = await request(app).get('/api/v1/subscription/plans').set('Authorization', `Bearer ${tokenForTenantB()}`);
+      expect(res.status).toBe(403);
+
+      // No scheduled job flips this in the running app — tenantMiddleware
+      // itself must persist the transition on the request that observes it,
+      // or the tenant would appear to still be ACTIVE everywhere else
+      // (e.g. the master-admin tenant list) despite being blocked here.
+      const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: fixtures.tenantB.tenantId } });
+      expect(tenant.subscriptionStatus).toBe('EXPIRED');
+
+      // And the now-persisted EXPIRED status keeps blocking on the next
+      // request too, via the existing BLOCKED_SUBSCRIPTION_STATUSES path.
+      const secondRes = await request(app).get('/api/v1/subscription/plans').set('Authorization', `Bearer ${tokenForTenantB()}`);
+      expect(secondRes.status).toBe(403);
+    });
   });
 
   describe('POST /subscription/webhook', () => {

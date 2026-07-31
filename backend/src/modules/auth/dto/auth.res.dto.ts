@@ -52,6 +52,20 @@ export interface MeResponseDto extends AuthUserDto {
   createdAt: string;
 }
 
+/**
+ * GET /auth/invite/:token — matches the frontend's `InviteInfo` exactly
+ * (`{ email, tenantName, inviterName, role }` — see
+ * frontend/src/modules/auth/types/index.ts). `role` is a single display
+ * string even though an invitation can carry multiple `roleIds` — real role
+ * names joined with ", ", never fabricated.
+ */
+export interface InviteInfoResponseDto {
+  email: string;
+  tenantName: string;
+  inviterName: string;
+  role: string;
+}
+
 export interface SessionResponseDto {
   id: string;
   deviceType: string;

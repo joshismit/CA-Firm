@@ -3,7 +3,17 @@ import { HTTP_STATUS, MESSAGES } from '@shared/constants';
 import { ApiResponseHelper } from '@shared/response/api-response';
 import { asyncHandler } from '@shared/utils';
 import { AuthService } from '../service/auth.service';
-import { LoginDto, RefreshTokenDto, LogoutDto, RevokeAllSessionsDto, ChangePasswordDto, RequestMeta } from '../dto/auth.req.dto';
+import {
+  LoginDto,
+  RefreshTokenDto,
+  LogoutDto,
+  RevokeAllSessionsDto,
+  ChangePasswordDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  AcceptInviteDto,
+  RequestMeta,
+} from '../dto/auth.req.dto';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -76,5 +86,33 @@ export class AuthController {
     const result = await service.logoutAllSessions(req.body as RevokeAllSessionsDto);
 
     res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, result, MESSAGES.LOGOUT_SUCCESS));
+  });
+
+  static forgotPassword = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new AuthService(req);
+    await service.forgotPassword(req.body as ForgotPasswordDto, requestMeta(req));
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, null, MESSAGES.PASSWORD_RESET_SENT));
+  });
+
+  static resetPassword = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new AuthService(req);
+    await service.resetPassword(req.body as ResetPasswordDto, requestMeta(req));
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, null, MESSAGES.PASSWORD_RESET_SUCCESS));
+  });
+
+  static getInviteInfo = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new AuthService(req);
+    const result = await service.getInviteInfo(req.params.token);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, result, MESSAGES.FETCHED));
+  });
+
+  static acceptInvite = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new AuthService(req);
+    await service.acceptInvite(req.params.token, req.body as AcceptInviteDto, requestMeta(req));
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, null, MESSAGES.INVITATION_ACCEPTED));
   });
 }

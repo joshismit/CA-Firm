@@ -26,11 +26,14 @@ import { InviteUserDto, UpdateUserDto, ListUsersQueryDto } from '../dto/user.req
  * in and gets domain entities back, exactly like every other module's
  * service. Mirrors `modules/contacts/service/contact.service.ts`.
  *
- * Deliberately does not (yet) implement invitation acceptance, registration,
- * or password reset — those are separate items later in this backend's build
- * order (Invitation Acceptance / Register / Forgot Password / Reset
- * Password modules). This service only creates the `UserInvitation` row and
- * queues the notification email; nothing here consumes `tokenHash`.
+ * This service only creates/resends/revokes the `UserInvitation` row and
+ * queues the notification email — it never consumes `tokenHash` itself.
+ * Invitation acceptance (validating the token, creating the real `User` row,
+ * assigning roles) lives in `AuthService.acceptInvite()` instead, since the
+ * accept endpoint is public/unauthenticated (`POST /auth/invite/:token/accept`)
+ * like every other pre-login auth flow, not a `users:manage`-gated admin
+ * action like the rest of this service. Self-service registration remains
+ * unimplemented (no tenant self-service signup exists yet).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 export class UserService extends BaseService {
@@ -210,12 +213,12 @@ export class UserService extends BaseService {
 
   /**
    * Fire-and-forget: queues the invitation email onto the shared `emailQueue`
-   * (BullMQ) rather than sending inline via `mailTransport`, so a slow/down
-   * SMTP relay or Redis hiccup never blocks or fails the invite/resend HTTP
-   * response. Not awaited deliberately — only the failure to *enqueue* is
-   * logged; there is no worker in this codebase yet that consumes
-   * `QUEUE_NAMES.EMAIL` (out of scope for the Users module), so delivery
-   * itself happens once that worker exists.
+   * (BullMQ, consumed by `workers/email.worker.ts`) rather than sending
+   * inline via `mailTransport`, so a slow/down SMTP relay or Redis hiccup
+   * never blocks or fails the invite/resend HTTP response. Not awaited
+   * deliberately — only the failure to *enqueue* is logged; a delivery
+   * failure after that point is the worker's own retry/DLQ concern, not this
+   * request's.
    */
   private queueInvitationEmail(invitation: UserInvitation, rawToken: string): void {
     const acceptUrl = `${env.FRONTEND_URL}/invite/${rawToken}`;

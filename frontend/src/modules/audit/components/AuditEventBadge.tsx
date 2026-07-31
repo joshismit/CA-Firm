@@ -14,6 +14,8 @@ const EVENT_VARIANT: Record<AuditEventType, 'default' | 'success' | 'warning' | 
   PERMISSION_CHANGE: 'warning',
   TASK_UPDATE: 'default',
   PAYMENT_ACTION: 'success',
+  PASSWORD_RESET: 'warning',
+  INVITATION_ACCEPTED: 'success',
 }
 
 export interface AuditEventBadgeProps {

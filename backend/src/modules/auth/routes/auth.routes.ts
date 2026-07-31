@@ -10,6 +10,10 @@ import {
   logoutSchema,
   revokeAllSessionsSchema,
   changePasswordSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  inviteTokenParamSchema,
+  acceptInviteSchema,
 } from '../schemas/auth.schema';
 
 /**
@@ -17,13 +21,21 @@ import {
  * Auth Routes
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * `/login` and `/refresh` are the only public (no `authMiddleware`) routes in
- * this entire application — by definition, nothing else can require a JWT
- * that doesn't exist yet. Every other route runs the same
- * authMiddleware → tenantMiddleware → validate → controller chain as every
- * other module (no `requirePermission()` anywhere here — these are
- * self-service actions on the caller's own account/sessions, not
- * resource-permission-gated operations).
+ * `/login`, `/refresh`, `/forgot-password`, `/reset-password`,
+ * `/invite/:token`, and `/invite/:token/accept` are the only public (no
+ * `authMiddleware`) routes in this entire application — by definition,
+ * nothing else can require a JWT that doesn't exist yet (a password-reset or
+ * invite-accept caller has no session to authenticate with). Every other
+ * route runs the same authMiddleware → tenantMiddleware → validate →
+ * controller chain as every other module (no `requirePermission()` anywhere
+ * here — these are self-service actions on the caller's own account/
+ * sessions, not resource-permission-gated operations).
+ *
+ * Every public route also runs `authRateLimiter` — the same credential-
+ * stuffing/brute-force defense `/login` and `/refresh` already use, since
+ * these all accept either a guessable identifier (an email) or a
+ * high-entropy token whose validity an attacker could otherwise probe
+ * unthrottled.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 const router = Router();
@@ -90,6 +102,100 @@ router.post('/login', authRateLimiter, validate({ body: loginSchema }), AuthCont
  *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
  */
 router.post('/refresh', authRateLimiter, validate({ body: refreshTokenSchema }), AuthController.refresh);
+
+/**
+ * @swagger
+ * /auth/forgot-password:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Request a password reset link
+ *     description: >
+ *       Always responds 200 with the same generic message whether or not the
+ *       email matches an active account — prevents user enumeration. A real
+ *       reset link is only ever emailed for a genuine, ACTIVE user.
+ *     requestBody:
+ *       required: true
+ *       content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string, format: email } } } } }
+ *     responses:
+ *       200: { description: If an account exists for this email, a reset link has been sent., content: { application/json: { schema: { type: object } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       429: { description: Too many requests., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post('/forgot-password', authRateLimiter, validate({ body: forgotPasswordSchema }), AuthController.forgotPassword);
+
+/**
+ * @swagger
+ * /auth/reset-password:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Reset a password using a token from the forgot-password email
+ *     description: >
+ *       One-time use — the token is rejected on a second attempt, once
+ *       expired (`TOKEN.PASSWORD_RESET_EXPIRY_MINUTES`), or once superseded
+ *       by a newer forgot-password request. On success, every active session
+ *       and refresh token for the account is revoked.
+ *     requestBody:
+ *       required: true
+ *       content: { application/json: { schema: { type: object, required: [token, newPassword], properties: { token: { type: string }, newPassword: { type: string } } } } }
+ *     responses:
+ *       200: { description: Password reset., content: { application/json: { schema: { type: object } } } }
+ *       401: { description: The reset token is invalid, already used, or has expired., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       429: { description: Too many requests., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post('/reset-password', authRateLimiter, validate({ body: resetPasswordSchema }), AuthController.resetPassword);
+
+/**
+ * @swagger
+ * /auth/invite/{token}:
+ *   get:
+ *     tags: [Auth]
+ *     summary: Preview an invitation before accepting it
+ *     description: Who invited the recipient, and to which firm/role — shown before the accept-invite form.
+ *     parameters:
+ *       - name: token
+ *         in: path
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Invitation details., content: { application/json: { schema: { type: object } } } }
+ *       404: { description: No PENDING invitation matches this token (unknown, already accepted, revoked, or expired)., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       429: { description: Too many requests., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.get('/invite/:token', authRateLimiter, validate({ params: inviteTokenParamSchema }), AuthController.getInviteInfo);
+
+/**
+ * @swagger
+ * /auth/invite/{token}/accept:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Accept an invitation and activate the account
+ *     description: >
+ *       Creates the `User` row (an invited person has none until this call),
+ *       assigns every role the invitation carried, and marks the invitation
+ *       ACCEPTED — all inside one transaction. Rejected identically for an
+ *       unknown, already-accepted, revoked, or expired token.
+ *     parameters:
+ *       - name: token
+ *         in: path
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content: { application/json: { schema: { type: object, required: [fullName, password], properties: { fullName: { type: string }, password: { type: string } } } } }
+ *     responses:
+ *       200: { description: Invitation accepted., content: { application/json: { schema: { type: object } } } }
+ *       401: { description: The invitation is invalid, already accepted, revoked, or has expired., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       409: { description: A user with this email already exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       429: { description: Too many requests., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post(
+  '/invite/:token/accept',
+  authRateLimiter,
+  validate({ params: inviteTokenParamSchema, body: acceptInviteSchema }),
+  AuthController.acceptInvite,
+);
 
 /**
  * @swagger

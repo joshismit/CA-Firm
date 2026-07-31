@@ -4,8 +4,10 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import {
   User,
+  UserInvitation,
   TenantStatus,
   UserStatus,
+  InvitationStatus,
   SessionDeviceType,
   SessionRevokeReason,
   RefreshTokenRevokeReason,
@@ -14,19 +16,33 @@ import {
   AuditEventType,
 } from '@prisma/client';
 import { prisma } from '@config/database';
+import { env } from '@config/environment';
+import { emailQueue } from '@config/queue';
 import { jwtConfig } from '@config/jwt';
 import { BaseService } from '@shared/base';
-import { UnauthorizedError, ForbiddenError, ConflictError } from '@shared/errors';
+import { UnauthorizedError, ForbiddenError, ConflictError, NotFoundError } from '@shared/errors';
 import { ErrorCode, UserRole } from '@shared/enums';
 import { MESSAGES, PASSWORD, TOKEN } from '@shared/constants';
 import { CryptoUtils } from '@shared/utils';
 import { JwtPayload } from '@middlewares/auth.middleware';
 import { AuditLogRecorder } from '@modules/audit';
+import { UserRepository } from '@modules/users/repository/user.repository';
+import { UserInvitationRepository } from '@modules/users/repository/user-invitation.repository';
 import { AuthRepository } from '../repository/auth.repository';
 import { AuthMapper } from '../mapper/auth.mapper';
 import { detectBrowser, detectOs } from '../utils/user-agent.util';
-import { LoginDto, RefreshTokenDto, LogoutDto, RevokeAllSessionsDto, ChangePasswordDto, RequestMeta } from '../dto/auth.req.dto';
-import { LoginResponseDto, RefreshResponseDto, MeResponseDto, SessionResponseDto } from '../dto/auth.res.dto';
+import {
+  LoginDto,
+  RefreshTokenDto,
+  LogoutDto,
+  RevokeAllSessionsDto,
+  ChangePasswordDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  AcceptInviteDto,
+  RequestMeta,
+} from '../dto/auth.req.dto';
+import { LoginResponseDto, RefreshResponseDto, MeResponseDto, SessionResponseDto, InviteInfoResponseDto } from '../dto/auth.res.dto';
 
 /** "Remember me" extends the session/refresh-token horizon to 30 days instead of TOKEN.REFRESH_EXPIRY_SECONDS' default 7. */
 const REMEMBER_ME_REFRESH_EXPIRY_SECONDS = 30 * 24 * 60 * 60;
@@ -68,6 +84,15 @@ export class AuthService extends BaseService {
     req: Request,
     private readonly authRepository: AuthRepository = new AuthRepository(prisma),
     private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
+    // Reused directly from the Users module — the same "reach into another
+    // module's own repository/mapper when it's already the right shape"
+    // precedent `RoleService` sets by importing `UserMapper` (see this
+    // class's constructor's sibling in modules/roles/service/role.service.ts).
+    // Password reset needs `revokeAllSessionsAndTokens()` (Users owns admin-
+    // grade session/token revocation); invitation acceptance needs the
+    // `UserInvitation` lifecycle Users already owns end-to-end.
+    private readonly userRepository: UserRepository = new UserRepository(prisma),
+    private readonly userInvitationRepository: UserInvitationRepository = new UserInvitationRepository(prisma),
   ) {
     super(req);
   }
@@ -311,6 +336,211 @@ export class AuthService extends BaseService {
   }
 
   // ────────────────────────────────────────────────────────────────────────────
+  // Forgot / Reset Password
+  // ────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Always resolves the same way regardless of whether `dto.email` matches a
+   * real, active user — no branch here is observable from the response,
+   * which is the only defense against user enumeration that actually works
+   * (a timing difference between "did work" and "did nothing" is a much
+   * weaker guarantee, and not attempted here). Real work — token issuance +
+   * email — only happens for a genuine `ACTIVE` user.
+   */
+  async forgotPassword(dto: ForgotPasswordDto, meta: RequestMeta): Promise<void> {
+    const user = await this.authRepository.findUserByEmail(dto.email);
+
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      this.logger.info({ email: dto.email }, 'Password reset requested for unknown/inactive email — no-op');
+      return;
+    }
+
+    // At most one usable reset link at a time — an older, still-unexpired
+    // link from an earlier request must not remain valid once a newer one
+    // is issued (prevents a stale, possibly-leaked link from working
+    // indefinitely across repeated forgot-password requests).
+    await this.authRepository.invalidatePasswordResetTokens(user.id);
+
+    const rawToken = CryptoUtils.generateRandomToken(TOKEN.SECURE_BYTES);
+    const expiresAt = new Date(Date.now() + TOKEN.PASSWORD_RESET_EXPIRY_MINUTES * 60 * 1000);
+
+    await this.authRepository.createPasswordResetToken({
+      tenantId: user.tenantId,
+      userId: user.id,
+      tokenHash: CryptoUtils.sha256(rawToken),
+      expiresAt,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    await this.authRepository.recordLoginHistory({
+      tenantId: user.tenantId,
+      userId: user.id,
+      email: user.email,
+      eventType: LoginEventType.PASSWORD_RESET_REQUEST,
+      status: LoginEventStatus.SUCCESS,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    this.queuePasswordResetEmail(user, rawToken, expiresAt);
+
+    this.logger.info({ userId: user.id }, 'Password reset requested');
+  }
+
+  /**
+   * One-time use, enforced by `isUsed`/`revokedAt`/`expiresAt` all checked
+   * against the same DB row the presented token hashes to — a replayed
+   * (already-used) or superseded (revoked by a later forgot-password
+   * request) or lapsed token is rejected identically, via the same generic
+   * message, so none of those states is distinguishable from the outside.
+   * Revokes every session AND every refresh token for the user (not just
+   * sessions — `UserRepository.revokeAllSessionsAndTokens()` does both in
+   * one call, reused as-is from the Users module rather than re-implemented
+   * here), since a password reset is exactly the scenario an attacker with a
+   * stolen refresh token must be locked out by.
+   */
+  async resetPassword(dto: ResetPasswordDto, meta: RequestMeta): Promise<void> {
+    const invalidTokenError = () =>
+      new UnauthorizedError('This password reset link is invalid or has expired.', ErrorCode.TOKEN_INVALID);
+
+    const tokenRow = await this.authRepository.findPasswordResetTokenByHash(CryptoUtils.sha256(dto.token));
+    if (!tokenRow || tokenRow.isUsed || tokenRow.revokedAt || tokenRow.expiresAt < new Date()) {
+      throw invalidTokenError();
+    }
+
+    const user = await this.authRepository.findUserById(tokenRow.userId);
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw invalidTokenError();
+    }
+
+    const newHash = await bcrypt.hash(dto.newPassword, PASSWORD.BCRYPT_ROUNDS);
+
+    await this.transaction(async (tx) => {
+      // Marking the token used first means a concurrent second request
+      // racing on the same raw token can't both succeed — the loser's
+      // subsequent `updatePassword` still runs, but only ever with the same
+      // `newHash` outcome as the winner would have produced from the same
+      // request body, so this is a benign, not exploitable, race.
+      await this.authRepository.markPasswordResetTokenUsed(tokenRow.id, tx);
+      await this.authRepository.updatePassword(user.id, newHash, tx);
+      await this.userRepository.revokeAllSessionsAndTokens(user.id, user.tenantId, tx);
+    });
+
+    await this.authRepository.recordLoginHistory({
+      tenantId: user.tenantId,
+      userId: user.id,
+      email: user.email,
+      eventType: LoginEventType.PASSWORD_RESET_SUCCESS,
+      status: LoginEventStatus.SUCCESS,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    await this.auditLogRecorder.record({
+      tenantId: user.tenantId,
+      actorId: user.id,
+      eventType: AuditEventType.PASSWORD_RESET,
+      description: `${user.email} reset their password`,
+      ipAddress: meta.ipAddress,
+    });
+
+    this.logger.info({ userId: user.id }, 'Password reset completed');
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Invitation Acceptance
+  // ────────────────────────────────────────────────────────────────────────────
+
+  /** Preview shown before the accept form — resolves the same `UserInvitation` `acceptInvite()` below consumes, but performs no write. */
+  async getInviteInfo(token: string): Promise<InviteInfoResponseDto> {
+    const invitation = await this.resolvePendingInvitationOrThrow(token, () => new NotFoundError('Invitation', ErrorCode.INVITATION_INVALID));
+
+    const [tenant, inviter, roles] = await Promise.all([
+      this.authRepository.findTenantById(invitation.tenantId),
+      this.authRepository.findUserById(invitation.invitedById),
+      this.userRepository.findActiveRolesByIds(invitation.roleIds, invitation.tenantId),
+    ]);
+
+    return {
+      email: invitation.email,
+      tenantName: tenant?.name ?? '',
+      inviterName: inviter ? `${inviter.firstName} ${inviter.lastName}`.trim() : '',
+      role: roles.map((r) => r.name).join(', '),
+    };
+  }
+
+  /**
+   * Creates the real `User` row for the first time (an invited person has no
+   * `User` row at all until this call — `UserService.inviteUser()` only ever
+   * creates the `UserInvitation`; see that method's header comment), assigns
+   * every role the invitation carried, and marks the invitation `ACCEPTED`
+   * with `acceptedById` pointing at the just-created user — all inside one
+   * transaction so a partial failure can't leave an activated user with no
+   * roles, or an invitation stuck `PENDING` after the user already exists.
+   */
+  async acceptInvite(token: string, dto: AcceptInviteDto, meta: RequestMeta): Promise<void> {
+    const invalidInvitationError = () => new UnauthorizedError(MESSAGES.INVITATION_INVALID, ErrorCode.INVITATION_INVALID);
+    const invitation = await this.resolvePendingInvitationOrThrow(token, invalidInvitationError);
+
+    // Belt-and-suspenders: `UserService.inviteUser()` already refuses a
+    // second invite while a User with this email exists, but a lot can
+    // happen in the days between an invite being sent and accepted.
+    const existingUser = await this.userRepository.findByEmail(invitation.email, { tenantId: invitation.tenantId });
+    if (existingUser) {
+      throw new ConflictError(MESSAGES.EMAIL_ALREADY_EXISTS, ErrorCode.EMAIL_ALREADY_EXISTS);
+    }
+
+    const { firstName, lastName } = this.splitFullName(dto.fullName);
+    const passwordHash = await bcrypt.hash(dto.password, PASSWORD.BCRYPT_ROUNDS);
+
+    const user = await this.transaction(async (tx) => {
+      const createdUser = await this.userRepository.create(
+        {
+          email: invitation.email,
+          passwordHash,
+          firstName,
+          lastName,
+          status: UserStatus.ACTIVE,
+          emailVerifiedAt: new Date(),
+        },
+        { tenantId: invitation.tenantId, tx },
+      );
+
+      if (invitation.roleIds.length > 0) {
+        await tx.userRole.createMany({
+          data: invitation.roleIds.map((roleId) => ({
+            tenantId: invitation.tenantId,
+            userId: createdUser.id,
+            roleId,
+            assignedById: invitation.invitedById,
+          })),
+        });
+      }
+
+      await this.userInvitationRepository.update(
+        invitation.id,
+        { status: InvitationStatus.ACCEPTED, acceptedAt: new Date(), acceptedBy: { connect: { id: createdUser.id } } },
+        tx,
+      );
+
+      return createdUser;
+    });
+
+    await this.auditLogRecorder.record({
+      tenantId: invitation.tenantId,
+      actorId: user.id,
+      eventType: AuditEventType.INVITATION_ACCEPTED,
+      description: `${user.email} accepted their invitation and joined the team`,
+      targetType: 'User',
+      targetId: user.id,
+      ipAddress: meta.ipAddress,
+    });
+
+    this.logger.info({ userId: user.id, invitationId: invitation.id }, 'Invitation accepted');
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
   // Sessions
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -386,5 +616,56 @@ export class AuthService extends BaseService {
       userAgent: meta.userAgent,
       failureReason: 'Invalid credentials',
     });
+  }
+
+  /** Shared by `getInviteInfo()` and `acceptInvite()` — both resolve-by-token then reject identically on anything other than a still-`PENDING`, unexpired invitation. A `PENDING` invitation found past its `expiresAt` is persisted as `EXPIRED` here (no scheduled job exists anywhere in this codebase to do it proactively — the same reasoning `tenantMiddleware` applies to a lapsed subscription) so the tenant's own invitation list reflects reality instead of staying `PENDING` forever. */
+  private async resolvePendingInvitationOrThrow(token: string, makeError: () => Error): Promise<UserInvitation> {
+    const invitation = await this.userInvitationRepository.findByTokenHash(CryptoUtils.sha256(token));
+    if (!invitation) {
+      throw makeError();
+    }
+
+    if (invitation.status === InvitationStatus.PENDING && invitation.expiresAt < new Date()) {
+      await this.userInvitationRepository.update(invitation.id, { status: InvitationStatus.EXPIRED });
+      throw makeError();
+    }
+
+    if (invitation.status !== InvitationStatus.PENDING) {
+      throw makeError();
+    }
+
+    return invitation;
+  }
+
+  /**
+   * Splits a single "full name" form field into the `firstName`/`lastName`
+   * columns `User` requires — the first word is `firstName`, everything
+   * after is `lastName`; a single-word name gets an empty-string `lastName`
+   * rather than duplicating the first name into it (honest about what the
+   * user actually typed, not a fabricated guess).
+   */
+  private splitFullName(fullName: string): { firstName: string; lastName: string } {
+    const [firstName, ...rest] = fullName.trim().split(/\s+/);
+    return { firstName, lastName: rest.join(' ') };
+  }
+
+  /** Fire-and-forget onto the shared `emailQueue`, mirroring `UserService.queueInvitationEmail()` exactly (same queue, same not-awaited/log-on-enqueue-failure shape) — see that method's header comment for why this is deliberately not awaited. */
+  private queuePasswordResetEmail(user: User, rawToken: string, expiresAt: Date): void {
+    const resetUrl = `${env.FRONTEND_URL}/reset-password?token=${rawToken}`;
+
+    emailQueue
+      .add('password-reset', {
+        to: user.email,
+        subject: `Reset your ${env.APP_NAME} password`,
+        template: 'password-reset',
+        context: {
+          firstName: user.firstName,
+          resetUrl,
+          expiresAt: expiresAt.toISOString(),
+        },
+      })
+      .catch((err: unknown) => {
+        this.logger.warn({ err, userId: user.id }, 'Failed to enqueue password reset email');
+      });
   }
 }
