@@ -109,7 +109,7 @@ export const REGEX = {
    * Standard email address.
    * Intentionally simple — deep email validation belongs to mail server verification.
    */
-  EMAIL: /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/,
+  EMAIL: /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
 
   // ─── Password ──────────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ export const REGEX = {
    * Password — minimum 8 chars, at least one:
    * uppercase letter, lowercase letter, digit, and special character.
    */
-  PASSWORD_STRONG: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{}|;':",.<>?/`~])[A-Za-z\d!@#$%^&*()_+\-=\[\]{}|;':",.<>?/`~]{8,}$/,
+  PASSWORD_STRONG: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{}|;':",.<>?/`~])[A-Za-z\d!@#$%^&*()_+\-=[\]{}|;':",.<>?/`~]{8,}$/,
 
   /**
    * Password — minimum 8 chars, at least one uppercase and one digit.
@@ -136,7 +136,7 @@ export const REGEX = {
    * URL-safe slug: lowercase letters, digits, and hyphens.
    * Min 2 chars, max 100 chars. Must start/end with alphanumeric.
    */
-  SLUG: /^[a-z0-9][a-z0-9\-]{0,98}[a-z0-9]$/,
+  SLUG: /^[a-z0-9][a-z0-9-]{0,98}[a-z0-9]$/,
 
   /**
    * Hex color code: #RRGGBB

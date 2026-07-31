@@ -1,6 +1,5 @@
 import { Queue } from 'bullmq';
 import { redis } from './redis';
-import { env } from './environment';
 
 /**
  * BullMQ connection options.

@@ -7,7 +7,6 @@ import {
   TenantStatus,
   UserStatus,
   SessionDeviceType,
-  SessionStatus,
   SessionRevokeReason,
   RefreshTokenRevokeReason,
   LoginEventType,
