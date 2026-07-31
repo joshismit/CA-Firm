@@ -8,7 +8,7 @@ const STATUS_VARIANT: Record<TenantStatus, 'default' | 'success' | 'warning' | '
   ACTIVE: 'success',
   TRIAL: 'default',
   SUSPENDED: 'warning',
-  CANCELLED: 'danger',
+  DEACTIVATED: 'danger',
 }
 
 export interface TenantStatusBadgeProps {

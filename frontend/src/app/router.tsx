@@ -3,7 +3,7 @@ import { createBrowserRouter, isRouteErrorResponse, useNavigate, useRouteError }
 import { ErrorLayout } from '@/layouts/ErrorLayout/ErrorLayout'
 import { NoPermission, NotFound } from '@/components/feedback'
 import { ErrorFallback } from '@/providers/ErrorBoundary'
-import { publicRoutes, protectedRoutes, masterAdminRoutes, clientPortalRoutes } from '@/routes'
+import { publicRoutes, protectedRoutes, masterAdminRoutes, masterAdminLoginRoute, clientPortalRoutes } from '@/routes'
 
 // React Router's data router catches render/loader errors at the route level before they can
 // reach the top-level <ErrorBoundary> in providers/AppProviders.tsx (which sits outside
@@ -29,6 +29,7 @@ function RouteErrorBoundary() {
 export const router = createBrowserRouter([
   { ...publicRoutes, errorElement: <RouteErrorBoundary /> },
   { ...protectedRoutes, errorElement: <RouteErrorBoundary /> },
+  { ...masterAdminLoginRoute, errorElement: <RouteErrorBoundary /> },
   { ...masterAdminRoutes, errorElement: <RouteErrorBoundary /> },
   { ...clientPortalRoutes, errorElement: <RouteErrorBoundary /> },
   {

@@ -26,6 +26,7 @@ import { ComplianceCategory } from '@prisma/client';
 import { invoiceRoutes, expenseRoutes, paymentRoutes } from '@modules/client-billing';
 import { notificationRoutes } from '@modules/notifications';
 import { reportRoutes } from '@modules/reports';
+import { masterAdminRoutes } from '@modules/master-admin';
 
 const app: Application = express();
 
@@ -83,6 +84,10 @@ app.use(`${API.PREFIX}/billing/expenses`, expenseRoutes);
 app.use(`${API.PREFIX}/billing/payments`, paymentRoutes);
 app.use(`${API.PREFIX}/notifications`, notificationRoutes);
 app.use(`${API.PREFIX}/reports`, reportRoutes);
+
+// Platform-level admin panel (PRD §4.1 "Master Login") — cross-tenant, gated by
+// requireRole(MASTER_ADMIN) inside the router itself rather than tenantMiddleware.
+app.use(`${API.PREFIX}/master-admin`, masterAdminRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

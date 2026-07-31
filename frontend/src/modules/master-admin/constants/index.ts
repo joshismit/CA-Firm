@@ -5,5 +5,5 @@ export const TENANT_STATUS_LABELS: Record<TenantStatus, string> = {
   ACTIVE: 'Active',
   TRIAL: 'Trial',
   SUSPENDED: 'Suspended',
-  CANCELLED: 'Cancelled',
+  DEACTIVATED: 'Deactivated',
 }

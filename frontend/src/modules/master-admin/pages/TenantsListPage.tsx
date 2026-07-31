@@ -1,8 +1,10 @@
 // src/modules/master-admin/pages/TenantsListPage.tsx
-// Reference composition: PageLayout > PageHeader > PageContent > DataTable, wired to the tenants
-// stub (api/index.ts's notImplemented()). Read-only - tenant provisioning happens through signup,
-// not an admin "create" action, so no create/edit flow is offered here.
+// Reference composition: PageLayout > PageHeader > PageContent > DataTable, wired to the real
+// backend/src/modules/master-admin tenants endpoint. No create action - tenant provisioning
+// happens through self-service signup, not an admin "create" action; rows open TenantDetailPage
+// for status/plan changes instead.
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { PageLayout, PageHeader, PageContent } from '@/components/page'
 import { DataTable } from '@/components/tables'
 import { Select } from '@/components/ui/select'
@@ -19,6 +21,7 @@ const STATUS_OPTIONS = [
 ]
 
 export function TenantsListPage() {
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<TenantStatus | '__all__'>('__all__')
   const [pageIndex, setPageIndex] = useState(0)
@@ -76,6 +79,7 @@ export function TenantsListPage() {
             setPageIndex(0)
           }}
           getRowId={(row) => row.id}
+          onRowClick={(row) => navigate(`/master-admin/tenants/${row.id}`)}
         />
       </PageContent>
     </PageLayout>

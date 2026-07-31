@@ -39,8 +39,11 @@ export interface RequestUser {
   email: string;
   /** The user's role within their tenant */
   role: UserRole;
-  /** The tenant this user belongs to */
-  tenantId: string;
+  /** The tenant this user belongs to. Absent for MASTER_ADMIN — a master admin
+   *  isn't a tenant-scoped `User` row (see modules/master-admin's header
+   *  comments), so master-admin routes never run `tenantMiddleware` and never
+   *  read this field. */
+  tenantId?: string;
   /** Flat list of permission codes this user holds, e.g. ["clients:read", "tasks:create"] */
   permissions: string[];
 }

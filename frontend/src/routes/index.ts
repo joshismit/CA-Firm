@@ -2,5 +2,5 @@
 
 export { publicRoutes } from './public.routes'
 export { protectedRoutes } from './protected.routes'
-export { masterAdminRoutes } from './master-admin.routes'
+export { masterAdminRoutes, masterAdminLoginRoute } from './master-admin.routes'
 export { clientPortalRoutes } from './client-portal.routes'

@@ -1741,3 +1741,34 @@ enum NotificationStatus {
 
   @@map("notification_status")
 }
+
+// =============================================================================
+// SECTION 15 — MASTER ADMIN MODULE
+// =============================================================================
+//
+// Platform-level admin account — deliberately NOT a `User` row (a `User` is
+// always tenant-scoped via the required `tenantId` FK; a master admin manages
+// every tenant, so it can't belong to one). No self-service signup: rows are
+// created only by `prisma/seeds/master-admin.seed.ts` from the
+// `MASTER_ADMIN_EMAIL`/`MASTER_ADMIN_PASSWORD` env vars. No session/refresh-
+// token table of its own — `UserSession`/`RefreshToken` FK to `User.id`, which
+// this isn't — so master admin auth is access-token-only (see
+// `modules/master-admin/service/master-admin-auth.service.ts`'s header
+// comment); a lapsed token just means logging in again.
+
+model MasterAdmin {
+  id String @id @default(uuid()) @db.Uuid
+
+  email        String  @unique @db.VarChar(255)
+  passwordHash String  @map("password_hash") @db.Text
+  firstName    String  @map("first_name") @db.VarChar(100)
+  lastName     String  @map("last_name") @db.VarChar(100)
+  isActive     Boolean @default(true) @map("is_active")
+
+  lastLoginAt DateTime? @map("last_login_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("master_admins")
+}

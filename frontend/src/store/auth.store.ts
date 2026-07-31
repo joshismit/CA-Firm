@@ -10,7 +10,8 @@ export interface AuthUser {
   id: string
   email: string
   role: string
-  tenantId: string
+  /** Absent for MASTER_ADMIN - a master admin isn't scoped to a tenant. */
+  tenantId?: string
   permissions: string[]
   firstName?: string
   lastName?: string

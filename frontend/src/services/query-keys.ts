@@ -169,6 +169,7 @@ export const queryKeys = {
   masterAdmin: {
     tenants: ['master-admin', 'tenants'] as const,
     tenantsList: (filters: TenantListFilters) => [...queryKeys.masterAdmin.tenants, filters] as const,
+    tenantDetail: (id: string) => [...queryKeys.masterAdmin.tenants, 'detail', id] as const,
     plans: ['master-admin', 'plans'] as const,
   },
   clientPortal: {

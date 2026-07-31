@@ -4,7 +4,8 @@ import { UserRole } from '@shared/enums';
 
 export interface TestTokenOptions {
   userId: string;
-  tenantId: string;
+  /** Omit for a MASTER_ADMIN token — a master admin isn't tenant-scoped (see `RequestUser.tenantId`'s comment). */
+  tenantId?: string;
   email?: string;
   role?: UserRole;
   permissions?: string[];

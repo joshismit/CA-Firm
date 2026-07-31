@@ -1,6 +1,7 @@
 // src/modules/master-admin/components/TenantStatsCards.tsx
-// Same real, separately-cached GET+limit=1 pattern as ComplianceStatsCards - every call genuinely
-// 501s (no platform-admin backend exists yet), so StatCard's isError branch renders "—" honestly.
+// Same real, separately-cached GET+limit=1 pattern as ComplianceStatsCards - hits the real
+// backend/src/modules/master-admin tenants endpoint, reading each bucket's count off `meta.total`
+// rather than a dedicated stats endpoint.
 import { Building2, CheckCircle2, Clock, XCircle } from 'lucide-react'
 import { StatCard, StatsGrid } from '@/components/shared/StatCard/StatCard'
 import { useTenantsQuery } from '../hooks'

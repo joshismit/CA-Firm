@@ -7,14 +7,19 @@ import type { Tenant } from '../types'
 
 export const tenantTableColumns: ColumnDef<Tenant>[] = [
   {
-    accessorKey: 'firmName',
+    accessorKey: 'name',
     header: 'Firm',
-    cell: ({ row }) => <p className="font-medium text-[var(--color-text-body)] truncate max-w-[240px]">{row.original.firmName}</p>,
+    cell: ({ row }) => (
+      <div className="min-w-0">
+        <p className="font-medium text-[var(--color-text-body)] truncate max-w-[240px]">{row.original.name}</p>
+        <p className="text-[11px] text-[var(--color-text-muted)] truncate max-w-[240px]">{row.original.slug}</p>
+      </div>
+    ),
   },
   {
-    accessorKey: 'planName',
+    accessorKey: 'planCode',
     header: 'Plan',
-    cell: ({ row }) => <span className="text-[12px] text-[var(--color-text-secondary)]">{row.original.planName}</span>,
+    cell: ({ row }) => <span className="text-[12px] text-[var(--color-text-secondary)]">{row.original.planCode ?? 'No plan'}</span>,
   },
   {
     accessorKey: 'status',
@@ -22,10 +27,10 @@ export const tenantTableColumns: ColumnDef<Tenant>[] = [
     cell: ({ row }) => <TenantStatusBadge status={row.original.status} />,
   },
   {
-    accessorKey: 'staffCount',
-    header: 'Staff',
+    accessorKey: 'userCount',
+    header: 'Users',
     cell: ({ row }) => (
-      <span className="font-mono tabular-nums text-[12px] text-[var(--color-text-secondary)]">{row.original.staffCount}</span>
+      <span className="font-mono tabular-nums text-[12px] text-[var(--color-text-secondary)]">{row.original.userCount}</span>
     ),
   },
   {

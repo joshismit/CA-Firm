@@ -8,7 +8,13 @@ import type { RouteObject } from 'react-router-dom'
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth.store'
 import { MasterAdminLayout } from '@/layouts/MasterAdminLayout/MasterAdminLayout'
-import { MasterAdminDashboardPage, TenantsListPage, SubscriptionsPage } from '@/modules/master-admin/pages'
+import {
+  MasterAdminDashboardPage,
+  MasterAdminLoginPage,
+  TenantDetailPage,
+  TenantsListPage,
+  SubscriptionsPage,
+} from '@/modules/master-admin/pages'
 
 function MasterAdminGuard() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -16,10 +22,20 @@ function MasterAdminGuard() {
   const role = useAuthStore((s) => s.user?.role)
 
   if (!hydrated) return null
-  if (!isAuthenticated) return <Navigate to="/login" replace />
+  // A master admin isn't a tenant User row, so /login (POST /auth/login) can never authenticate
+  // one - redirect to this portal's own login instead.
+  if (!isAuthenticated) return <Navigate to="/master-admin/login" replace />
   if (role !== 'MASTER_ADMIN') return <Navigate to="/403" replace />
 
   return <Outlet />
+}
+
+/** Standalone, unauthenticated - not nested under `masterAdminRoutes` below since that whole
+ *  subtree sits behind `MasterAdminGuard`. Rendered outside GuestRoute/AuthLayout too (see
+ *  MasterAdminLoginPage's header comment) - this portal is structurally separate from the tenant app. */
+export const masterAdminLoginRoute: RouteObject = {
+  path: 'master-admin/login',
+  element: <MasterAdminLoginPage />,
 }
 
 export const masterAdminRoutes: RouteObject = {
@@ -31,6 +47,7 @@ export const masterAdminRoutes: RouteObject = {
       children: [
         { index: true, element: <MasterAdminDashboardPage /> },
         { path: 'tenants', element: <TenantsListPage /> },
+        { path: 'tenants/:id', element: <TenantDetailPage /> },
         { path: 'subscriptions', element: <SubscriptionsPage /> },
       ],
     },
