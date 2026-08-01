@@ -1,11 +1,13 @@
 jest.mock('@config/database', () => ({ prisma: {} }));
 
 import { Request } from 'express';
-import { Tenant, TenantStatus, SubscriptionStatus } from '@prisma/client';
+import { Tenant, TenantStatus, SubscriptionStatus, User, UserStatus, NotificationChannel } from '@prisma/client';
 import { NotFoundError } from '@shared/errors';
 import { TenantService } from '@modules/master-admin/service/tenant.service';
 import { TenantRepository } from '@modules/master-admin/repository/tenant.repository';
 import { TenantWithUserCount } from '@modules/master-admin/mapper/tenant.mapper';
+import { UserRepository } from '@modules/users/repository/user.repository';
+import type { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import type { ListTenantsQueryDto, UpdateTenantLimitsDto, UpdateTenantStatusDto } from '@modules/master-admin/dto/master-admin.req.dto';
 
 /**
@@ -40,6 +42,11 @@ function createFakeRequest(): Request {
   return { correlationId: 'test-correlation-id' } as unknown as Request;
 }
 
+/** Returns `null` (no owner found) by default — sufficient for `notifyOwner()`'s best-effort dispatch to no-op cleanly, since it isn't the subject of these tests. */
+function createMockUserRepository(): { findOwnerByTenant: jest.Mock } {
+  return { findOwnerByTenant: jest.fn().mockResolvedValue(null) };
+}
+
 function createMockTenant(overrides: Partial<Tenant> = {}): Tenant {
   const now = new Date('2026-01-01T00:00:00.000Z');
   return {
@@ -72,8 +79,51 @@ function createMockTenantWithCount(overrides: Partial<Tenant> = {}, userCount = 
 
 const USAGE = { userCount: 3, businessCount: 5, clientCount: 4, documentCount: 10, storageUsedBytes: 123456 };
 
-function createService(repository: MockedTenantRepository): TenantService {
-  return new TenantService(createFakeRequest(), repository as unknown as TenantRepository);
+function createMockOwner(overrides: Partial<User> = {}): User {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  return {
+    id: 'owner-77777777-7777-7777-7777-777777777777',
+    tenantId: TENANT_ID,
+    email: 'owner@acme.test',
+    passwordHash: 'hash',
+    firstName: 'Rohan',
+    lastName: 'Mehta',
+    phone: null,
+    status: UserStatus.ACTIVE,
+    isOwner: true,
+    failedLoginCount: 0,
+    lockedUntil: null,
+    avatarStorageKey: null,
+    jobTitle: null,
+    bio: null,
+    emailVerifiedAt: null,
+    phoneVerifiedAt: null,
+    lastLoginAt: null,
+    passwordChangedAt: null,
+    createdBy: null,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+    deletedBy: null,
+    ...overrides,
+  };
+}
+
+function createMockNotificationDispatchService(): { send: jest.Mock } {
+  return { send: jest.fn().mockResolvedValue([]) };
+}
+
+function createService(
+  repository: MockedTenantRepository,
+  userRepository: { findOwnerByTenant: jest.Mock } = createMockUserRepository(),
+  notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
+): TenantService {
+  return new TenantService(
+    createFakeRequest(),
+    repository as unknown as TenantRepository,
+    userRepository as unknown as UserRepository,
+    notificationDispatchService as unknown as NotificationDispatchService,
+  );
 }
 
 describe('TenantService', () => {
@@ -146,19 +196,75 @@ describe('TenantService', () => {
       expect(repo.updateStatus).not.toHaveBeenCalled();
     });
 
-    it('updates the tenant status and returns it with fresh usage', async () => {
+    it('updates the tenant status, returns it with fresh usage, and notifies the tenant owner', async () => {
       const repo = createMockRepository();
       repo.findById.mockResolvedValue(createMockTenant());
       const suspended = createMockTenant({ status: TenantStatus.SUSPENDED });
       repo.updateStatus.mockResolvedValue(suspended);
       repo.getUsage.mockResolvedValue(USAGE);
+      const userRepo = createMockUserRepository();
+      const owner = createMockOwner();
+      userRepo.findOwnerByTenant.mockResolvedValue(owner);
 
-      const service = createService(repo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, userRepo, notificationDispatchService);
       const dto: UpdateTenantStatusDto = { status: TenantStatus.SUSPENDED };
       const result = await service.updateStatus(TENANT_ID, dto);
 
       expect(repo.updateStatus).toHaveBeenCalledWith(TENANT_ID, TenantStatus.SUSPENDED);
       expect(result.status).toBe(TenantStatus.SUSPENDED);
+      expect(userRepo.findOwnerByTenant).toHaveBeenCalledWith(TENANT_ID);
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        userId: owner.id,
+        title: 'Account suspended',
+        message: expect.any(String),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('notifies on reactivation (SUSPENDED -> ACTIVE) with a distinct message', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTenant({ status: TenantStatus.SUSPENDED }));
+      repo.updateStatus.mockResolvedValue(createMockTenant({ status: TenantStatus.ACTIVE }));
+      repo.getUsage.mockResolvedValue(USAGE);
+      const userRepo = createMockUserRepository();
+      const owner = createMockOwner();
+      userRepo.findOwnerByTenant.mockResolvedValue(owner);
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, userRepo, notificationDispatchService);
+      await service.updateStatus(TENANT_ID, { status: TenantStatus.ACTIVE });
+
+      expect(notificationDispatchService.send).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Account activated' }),
+      );
+    });
+
+    it('does NOT notify (or double-fire) when re-setting the same status (idempotent no-op)', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTenant({ status: TenantStatus.SUSPENDED }));
+      repo.updateStatus.mockResolvedValue(createMockTenant({ status: TenantStatus.SUSPENDED }));
+      repo.getUsage.mockResolvedValue(USAGE);
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, createMockUserRepository(), notificationDispatchService);
+      await service.updateStatus(TENANT_ID, { status: TenantStatus.SUSPENDED });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
+    });
+
+    it('does NOT notify for a status transition that is not SUSPENDED/ACTIVE (e.g. DEACTIVATED)', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTenant({ status: TenantStatus.ACTIVE }));
+      repo.updateStatus.mockResolvedValue(createMockTenant({ status: TenantStatus.DEACTIVATED }));
+      repo.getUsage.mockResolvedValue(USAGE);
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, createMockUserRepository(), notificationDispatchService);
+      await service.updateStatus(TENANT_ID, { status: TenantStatus.DEACTIVATED });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
   });
 

@@ -1,10 +1,13 @@
 import { Request } from 'express';
-import { Task, TaskStatus, AuditEventType } from '@prisma/client';
+import { Task, TaskStatus, AuditEventType, NotificationChannel } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { ConflictError, ValidationError } from '@shared/errors';
 import { PaginationMeta } from '@shared/types';
 import { AuditLogRecorder } from '@modules/audit';
+// Concrete path, not the `@modules/notifications` barrel — see
+// `middlewares/tenant.middleware.ts`'s header comment for why.
+import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import { TaskRepository } from '../repository/task.repository';
 import {
   CreateTaskDto,
@@ -59,6 +62,7 @@ export class TaskService extends BaseService {
     req: Request,
     private readonly taskRepository: TaskRepository = new TaskRepository(prisma),
     private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
+    private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
   ) {
     super(req);
   }
@@ -113,7 +117,10 @@ export class TaskService extends BaseService {
       { tenantId: this.tenantId },
     );
 
-    // TODO: emit TaskCreated once the domain event bus exists.
+    if (task.assigneeId && task.assigneeId !== this.userId) {
+      await this.notify(task.tenantId, task.assigneeId, 'Task assigned', `You were assigned the task "${task.title}".`);
+    }
+
     return task;
   }
 
@@ -130,8 +137,17 @@ export class TaskService extends BaseService {
     // TODO: once TaskActivity/Comments/TimeLogs/Notifications/Attachments exist,
     // wrap the update + activity-log write in this.transaction() so they commit
     // atomically.
-    // TODO: emit TaskUpdated once the domain event bus exists.
-    return this.taskRepository.update(id, dto, { tenantId: this.tenantId });
+    const updated = await this.taskRepository.update(id, dto, { tenantId: this.tenantId });
+
+    // Reassignment only — a genuine change of assignee, not merely "assigneeId
+    // was present in the request body" (naturally idempotent: re-submitting
+    // the same assigneeId a second time is a no-op here, no duplicate fires).
+    const reassigned = dto.assigneeId !== undefined && dto.assigneeId !== existing.assigneeId;
+    if (reassigned && updated.assigneeId && updated.assigneeId !== this.userId) {
+      await this.notify(updated.tenantId, updated.assigneeId, 'Task assigned', `You were assigned the task "${updated.title}".`);
+    }
+
+    return updated;
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -175,8 +191,15 @@ export class TaskService extends BaseService {
       ipAddress: this.req.ip ?? null,
     });
 
-    // TODO: emit TaskStatusChanged (and TaskCompleted/TaskReopened where
-    // applicable) once the domain event bus exists.
+    if (updated.assigneeId && updated.assigneeId !== this.userId) {
+      await this.notify(
+        updated.tenantId,
+        updated.assigneeId,
+        'Task status changed',
+        `Task "${existing.title}" status changed to ${dto.status}.`,
+      );
+    }
+
     return updated;
   }
 
@@ -269,5 +292,14 @@ export class TaskService extends BaseService {
 
   async countByProject(projectId: string): Promise<number> {
     return this.taskRepository.countByProject(projectId, { tenantId: this.tenantId });
+  }
+
+  /** IN_APP-only — no PRD text mandates EMAIL/SMS/WhatsApp for task events. Best-effort: never fails the primary action. */
+  private async notify(tenantId: string, userId: string, title: string, message: string): Promise<void> {
+    try {
+      await this.notificationDispatchService.send({ tenantId, userId, title, message, channels: [NotificationChannel.IN_APP] });
+    } catch (err) {
+      this.logger.warn({ err, userId, title }, 'Failed to dispatch notification');
+    }
   }
 }

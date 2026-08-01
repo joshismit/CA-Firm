@@ -1,0 +1,160 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cafirm
+          POSTGRES_PASSWORD: cafirm_ci_password
+          POSTGRES_DB: cafirm_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U cafirm -d cafirm_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://cafirm:cafirm_ci_password@localhost:5432/cafirm_test
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      # CI-only placeholders — never used outside this workflow. Real secrets
+      # live in each deployment's own backend/.env (see backend/.env.example).
+      JWT_ACCESS_SECRET: ci-placeholder-access-secret-not-for-real-use-00000000
+      JWT_REFRESH_SECRET: ci-placeholder-refresh-secret-not-for-real-use-0000000
+      MASTER_ADMIN_EMAIL: master-admin@ci.local
+      MASTER_ADMIN_PASSWORD: ci-placeholder-password
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma validate
+        run: npx prisma validate
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Apply migrations to the CI database
+        run: npx prisma migrate deploy
+
+      - name: Prisma migrate status
+        run: npx prisma migrate status
+
+      # `npm run lint` runs eslint with --fix, which would silently auto-correct
+      # issues instead of failing the build on them — not what a CI gate wants.
+      - name: Lint
+        run: npx eslint src --ext .ts
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Build (also verifies path-alias rewriting succeeds)
+        run: npm run build
+
+      - name: Test
+        run: npx jest --ci --coverage --forceExit
+
+      - name: Upload backend build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist
+          path: backend/dist
+          retention-days: 3
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage
+          retention-days: 7
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Build
+        env:
+          VITE_API_BASE_URL: /api/v1
+        run: npm run build
+
+      - name: Upload frontend build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 3
+
+  # A single required status check for branch protection — succeeds only if
+  # every job above succeeded, so "Require status checks to pass" only needs
+  # to name this one job instead of being kept in sync with the job list.
+  ci-status:
+    name: CI Status
+    if: always()
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any required job failed
+        run: |
+          if [ "${{ needs.backend.result }}" != "success" ] || [ "${{ needs.frontend.result }}" != "success" ]; then
+            echo "One or more required jobs failed: backend=${{ needs.backend.result }} frontend=${{ needs.frontend.result }}"
+            exit 1
+          fi
+          echo "All required jobs passed."

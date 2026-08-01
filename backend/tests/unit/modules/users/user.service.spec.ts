@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { User, UserInvitation, UserStatus, InvitationStatus, Role, RoleType } from '@prisma/client';
+import { User, UserInvitation, UserStatus, InvitationStatus, Role, RoleType, NotificationChannel } from '@prisma/client';
 
 /**
  * See the identical comment in tests/unit/modules/contacts/contact.service.spec.ts
@@ -26,6 +26,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from '@shared/errors';
 import { UserService } from '@modules/users/service/user.service';
 import { UserRepository } from '@modules/users/repository/user.repository';
 import { UserInvitationRepository } from '@modules/users/repository/user-invitation.repository';
+import type { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import { InviteUserDto, UpdateUserDto } from '@modules/users/dto/user.req.dto';
 
 /**
@@ -55,7 +56,8 @@ type MockedUserRepository = {
     | 'findActiveSessionsForUser'
     | 'update'
     | 'delete'
-    | 'revokeAllSessionsAndTokens']: jest.Mock;
+    | 'revokeAllSessionsAndTokens'
+    | 'findOwnerByTenant']: jest.Mock;
 };
 
 type MockedUserInvitationRepository = {
@@ -73,6 +75,7 @@ function createMockRepository(): MockedUserRepository {
     update: jest.fn(),
     delete: jest.fn(),
     revokeAllSessionsAndTokens: jest.fn(),
+    findOwnerByTenant: jest.fn(),
   };
 }
 
@@ -159,14 +162,20 @@ function createMockRole(overrides: Partial<Role> = {}): Role {
   };
 }
 
+function createMockNotificationDispatchService(): { send: jest.Mock } {
+  return { send: jest.fn().mockResolvedValue([]) };
+}
+
 function createService(
   repository: MockedUserRepository,
   invitationRepository: MockedUserInvitationRepository = createMockInvitationRepository(),
+  notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
 ): UserService {
   return new UserService(
     createFakeRequest(),
     repository as unknown as UserRepository,
     invitationRepository as unknown as UserInvitationRepository,
+    notificationDispatchService as unknown as NotificationDispatchService,
   );
 }
 
@@ -333,20 +342,45 @@ describe('UserService', () => {
       expect(result).toBe(updated);
     });
 
-    it('runs update + session revocation in a transaction when status transitions away from ACTIVE', async () => {
+    it('runs update + session revocation in a transaction when status transitions away from ACTIVE, and notifies the tenant owner', async () => {
       const repo = createMockRepository();
-      const existing = createMockUser({ status: UserStatus.ACTIVE });
+      const existing = createMockUser({ status: UserStatus.ACTIVE, firstName: 'Rohan', lastName: 'Mehta' });
       repo.findById.mockResolvedValue(existing);
       const updated = createMockUser({ status: UserStatus.SUSPENDED });
       repo.update.mockResolvedValue(updated);
+      const owner = createMockUser({ id: 'owner-id', isOwner: true });
+      repo.findOwnerByTenant.mockResolvedValue(owner);
 
-      const service = createService(repo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, createMockInvitationRepository(), notificationDispatchService);
       const dto: UpdateUserDto = { status: UserStatus.SUSPENDED };
       const result = await service.updateUser(TARGET_ID, dto);
 
       expect(repo.update).toHaveBeenCalledWith(TARGET_ID, dto, { tenantId: TENANT_ID, tx: {} });
       expect(repo.revokeAllSessionsAndTokens).toHaveBeenCalledWith(TARGET_ID, TENANT_ID, {});
       expect(result).toBe(updated);
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        userId: owner.id,
+        title: 'User deactivated',
+        message: expect.stringContaining('Rohan Mehta'),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('does NOT notify when the tenant owner is the one performing the deactivation', async () => {
+      const repo = createMockRepository();
+      const existing = createMockUser({ status: UserStatus.ACTIVE });
+      repo.findById.mockResolvedValue(existing);
+      repo.update.mockResolvedValue(createMockUser({ status: UserStatus.SUSPENDED }));
+      // The caller (CALLER_ID, per createFakeRequest()) *is* the owner.
+      repo.findOwnerByTenant.mockResolvedValue(createMockUser({ id: CALLER_ID, isOwner: true }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, createMockInvitationRepository(), notificationDispatchService);
+      await service.updateUser(TARGET_ID, { status: UserStatus.SUSPENDED });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
 
     it('does not revoke sessions when the new status equals the current status', async () => {

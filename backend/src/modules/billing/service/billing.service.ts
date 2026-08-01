@@ -1,6 +1,6 @@
 import { Request } from 'express';
 import Razorpay from 'razorpay';
-import { BillingCycle, PlatformInvoice, PlatformInvoiceStatus, SubscriptionStatus } from '@prisma/client';
+import { BillingCycle, PlatformInvoice, PlatformInvoiceStatus, SubscriptionStatus, NotificationChannel } from '@prisma/client';
 import { prisma } from '@config/database';
 import { razorpayClient, razorpayConfig } from '@config/razorpay';
 import { BaseService } from '@shared/base';
@@ -9,6 +9,10 @@ import { ForbiddenError, ServiceUnavailableError } from '@shared/errors';
 import { ErrorCode } from '@shared/enums';
 import { MESSAGES, BILLING } from '@shared/constants';
 import { CryptoUtils } from '@shared/utils';
+// Concrete path, not the `@modules/notifications` barrel — see
+// `middlewares/tenant.middleware.ts`'s header comment for why.
+import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
+import { UserRepository } from '@modules/users/repository/user.repository';
 import { PlanRepository } from '../repository/plan.repository';
 import { PlatformInvoiceRepository } from '../repository/platform-invoice.repository';
 import { TenantBillingRepository } from '../repository/tenant-billing.repository';
@@ -53,6 +57,8 @@ export class BillingService extends BaseService {
     private readonly planRepository: PlanRepository = new PlanRepository(prisma),
     private readonly invoiceRepository: PlatformInvoiceRepository = new PlatformInvoiceRepository(prisma),
     private readonly tenantBillingRepository: TenantBillingRepository = new TenantBillingRepository(prisma),
+    private readonly userRepository: UserRepository = new UserRepository(prisma),
+    private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
   ) {
     super(req);
   }
@@ -197,6 +203,16 @@ export class BillingService extends BaseService {
       }),
     ]);
 
+    // Reached only once per invoice — both call sites (`verifyPayment()`,
+    // `handleWebhook()`) guard on `invoice.status === PAID` before ever
+    // calling this method, so a webhook replay or a duplicate client
+    // confirmation never re-enters here. Unlike this module's other
+    // notifications, this one is *not* skipped when the actor is also the
+    // recipient — "your payment succeeded, subscription active" is a
+    // legitimate confirmation to send to the person who just paid, not a
+    // self-action they already know about (e.g. an assignment they made).
+    await this.notifyOwner(invoice.tenantId, 'Subscription activated', `Your ${invoice.plan.name} subscription is now active.`);
+
     return paidInvoice;
   }
 
@@ -211,6 +227,18 @@ export class BillingService extends BaseService {
         'Payment processing is not configured on this server yet',
         ErrorCode.DEPENDENCY_UNAVAILABLE,
       );
+    }
+  }
+
+  /** IN_APP-only — no PRD text mandates EMAIL/SMS/WhatsApp for this event. Best-effort: never fails the primary action. */
+  private async notifyOwner(tenantId: string, title: string, message: string): Promise<void> {
+    const owner = await this.userRepository.findOwnerByTenant(tenantId);
+    if (!owner) return;
+
+    try {
+      await this.notificationDispatchService.send({ tenantId, userId: owner.id, title, message, channels: [NotificationChannel.IN_APP] });
+    } catch (err) {
+      this.logger.warn({ err, tenantId, title }, 'Failed to dispatch notification');
     }
   }
 }

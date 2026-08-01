@@ -86,6 +86,14 @@ const envSchema = z.object({
 
   // ─── Swagger ─────────────────────────────────────────────────────────────
   ENABLE_SWAGGER: z.coerce.boolean().default(true),
+
+  // ─── Observability ───────────────────────────────────────────────────────
+  /** Mirrors package.json's version — bumped alongside it, not derived at runtime
+   *  (importing package.json from src/ would violate tsconfig's rootDir). */
+  APP_VERSION: z.string().default('1.0.0'),
+  /** Injected at Docker build / CI time (`--build-arg COMMIT_SHA=$(git rev-parse HEAD)`,
+   *  `${{ github.sha }}`). Absent in local dev — `/health` reports it as `null` then. */
+  COMMIT_SHA: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

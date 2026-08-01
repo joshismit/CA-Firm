@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Task, TaskStatus } from '@prisma/client';
+import { Task, TaskStatus, NotificationChannel } from '@prisma/client';
 
 /**
  * `TaskService`'s constructor defaults to `new TaskRepository(prisma)` (the
@@ -19,6 +19,7 @@ import { UserRole } from '@shared/enums';
 import { ConflictError, NotFoundError, ValidationError } from '@shared/errors';
 import { TaskService } from '@modules/tasks/service/task.service';
 import { TaskRepository } from '@modules/tasks/repository/task.repository';
+import type { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import {
   CreateTaskDto,
   ListTasksQueryDto,
@@ -102,8 +103,20 @@ function createMockTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
-function createService(repository: MockedTaskRepository): TaskService {
-  return new TaskService(createFakeRequest(), repository as unknown as TaskRepository);
+function createMockNotificationDispatchService(): { send: jest.Mock } {
+  return { send: jest.fn().mockResolvedValue([]) };
+}
+
+function createService(
+  repository: MockedTaskRepository,
+  notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
+): TaskService {
+  return new TaskService(
+    createFakeRequest(),
+    repository as unknown as TaskRepository,
+    undefined,
+    notificationDispatchService as unknown as NotificationDispatchService,
+  );
 }
 
 describe('TaskService', () => {
@@ -139,11 +152,13 @@ describe('TaskService', () => {
       expect(result).toBe(created);
     });
 
-    it('passes through projectId/assigneeId/description when provided', async () => {
+    it('passes through projectId/assigneeId/description when provided, and notifies the assignee', async () => {
       const repo = createMockRepository();
-      repo.create.mockResolvedValue(createMockTask());
+      const created = createMockTask({ assigneeId: 'user-assignee-1', title: dto.title });
+      repo.create.mockResolvedValue(created);
 
-      const service = createService(repo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
       await service.createTask({
         ...dto,
         projectId: 'project-1',
@@ -159,6 +174,35 @@ describe('TaskService', () => {
         }),
         { tenantId: TENANT_ID },
       );
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        userId: 'user-assignee-1',
+        title: 'Task assigned',
+        message: expect.stringContaining(dto.title),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('does NOT notify when the task has no assignee', async () => {
+      const repo = createMockRepository();
+      repo.create.mockResolvedValue(createMockTask({ assigneeId: null }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.createTask(dto);
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
+    });
+
+    it('does NOT notify when the task is self-assigned', async () => {
+      const repo = createMockRepository();
+      repo.create.mockResolvedValue(createMockTask({ assigneeId: USER_ID }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.createTask({ ...dto, assigneeId: USER_ID });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
 
     it('throws ValidationError when dueDate is before startDate (validation failure)', async () => {
@@ -209,6 +253,49 @@ describe('TaskService', () => {
       expect(repo.update).not.toHaveBeenCalled();
     });
 
+    it('notifies the new assignee on a genuine reassignment', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ assigneeId: 'old-assignee' }));
+      const updated = createMockTask({ assigneeId: 'new-assignee' });
+      repo.update.mockResolvedValue(updated);
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.updateTask('task-1', { assigneeId: 'new-assignee' });
+
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        userId: 'new-assignee',
+        title: 'Task assigned',
+        message: expect.any(String),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('does NOT notify when resubmitting the same assigneeId (idempotent — no duplicate on retry)', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ assigneeId: 'same-assignee' }));
+      repo.update.mockResolvedValue(createMockTask({ assigneeId: 'same-assignee' }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.updateTask('task-1', { assigneeId: 'same-assignee' });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
+    });
+
+    it('does NOT notify when assigneeId is not part of the update at all', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ assigneeId: 'existing-assignee' }));
+      repo.update.mockResolvedValue(createMockTask({ assigneeId: 'existing-assignee', title: 'Renamed' }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.updateTask('task-1', { title: 'Renamed' });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
+    });
+
     it('throws ValidationError when only dueDate is patched and it precedes the existing startDate (validation failure)', async () => {
       const repo = createMockRepository();
       repo.findById.mockResolvedValue(
@@ -242,13 +329,14 @@ describe('TaskService', () => {
   // updateTaskStatus — status transitions
   // ────────────────────────────────────────────────────────────────────────
   describe('updateTaskStatus', () => {
-    it('allows TODO → IN_PROGRESS', async () => {
+    it('allows TODO → IN_PROGRESS, and notifies the assignee (someone else changed their task)', async () => {
       const repo = createMockRepository();
-      repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.TODO }));
-      const updated = createMockTask({ status: TaskStatus.IN_PROGRESS });
+      repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.TODO, assigneeId: 'other-user', title: 'Prepare draft financials' }));
+      const updated = createMockTask({ status: TaskStatus.IN_PROGRESS, assigneeId: 'other-user' });
       repo.update.mockResolvedValue(updated);
 
-      const service = createService(repo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
       const result = await service.updateTaskStatus('task-1', { status: TaskStatus.IN_PROGRESS });
 
       expect(repo.update).toHaveBeenCalledWith(
@@ -257,6 +345,37 @@ describe('TaskService', () => {
         { tenantId: TENANT_ID },
       );
       expect(result).toBe(updated);
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        userId: 'other-user',
+        title: 'Task status changed',
+        message: expect.stringContaining('IN_PROGRESS'),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('does NOT notify when the caller changes the status of their own assigned task', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.TODO, assigneeId: USER_ID }));
+      repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.IN_PROGRESS, assigneeId: USER_ID }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.updateTaskStatus('task-1', { status: TaskStatus.IN_PROGRESS });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
+    });
+
+    it('does NOT notify when the task has no assignee', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.TODO, assigneeId: null }));
+      repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.IN_PROGRESS, assigneeId: null }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.updateTaskStatus('task-1', { status: TaskStatus.IN_PROGRESS });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
 
     it('throws ConflictError for a transition the state machine does not allow (TODO → COMPLETED)', async () => {

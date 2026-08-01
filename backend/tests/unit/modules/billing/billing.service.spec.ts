@@ -15,7 +15,7 @@ jest.mock('razorpay', () => ({ validateWebhookSignature: jest.fn() }));
 import crypto from 'crypto';
 import { Request } from 'express';
 import Razorpay from 'razorpay';
-import { BillingCycle, Plan, PlatformInvoice, PlatformInvoiceStatus, SubscriptionStatus, Tenant, TenantStatus } from '@prisma/client';
+import { BillingCycle, Plan, PlatformInvoice, PlatformInvoiceStatus, SubscriptionStatus, Tenant, TenantStatus, NotificationChannel } from '@prisma/client';
 import { ForbiddenError, NotFoundError, ServiceUnavailableError } from '@shared/errors';
 import { razorpayClient, razorpayConfig } from '@config/razorpay';
 import { BillingService } from '@modules/billing/service/billing.service';
@@ -23,6 +23,8 @@ import { PlanRepository } from '@modules/billing/repository/plan.repository';
 import { PlatformInvoiceRepository } from '@modules/billing/repository/platform-invoice.repository';
 import { TenantBillingRepository } from '@modules/billing/repository/tenant-billing.repository';
 import { PlatformInvoiceWithPlan } from '@modules/billing/mapper/billing.mapper';
+import { UserRepository } from '@modules/users/repository/user.repository';
+import type { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import type { CreateCheckoutSessionDto, VerifyCheckoutPaymentDto } from '@modules/billing/dto/billing.req.dto';
 
 /**
@@ -148,17 +150,30 @@ function createMockTenant(overrides: Partial<Tenant> = {}): Tenant {
   } as Tenant;
 }
 
+/** Returns `null` (no owner found) by default — sufficient for `notifyOwner()`'s best-effort dispatch to no-op cleanly, since it isn't the subject of these tests. */
+function createMockUserRepository(): { findOwnerByTenant: jest.Mock } {
+  return { findOwnerByTenant: jest.fn().mockResolvedValue(null) };
+}
+
+function createMockNotificationDispatchService(): { send: jest.Mock } {
+  return { send: jest.fn().mockResolvedValue([]) };
+}
+
 function createService(
   req: Request,
   planRepo: MockedPlanRepository,
   invoiceRepo: MockedInvoiceRepository,
   tenantRepo: MockedTenantBillingRepository,
+  userRepo: { findOwnerByTenant: jest.Mock } = createMockUserRepository(),
+  notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
 ): BillingService {
   return new BillingService(
     req,
     planRepo as unknown as PlanRepository,
     invoiceRepo as unknown as PlatformInvoiceRepository,
     tenantRepo as unknown as TenantBillingRepository,
+    userRepo as unknown as UserRepository,
+    notificationDispatchService as unknown as NotificationDispatchService,
   );
 }
 
@@ -294,7 +309,7 @@ describe('BillingService', () => {
       await expect(service.verifyPayment(dto)).rejects.toThrow(ForbiddenError);
     });
 
-    it('is idempotent: returns the current subscription without re-verifying an already-PAID invoice', async () => {
+    it('is idempotent: returns the current subscription without re-verifying an already-PAID invoice, and does NOT re-notify (duplicate/replay prevention)', async () => {
       const planRepo = createMockPlanRepository();
       planRepo.findByCode.mockResolvedValue(createMockPlan());
       const invoiceRepo = createMockInvoiceRepository();
@@ -303,11 +318,13 @@ describe('BillingService', () => {
       tenantRepo.findById.mockResolvedValue(createMockTenant());
 
       const dto: VerifyCheckoutPaymentDto = { razorpayOrderId: 'order_fake123', razorpayPaymentId: 'pay_x', razorpaySignature: 'totally-wrong' };
-      const service = createService(createFakeRequest(), planRepo, invoiceRepo, tenantRepo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(createFakeRequest(), planRepo, invoiceRepo, tenantRepo, createMockUserRepository(), notificationDispatchService);
       const result = await service.verifyPayment(dto);
 
       expect(invoiceRepo.markPaid).not.toHaveBeenCalled();
       expect(result.subscriptionStatus).toBe(SubscriptionStatus.ACTIVE);
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
 
     it('throws ForbiddenError when the signature does not match', async () => {
@@ -322,7 +339,7 @@ describe('BillingService', () => {
       expect(invoiceRepo.markPaid).not.toHaveBeenCalled();
     });
 
-    it('marks the invoice PAID and applies the plan to the tenant when the signature is valid', async () => {
+    it('marks the invoice PAID, applies the plan to the tenant, and notifies the tenant owner when the signature is valid', async () => {
       const planRepo = createMockPlanRepository();
       planRepo.findByCode.mockResolvedValue(createMockPlan());
       const invoiceRepo = createMockInvoiceRepository();
@@ -332,10 +349,13 @@ describe('BillingService', () => {
       const tenantRepo = createMockTenantBillingRepository();
       tenantRepo.findById.mockResolvedValue(createMockTenant());
       tenantRepo.applyPlan.mockResolvedValue(createMockTenant());
+      const userRepo = createMockUserRepository();
+      userRepo.findOwnerByTenant.mockResolvedValue({ id: 'owner-id' });
 
       const validSignature = signaturePair('order_fake123', 'pay_fake456');
       const dto: VerifyCheckoutPaymentDto = { razorpayOrderId: 'order_fake123', razorpayPaymentId: 'pay_fake456', razorpaySignature: validSignature };
-      const service = createService(createFakeRequest(), planRepo, invoiceRepo, tenantRepo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(createFakeRequest(), planRepo, invoiceRepo, tenantRepo, userRepo, notificationDispatchService);
       await service.verifyPayment(dto);
 
       expect(invoiceRepo.markPaid).toHaveBeenCalledWith(
@@ -346,6 +366,13 @@ describe('BillingService', () => {
         TENANT_ID,
         expect.objectContaining({ planCode: invoice.plan.code, subscriptionStatus: SubscriptionStatus.ACTIVE }),
       );
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: invoice.tenantId,
+        userId: 'owner-id',
+        title: 'Subscription activated',
+        message: expect.stringContaining(invoice.plan.name),
+        channels: [NotificationChannel.IN_APP],
+      });
     });
   });
 
@@ -394,6 +421,29 @@ describe('BillingService', () => {
 
       expect(invoiceRepo.markPaid).toHaveBeenCalledWith(invoice.id, expect.objectContaining({ razorpayPaymentId: 'pay_webhook1' }));
       expect(tenantRepo.applyPlan).toHaveBeenCalled();
+    });
+
+    it('a webhook replay for an already-PAID invoice is a no-op and does NOT re-notify (webhook-replay prevention)', async () => {
+      (razorpayConfig as { webhookSecret: string | undefined }).webhookSecret = 'whsec_fake';
+      (Razorpay.validateWebhookSignature as jest.Mock).mockReturnValue(true);
+
+      const planRepo = createMockPlanRepository();
+      const invoiceRepo = createMockInvoiceRepository();
+      invoiceRepo.findByRazorpayOrderId.mockResolvedValue(createMockInvoice({ status: PlatformInvoiceStatus.PAID }));
+      const tenantRepo = createMockTenantBillingRepository();
+
+      const body = JSON.stringify({
+        event: 'payment.captured',
+        payload: { payment: { entity: { id: 'pay_webhook1', order_id: 'order_fake123' } } },
+      });
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(createFakeRequest(), planRepo, invoiceRepo, tenantRepo, createMockUserRepository(), notificationDispatchService);
+      await service.handleWebhook(Buffer.from(body), 'valid-sig');
+
+      expect(invoiceRepo.markPaid).not.toHaveBeenCalled();
+      expect(tenantRepo.applyPlan).not.toHaveBeenCalled();
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
 
     it('ignores a valid webhook for an unknown order id', async () => {

@@ -14,6 +14,7 @@ import {
   LoginEventType,
   LoginEventStatus,
   AuditEventType,
+  NotificationChannel,
 } from '@prisma/client';
 import { prisma } from '@config/database';
 import { env } from '@config/environment';
@@ -26,6 +27,10 @@ import { MESSAGES, PASSWORD, TOKEN } from '@shared/constants';
 import { CryptoUtils } from '@shared/utils';
 import { JwtPayload } from '@middlewares/auth.middleware';
 import { AuditLogRecorder } from '@modules/audit';
+// Concrete path, not the `@modules/notifications` barrel — that barrel also
+// re-exports `notificationRoutes`, which imports `tenantMiddleware`; see
+// that file's header comment for the module-load cycle this avoids.
+import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import { UserRepository } from '@modules/users/repository/user.repository';
 import { UserInvitationRepository } from '@modules/users/repository/user-invitation.repository';
 import { AuthRepository } from '../repository/auth.repository';
@@ -93,6 +98,7 @@ export class AuthService extends BaseService {
     // `UserInvitation` lifecycle Users already owns end-to-end.
     private readonly userRepository: UserRepository = new UserRepository(prisma),
     private readonly userInvitationRepository: UserInvitationRepository = new UserInvitationRepository(prisma),
+    private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
   ) {
     super(req);
   }
@@ -333,6 +339,7 @@ export class AuthService extends BaseService {
     await this.authRepository.revokeAllSessionsExcept(userId, undefined, SessionRevokeReason.PASSWORD_CHANGE);
 
     this.logger.info({ userId }, 'Password changed');
+    await this.notify(user.tenantId, userId, 'Password changed', 'Your password was changed. If this wasn\'t you, contact your administrator immediately.');
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -538,6 +545,12 @@ export class AuthService extends BaseService {
     });
 
     this.logger.info({ userId: user.id, invitationId: invitation.id }, 'Invitation accepted');
+    await this.notify(
+      invitation.tenantId,
+      invitation.invitedById,
+      'Invitation accepted',
+      `${user.firstName} ${user.lastName} accepted your invitation and joined the team.`,
+    );
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -599,11 +612,23 @@ export class AuthService extends BaseService {
   private async recordFailedLogin(user: User | undefined, email: string, meta: RequestMeta): Promise<void> {
     if (user) {
       const failedLoginCount = user.failedLoginCount + 1;
-      const lockedUntil =
-        failedLoginCount >= PASSWORD.MAX_FAILED_ATTEMPTS
-          ? new Date(Date.now() + PASSWORD.LOCKOUT_DURATION_MINUTES * 60 * 1000)
-          : null;
+      const justLocked = failedLoginCount >= PASSWORD.MAX_FAILED_ATTEMPTS;
+      const lockedUntil = justLocked ? new Date(Date.now() + PASSWORD.LOCKOUT_DURATION_MINUTES * 60 * 1000) : null;
       await this.authRepository.recordFailedLogin(user.id, failedLoginCount, lockedUntil);
+
+      // Fires exactly once per lockout: `login()` short-circuits with a
+      // ForbiddenError *before* ever calling this method again while
+      // `lockedUntil` is still in the future (see that method's
+      // `lockedUntil > new Date()` check), so a burst of retries against an
+      // already-locked account never re-enters this branch.
+      if (justLocked) {
+        await this.notify(
+          user.tenantId,
+          user.id,
+          'Account locked',
+          `Your account was temporarily locked after ${PASSWORD.MAX_FAILED_ATTEMPTS} failed sign-in attempts. It will unlock automatically in ${PASSWORD.LOCKOUT_DURATION_MINUTES} minutes.`,
+        );
+      }
     }
 
     await this.authRepository.recordLoginHistory({
@@ -667,5 +692,22 @@ export class AuthService extends BaseService {
       .catch((err: unknown) => {
         this.logger.warn({ err, userId: user.id }, 'Failed to enqueue password reset email');
       });
+  }
+
+  /**
+   * IN_APP-only business-event notification — no PRD text mandates EMAIL/SMS/
+   * WhatsApp for any of the events this module fires one for, so only the
+   * channel that's always generated is used (see `NotificationDispatchService`'s
+   * own header comment on `IN_APP` never touching the queue). Best-effort: a
+   * failure to notify must never fail the auth action that already
+   * succeeded and already committed, so this is awaited but its own errors
+   * are caught and logged, exactly like `AuditLogRecorder.record()`.
+   */
+  private async notify(tenantId: string, userId: string, title: string, message: string): Promise<void> {
+    try {
+      await this.notificationDispatchService.send({ tenantId, userId, title, message, channels: [NotificationChannel.IN_APP] });
+    } catch (err) {
+      this.logger.warn({ err, userId, title }, 'Failed to dispatch notification');
+    }
   }
 }

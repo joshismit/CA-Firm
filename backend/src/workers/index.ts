@@ -10,6 +10,19 @@ import { logger } from '@config/logger';
 import { createEmailWorker } from './email.worker';
 import { createNotificationWorker } from './notification.worker';
 
+// Same rationale as src/server.ts — a worker mid-job that hits an unhandled
+// error is in an unknown state; BullMQ's own retry/backoff picks the job back
+// up on the next worker instance rather than this process limping onward.
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err }, 'Uncaught exception in worker process — shutting down');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.fatal({ err: reason }, 'Unhandled promise rejection in worker process — shutting down');
+  process.exit(1);
+});
+
 /**
  * ─────────────────────────────────────────────────────────────────────────────
  * Worker Process Entry Point

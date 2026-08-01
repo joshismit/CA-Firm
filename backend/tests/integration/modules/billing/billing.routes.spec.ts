@@ -154,7 +154,8 @@ describe('Billing API (tenant-facing) — integration', () => {
       expect(res.status).toBe(200);
     });
 
-    it('returns 403 once an ACTIVE tenant\'s subscriptionExpiresAt has lapsed, and persists the EXPIRED transition', async () => {
+    it('returns 403 once an ACTIVE tenant\'s subscriptionExpiresAt has lapsed, persists the EXPIRED transition, and notifies the tenant owner exactly once', async () => {
+      await prisma.user.update({ where: { id: fixtures.tenantB.userId }, data: { isOwner: true } });
       await prisma.tenant.update({
         where: { id: fixtures.tenantB.tenantId },
         data: { subscriptionStatus: 'ACTIVE', subscriptionExpiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
@@ -170,10 +171,25 @@ describe('Billing API (tenant-facing) — integration', () => {
       const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: fixtures.tenantB.tenantId } });
       expect(tenant.subscriptionStatus).toBe('EXPIRED');
 
+      // A real IN_APP Notification row was created for the tenant owner.
+      const notifications = await prisma.notification.findMany({
+        where: { tenantId: fixtures.tenantB.tenantId, userId: fixtures.tenantB.userId, title: 'Subscription expired' },
+      });
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0].channel).toBe('IN_APP');
+      expect(notifications[0].status).toBe('SENT');
+
       // And the now-persisted EXPIRED status keeps blocking on the next
-      // request too, via the existing BLOCKED_SUBSCRIPTION_STATUSES path.
+      // request too, via the existing BLOCKED_SUBSCRIPTION_STATUSES path —
+      // which never re-enters the notify-once branch, so still exactly one
+      // notification exists (duplicate/retry prevention).
       const secondRes = await request(app).get('/api/v1/subscription/plans').set('Authorization', `Bearer ${tokenForTenantB()}`);
       expect(secondRes.status).toBe(403);
+
+      const notificationsAfterRetry = await prisma.notification.findMany({
+        where: { tenantId: fixtures.tenantB.tenantId, userId: fixtures.tenantB.userId, title: 'Subscription expired' },
+      });
+      expect(notificationsAfterRetry).toHaveLength(1);
     });
   });
 

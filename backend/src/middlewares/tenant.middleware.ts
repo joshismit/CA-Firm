@@ -1,10 +1,36 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { SubscriptionStatus as PrismaSubscriptionStatus } from '@prisma/client';
+import { SubscriptionStatus as PrismaSubscriptionStatus, NotificationChannel } from '@prisma/client';
 import { prisma } from '@config/database';
 import { ForbiddenError, NotFoundError } from '@shared/errors';
 import { MESSAGES } from '@shared/constants';
 import { TenantStatus } from '@shared/enums';
 import { asyncHandler } from '@shared/utils';
+import { logger } from '@config/logger';
+// Imported from its concrete path, not the `@modules/notifications` barrel —
+// that barrel also re-exports `notificationRoutes`, which itself imports
+// `tenantMiddleware` (this file), so importing the barrel here would create
+// a module-load cycle (`tenant.middleware.ts` → notifications barrel →
+// `notification.routes.ts` → `tenant.middleware.ts`, still mid-initialization)
+// that left `tenantMiddleware` `undefined` wherever it's used as an Express
+// route callback. Every other consumer below has the same fix for the same
+// reason, even though most of them aren't on the cycle themselves — it's the
+// correct import either way, since none of them need `notificationRoutes`.
+import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
+import { UserRepository } from '@modules/users/repository/user.repository';
+
+const userRepository = new UserRepository(prisma);
+const notificationDispatchService = new NotificationDispatchService();
+
+/** IN_APP-only — no PRD text mandates EMAIL/SMS/WhatsApp for this event. Best-effort: never blocks the 403 this fires alongside. */
+async function notifyOwnerOfExpiry(tenantId: string, title: string, message: string): Promise<void> {
+  try {
+    const owner = await userRepository.findOwnerByTenant(tenantId);
+    if (!owner) return;
+    await notificationDispatchService.send({ tenantId, userId: owner.id, title, message, channels: [NotificationChannel.IN_APP] });
+  } catch (err) {
+    logger.warn({ err, tenantId, title }, 'Failed to dispatch notification');
+  }
+}
 
 /** Subscription states that block access outright — PAST_DUE is deliberately excluded (a failed
  *  payment retry gets a grace period, not an instant lockout; matches every other SaaS's norm). */
@@ -105,6 +131,19 @@ async function tenantMiddlewareHandler(
       where: { id: tenant.id },
       data: { subscriptionStatus: PrismaSubscriptionStatus.EXPIRED },
     });
+
+    // Fires exactly once — the request that observes and persists the
+    // transition. Every subsequent request instead takes the
+    // `BLOCKED_SUBSCRIPTION_STATUSES` branch below (subscriptionStatus is
+    // now EXPIRED), which never re-enters this block.
+    await notifyOwnerOfExpiry(
+      tenant.id,
+      trialExpired ? 'Trial ended' : 'Subscription expired',
+      trialExpired
+        ? 'Your free trial has ended. Subscribe to a plan to continue using the platform.'
+        : 'Your subscription has expired. Renew to continue using the platform.',
+    );
+
     throw new ForbiddenError(trialExpired ? MESSAGES.TRIAL_EXPIRED : MESSAGES.SUBSCRIPTION_INACTIVE);
   }
 

@@ -1,0 +1,132 @@
+name: ca-firm-erp
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Local / single-host production stack.
+#
+# Two env layers, on purpose:
+#   - Compose-level substitution vars (POSTGRES_*, REDIS_PASSWORD, VITE_API_BASE_URL)
+#     come from a root `.env` next to this file — see `.env.example`.
+#   - The backend/worker containers additionally load `backend/.env` in full
+#     (see `backend/.env.example`) for everything the app itself needs
+#     (JWT secrets, SMTP, Razorpay, storage, ...). DATABASE_URL/REDIS_* are
+#     then overridden below to point at the `postgres`/`redis` services by
+#     name instead of whatever backend/.env has for bare-metal local dev.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cafirm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-cafirm}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-cafirm} -d ${POSTGRES_DB:-cafirm}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [cafirm-network]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD:-}']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "${REDIS_PASSWORD:-}" ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks: [cafirm-network]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cafirm}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cafirm}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - '4000:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get({host:'localhost',port:4000,path:'/health',timeout:4000},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [cafirm-network]
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ['node', 'dist/workers/index.js']
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cafirm}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cafirm}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # The image's HEALTHCHECK probes GET /health over HTTP — the worker
+    # process serves no HTTP endpoint at all, so that check would always fail.
+    healthcheck:
+      disable: true
+    networks: [cafirm-network]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    depends_on:
+      - backend
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8080/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [cafirm-network]
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  cafirm-network:
+    driver: bridge

@@ -1,8 +1,12 @@
 import { Request } from 'express';
-import { Tenant } from '@prisma/client';
+import { Tenant, TenantStatus, NotificationChannel } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { PaginationMeta } from '@shared/types';
+// Concrete path, not the `@modules/notifications` barrel — see
+// `middlewares/tenant.middleware.ts`'s header comment for why.
+import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
+import { UserRepository } from '@modules/users/repository/user.repository';
 import { TenantRepository } from '../repository/tenant.repository';
 import { TenantMapper, TenantWithUserCount } from '../mapper/tenant.mapper';
 import { ListTenantsQueryDto, UpdateTenantLimitsDto, UpdateTenantStatusDto } from '../dto/master-admin.req.dto';
@@ -29,6 +33,8 @@ export class TenantService extends BaseService {
   constructor(
     req: Request,
     private readonly tenantRepository: TenantRepository = new TenantRepository(prisma),
+    private readonly userRepository: UserRepository = new UserRepository(prisma),
+    private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
   ) {
     super(req);
   }
@@ -51,10 +57,22 @@ export class TenantService extends BaseService {
   }
 
   async updateStatus(id: string, dto: UpdateTenantStatusDto): Promise<TenantDetailResponseDto> {
-    await this.requireTenant(id);
+    const existing = await this.requireTenant(id);
 
     this.logger.info({ tenantId: id, status: dto.status }, 'Master admin changing tenant status');
     const updated = await this.tenantRepository.updateStatus(id, dto.status);
+
+    // Only a genuine transition into SUSPENDED/ACTIVE is notify-worthy — a
+    // no-op re-set to the same status (naturally possible here, unlike
+    // Task/Project status changes, since this update has no transition
+    // guard rejecting it) must not re-fire.
+    if (dto.status !== existing.status) {
+      if (dto.status === TenantStatus.SUSPENDED) {
+        await this.notifyOwner(id, 'Account suspended', 'Your organisation\'s account has been suspended. Contact support for details.');
+      } else if (dto.status === TenantStatus.ACTIVE) {
+        await this.notifyOwner(id, 'Account activated', 'Your organisation\'s account is now active.');
+      }
+    }
 
     const usage = await this.tenantRepository.getUsage(id);
     return TenantMapper.toDetailResponseDto(updated, usage);
@@ -74,5 +92,22 @@ export class TenantService extends BaseService {
     const tenant = await this.tenantRepository.findById(id);
     this.validateExists(tenant, 'Tenant');
     return tenant;
+  }
+
+  /**
+   * IN_APP-only — no PRD text mandates EMAIL/SMS/WhatsApp for this event.
+   * No self-notify concern here (unlike other modules' helpers): the actor
+   * is a `MasterAdmin`, a wholly different entity/ID space from the tenant
+   * `User` being notified, so it can never equal the recipient.
+   */
+  private async notifyOwner(tenantId: string, title: string, message: string): Promise<void> {
+    const owner = await this.userRepository.findOwnerByTenant(tenantId);
+    if (!owner) return;
+
+    try {
+      await this.notificationDispatchService.send({ tenantId, userId: owner.id, title, message, channels: [NotificationChannel.IN_APP] });
+    } catch (err) {
+      this.logger.warn({ err, tenantId, title }, 'Failed to dispatch notification');
+    }
   }
 }

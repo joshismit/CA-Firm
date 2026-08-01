@@ -4,6 +4,7 @@ import { correlationIdMiddleware } from '@middlewares/correlation-id.middleware'
 import { requestLoggerMiddleware } from '@middlewares/request-logger.middleware';
 import { errorMiddleware } from '@middlewares/error.middleware';
 import { ApiResponseHelper } from '@shared/response/api-response';
+import { getLiveness, getReadiness } from '@shared/health/health.service';
 import { swaggerSpec } from '@config/swagger';
 import projectRoutes from '@modules/projects/routes/project.routes';
 import taskRoutes from '@modules/tasks/routes/task.routes';
@@ -32,11 +33,20 @@ export function createFullTestApp(): Application {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Health
+  // Health / Readiness — mirrors app.ts's own wiring exactly (see src/shared/health/health.service.ts)
   app.get('/health', (req: Request, res: Response) => {
-    res.status(200).json(
-      ApiResponseHelper.success(req, { status: 'ok' }, 'CA Firm ERP API is running'),
-    );
+    res.status(200).json(ApiResponseHelper.success(req, getLiveness(), 'CA Firm ERP API is running'));
+  });
+
+  app.get('/ready', async (req: Request, res: Response) => {
+    const { ready, checks } = await getReadiness();
+    res.status(ready ? 200 : 503).json({
+      success: ready,
+      status: ready ? 'READY' : 'NOT READY',
+      checks,
+      correlationId: req.correlationId,
+      timestamp: new Date().toISOString(),
+    });
   });
 
   // Swagger

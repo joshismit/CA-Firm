@@ -48,6 +48,7 @@ import {
   SessionDeviceType,
   InvitationStatus,
   RoleType,
+  NotificationChannel,
 } from '@prisma/client';
 import { jwtConfig } from '@config/jwt';
 import { UnauthorizedError, ForbiddenError, ConflictError, NotFoundError } from '@shared/errors';
@@ -57,6 +58,7 @@ import { AuthService } from '@modules/auth/service/auth.service';
 import { AuthRepository } from '@modules/auth/repository/auth.repository';
 import { UserRepository } from '@modules/users/repository/user.repository';
 import { UserInvitationRepository } from '@modules/users/repository/user-invitation.repository';
+import type { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import { emailQueue } from '@config/queue';
 import type {
   AcceptInviteDto,
@@ -342,11 +344,16 @@ function createMockRole(overrides: Partial<Role> = {}): Role {
   };
 }
 
+function createMockNotificationDispatchService(): { send: jest.Mock } {
+  return { send: jest.fn().mockResolvedValue([]) };
+}
+
 function createService(
   repository: MockedAuthRepository,
   req: Request = createFakeRequest(),
   userRepository: MockedUserRepository = createMockUserRepository(),
   userInvitationRepository: MockedUserInvitationRepository = createMockUserInvitationRepository(),
+  notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
 ): AuthService {
   return new AuthService(
     req,
@@ -354,6 +361,7 @@ function createService(
     undefined,
     userRepository as unknown as UserRepository,
     userInvitationRepository as unknown as UserInvitationRepository,
+    notificationDispatchService as unknown as NotificationDispatchService,
   );
 }
 
@@ -411,16 +419,38 @@ describe('AuthService', () => {
       expect(repo.recordFailedLogin).toHaveBeenCalledWith(user.id, 3, null);
     });
 
-    it('locks the account once failedLoginCount reaches PASSWORD.MAX_FAILED_ATTEMPTS', async () => {
+    it('locks the account once failedLoginCount reaches PASSWORD.MAX_FAILED_ATTEMPTS, and notifies the account owner', async () => {
       const repo = createMockAuthRepository();
       const user = createMockUser({ failedLoginCount: PASSWORD.MAX_FAILED_ATTEMPTS - 1 });
       repo.findUserByEmail.mockResolvedValue(user);
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
-      const service = createService(repo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, createFakeRequest(), createMockUserRepository(), createMockUserInvitationRepository(), notificationDispatchService);
       await expect(service.login(dto, META)).rejects.toThrow(UnauthorizedError);
 
       expect(repo.recordFailedLogin).toHaveBeenCalledWith(user.id, PASSWORD.MAX_FAILED_ATTEMPTS, expect.any(Date));
+      expect(notificationDispatchService.send).toHaveBeenCalledTimes(1);
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: user.tenantId,
+        userId: user.id,
+        title: 'Account locked',
+        message: expect.any(String),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('does NOT notify on a failed attempt that does not yet reach the lockout threshold', async () => {
+      const repo = createMockAuthRepository();
+      const user = createMockUser({ failedLoginCount: 1 });
+      repo.findUserByEmail.mockResolvedValue(user);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, createFakeRequest(), createMockUserRepository(), createMockUserInvitationRepository(), notificationDispatchService);
+      await expect(service.login(dto, META)).rejects.toThrow(UnauthorizedError);
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
 
     it('throws ForbiddenError when the tenant is not active', async () => {
@@ -711,7 +741,7 @@ describe('AuthService', () => {
       await expect(service.changePassword(dto)).rejects.toThrow(ConflictError);
     });
 
-    it('on success: hashes+saves the new password, archives the old one, and revokes every session', async () => {
+    it('on success: hashes+saves the new password, archives the old one, revokes every session, and notifies the user', async () => {
       const repo = createMockAuthRepository();
       const user = createMockUser();
       repo.findUserById.mockResolvedValue(user);
@@ -719,12 +749,27 @@ describe('AuthService', () => {
       (bcrypt.compare as jest.Mock).mockImplementation(async (plain: string) => plain === dto.currentPassword);
       (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-password');
 
-      const service = createService(repo, createFakeAuthenticatedRequest());
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(
+        repo,
+        createFakeAuthenticatedRequest(),
+        createMockUserRepository(),
+        createMockUserInvitationRepository(),
+        notificationDispatchService,
+      );
       await service.changePassword(dto);
 
       expect(repo.createPasswordHistory).toHaveBeenCalledWith(user.tenantId, user.id, user.passwordHash);
       expect(repo.updatePassword).toHaveBeenCalledWith(user.id, 'new-hashed-password');
       expect(repo.revokeAllSessionsExcept).toHaveBeenCalledWith(user.id, undefined, 'PASSWORD_CHANGE');
+      expect(notificationDispatchService.send).toHaveBeenCalledTimes(1);
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: user.tenantId,
+        userId: user.id,
+        title: 'Password changed',
+        message: expect.any(String),
+        channels: [NotificationChannel.IN_APP],
+      });
     });
   });
 
@@ -990,11 +1035,12 @@ describe('AuthService', () => {
       invitationRepo.findByTokenHash.mockResolvedValue(invitation);
       const userRepo = createMockUserRepository();
       userRepo.findByEmail.mockResolvedValue(null);
-      const createdUser = createMockUser({ id: 'new-user-id', email: invitation.email });
+      const createdUser = createMockUser({ id: 'new-user-id', email: invitation.email, firstName: 'Priya', lastName: 'Singh' });
       userRepo.create.mockResolvedValue(createdUser);
       (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-password');
 
-      const service = createService(createMockAuthRepository(), createFakeRequest(), userRepo, invitationRepo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(createMockAuthRepository(), createFakeRequest(), userRepo, invitationRepo, notificationDispatchService);
       await service.acceptInvite('valid-token', dto, META);
 
       expect(userRepo.create).toHaveBeenCalledWith(
@@ -1012,6 +1058,16 @@ describe('AuthService', () => {
         expect.objectContaining({ status: InvitationStatus.ACCEPTED, acceptedBy: { connect: { id: createdUser.id } } }),
         expect.anything(),
       );
+
+      // The inviter is notified, not the newly-created user.
+      expect(notificationDispatchService.send).toHaveBeenCalledTimes(1);
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: invitation.tenantId,
+        userId: invitation.invitedById,
+        title: 'Invitation accepted',
+        message: expect.stringContaining('Priya Singh'),
+        channels: [NotificationChannel.IN_APP],
+      });
     });
 
     it('splits a single-word full name into firstName only, with an empty lastName', async () => {

@@ -9,6 +9,7 @@ import { requestLoggerMiddleware } from '@middlewares/request-logger.middleware'
 import { errorMiddleware } from '@middlewares/error.middleware';
 import { generalRateLimiter } from '@middlewares/rate-limit.middleware';
 import { ApiResponseHelper } from '@shared/response/api-response';
+import { getLiveness, getReadiness } from '@shared/health/health.service';
 import { API } from '@shared/constants';
 import { env } from '@config/environment';
 import { swaggerSpec } from '@config/swagger';
@@ -34,26 +35,88 @@ import { brandingRoutes, domainRoutes, publicBrandingRoutes } from '@modules/ten
 
 const app: Application = express();
 
+// Behind a single reverse-proxy hop in every real deployment (Docker/nginx, a
+// load balancer) — without this, express-rate-limit and req.ip key off the
+// proxy's own address instead of the real client, and `secure` cookie/req.protocol
+// checks misread plain HTTP from the proxy as insecure.
+app.set('trust proxy', 1);
+
 // 1. Foundation Middlewares (Must run first)
 app.use(correlationIdMiddleware);
 app.use(requestLoggerMiddleware);
 
 // 2. Standard Middlewares
-app.use(helmet());
-app.use(cors());
+app.use(
+  helmet({
+    // swagger-ui-express injects inline <script>/<style> tags to boot the UI;
+    // relaxed only for script/style, and only when the docs are actually
+    // mounted below. Every other directive stays at helmet's strict defaults.
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        'default-src': ["'self'"],
+        'img-src': ["'self'", 'data:'],
+        'script-src': env.ENABLE_SWAGGER ? ["'self'", "'unsafe-inline'"] : ["'self'"],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'connect-src': ["'self'"],
+      },
+    },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    xFrameOptions: { action: 'deny' },
+    // Only meaningful over HTTPS — in dev/test the app is plain HTTP, so an
+    // HSTS header would just be a lie the browser caches.
+    strictTransportSecurity:
+      env.NODE_ENV === 'production' ? { maxAge: 15552000, includeSubDomains: true } : false,
+    // (x-powered-by removal, noSniff, and the rest of helmet's bundle stay on their defaults.)
+  }),
+);
+app.use(
+  cors({
+    origin(origin, callback) {
+      // No Origin header at all = same-origin, curl/Postman, or a server-to-server
+      // call (e.g. the Razorpay webhook) — never a browser CORS request to police.
+      if (!origin || env.NODE_ENV !== 'production') {
+        callback(null, true);
+        return;
+      }
+      const isKnownOrigin = origin === env.FRONTEND_URL || origin === env.APP_URL;
+      // White-label tenants each get their own `<subdomain>.<PLATFORM_DOMAIN>` origin
+      // (PRD §4.3) — there's no fixed list of these to allowlist ahead of time.
+      const platformDomainPattern = new RegExp(
+        `^https?://([a-z0-9-]+\\.)?${env.PLATFORM_DOMAIN.replace(/\./g, '\\.')}(:\\d+)?$`,
+        'i',
+      );
+      callback(null, isKnownOrigin || platformDomainPattern.test(origin));
+    },
+    credentials: false, // bearer JWT in an Authorization header, never a cookie — no credentialed CORS needed
+  }),
+);
 app.use(compression());
 // `verify` captures the exact raw bytes onto req.rawBody before JSON-parsing replaces
 // req.body — needed by the Razorpay webhook route to verify the HMAC signature, which is
 // computed over the raw payload, not the re-serialized parsed object (see shared/types/express.d.ts).
-app.use(express.json({ verify: (req, _res, buf) => { (req as express.Request).rawBody = buf; } }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { (req as express.Request).rawBody = buf; } }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(generalRateLimiter);
 
 // 3. Health Check
 app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json(
-    ApiResponseHelper.success(req, { status: 'ok' }, 'CA Firm ERP API is running')
-  );
+  res.status(200).json(ApiResponseHelper.success(req, getLiveness(), 'CA Firm ERP API is running'));
+});
+
+// Readiness — exercises every external dependency the app needs to serve real
+// traffic (DB, Redis, SMTP, object storage). Deliberately unauthenticated and
+// unrelated to /health: an orchestrator (Docker/k8s) uses this to decide
+// whether to route traffic to this instance, not whether the process is alive.
+app.get('/ready', async (req: Request, res: Response) => {
+  const { ready, checks } = await getReadiness();
+  res.status(ready ? 200 : 503).json({
+    success: ready,
+    status: ready ? 'READY' : 'NOT READY',
+    checks,
+    correlationId: req.correlationId,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // 4. API Routes & Documentation

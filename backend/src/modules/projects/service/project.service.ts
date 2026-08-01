@@ -1,9 +1,12 @@
 import { Request } from 'express';
-import { Project, ProjectStatus } from '@prisma/client';
+import { Project, ProjectStatus, NotificationChannel } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { ConflictError, ValidationError } from '@shared/errors';
 import { PaginationMeta } from '@shared/types';
+// Concrete path, not the `@modules/notifications` barrel — see
+// `middlewares/tenant.middleware.ts`'s header comment for why.
+import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import { ProjectRepository } from '../repository/project.repository';
 import {
   CreateProjectDto,
@@ -53,6 +56,7 @@ export class ProjectService extends BaseService {
   constructor(
     req: Request,
     private readonly projectRepository: ProjectRepository = new ProjectRepository(prisma),
+    private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
   ) {
     super(req);
   }
@@ -117,7 +121,10 @@ export class ProjectService extends BaseService {
       { tenantId: this.tenantId },
     );
 
-    // TODO: emit ProjectCreated once the domain event bus exists (architecture doc §11).
+    if (project.managerId && project.managerId !== this.userId) {
+      await this.notify(project.tenantId, project.managerId, 'Project assigned', `You were assigned as manager of project "${project.name}".`);
+    }
+
     return project;
   }
 
@@ -135,7 +142,16 @@ export class ProjectService extends BaseService {
 
     this.logger.info({ projectId: id }, 'Updating project');
 
-    return this.projectRepository.update(id, dto, { tenantId: this.tenantId });
+    const updated = await this.projectRepository.update(id, dto, { tenantId: this.tenantId });
+
+    // Reassignment only — a genuine change of manager, naturally idempotent
+    // (resubmitting the same managerId is a no-op, no duplicate fires).
+    const reassigned = dto.managerId !== undefined && dto.managerId !== existing.managerId;
+    if (reassigned && updated.managerId && updated.managerId !== this.userId) {
+      await this.notify(updated.tenantId, updated.managerId, 'Project assigned', `You were assigned as manager of project "${updated.name}".`);
+    }
+
+    return updated;
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -170,8 +186,15 @@ export class ProjectService extends BaseService {
     // also validate no open tasks remain (architecture doc §10, rule 1).
     const updated = await this.projectRepository.update(id, data, { tenantId: this.tenantId });
 
-    // TODO: emit ProjectStatusChanged (and ProjectCompleted/ProjectReopened where
-    // applicable) once the domain event bus exists (architecture doc §11).
+    if (updated.managerId && updated.managerId !== this.userId) {
+      await this.notify(
+        updated.tenantId,
+        updated.managerId,
+        'Project status changed',
+        `Project "${existing.name}" status changed to ${dto.status}.`,
+      );
+    }
+
     return updated;
   }
 
@@ -289,5 +312,14 @@ export class ProjectService extends BaseService {
 
   async getOverdueProjects(): Promise<Project[]> {
     return this.projectRepository.findOverdue({ tenantId: this.tenantId });
+  }
+
+  /** IN_APP-only — no PRD text mandates EMAIL/SMS/WhatsApp for project events. Best-effort: never fails the primary action. */
+  private async notify(tenantId: string, userId: string, title: string, message: string): Promise<void> {
+    try {
+      await this.notificationDispatchService.send({ tenantId, userId, title, message, channels: [NotificationChannel.IN_APP] });
+    } catch (err) {
+      this.logger.warn({ err, userId, title }, 'Failed to dispatch notification');
+    }
   }
 }

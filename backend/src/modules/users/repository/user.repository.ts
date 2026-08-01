@@ -64,6 +64,18 @@ export class UserRepository extends BaseRepository<Prisma.UserDelegate, User> {
   }
 
   /**
+   * The tenant's designated primary contact — used as the notification
+   * recipient for tenant-wide events (subscription/tenant-status changes,
+   * a staff deactivation) that have no more specific per-record assignee to
+   * notify instead. `isOwner` is exactly one `User` per tenant by convention
+   * (enforced at tenant-provisioning time, not by a DB constraint), so this
+   * is a `findFirst`, not a list.
+   */
+  async findOwnerByTenant(tenantId: string): Promise<User | null> {
+    return this.findFirst({ isOwner: true }, { tenantId });
+  }
+
+  /**
    * Resolves the tenant's active, non-deleted roles matching the given IDs —
    * used to validate `InviteUserDto.roleIds` before creating an invitation.
    * Returns fewer rows than `roleIds.length` if some IDs don't exist, are

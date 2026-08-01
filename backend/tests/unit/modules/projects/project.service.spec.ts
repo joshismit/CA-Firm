@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Project, ProjectStatus } from '@prisma/client';
+import { Project, ProjectStatus, NotificationChannel } from '@prisma/client';
 
 /**
  * `ProjectService`'s constructor defaults to `new ProjectRepository(prisma)`
@@ -18,6 +18,7 @@ import { UserRole } from '@shared/enums';
 import { ConflictError, NotFoundError, ValidationError } from '@shared/errors';
 import { ProjectService } from '@modules/projects/service/project.service';
 import { ProjectRepository } from '@modules/projects/repository/project.repository';
+import type { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import {
   CreateProjectDto,
   ListProjectsQueryDto,
@@ -99,8 +100,19 @@ function createMockProject(overrides: Partial<Project> = {}): Project {
   };
 }
 
-function createService(repository: MockedProjectRepository): ProjectService {
-  return new ProjectService(createFakeRequest(), repository as unknown as ProjectRepository);
+function createMockNotificationDispatchService(): { send: jest.Mock } {
+  return { send: jest.fn().mockResolvedValue([]) };
+}
+
+function createService(
+  repository: MockedProjectRepository,
+  notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
+): ProjectService {
+  return new ProjectService(
+    createFakeRequest(),
+    repository as unknown as ProjectRepository,
+    notificationDispatchService as unknown as NotificationDispatchService,
+  );
 }
 
 describe('ProjectService', () => {
@@ -140,6 +152,36 @@ describe('ProjectService', () => {
       expect(result).toBe(created);
     });
 
+    it('notifies the manager when one is assigned at creation', async () => {
+      const repo = createMockRepository();
+      repo.findByCode.mockResolvedValue(null);
+      repo.create.mockResolvedValue(createMockProject({ managerId: 'manager-1', name: dto.name }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.createProject({ ...dto, managerId: 'manager-1' });
+
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        userId: 'manager-1',
+        title: 'Project assigned',
+        message: expect.stringContaining(dto.name),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('does NOT notify when no manager is assigned at creation', async () => {
+      const repo = createMockRepository();
+      repo.findByCode.mockResolvedValue(null);
+      repo.create.mockResolvedValue(createMockProject({ managerId: null }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.createProject(dto);
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
+    });
+
     it('throws ConflictError when a project with the same code already exists (duplicate code)', async () => {
       const repo = createMockRepository();
       repo.findByCode.mockResolvedValue(createMockProject({ code: dto.code }));
@@ -164,6 +206,53 @@ describe('ProjectService', () => {
       // The date-range guard runs before any repository access.
       expect(repo.findByCode).not.toHaveBeenCalled();
       expect(repo.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // updateProject — reassignment
+  // ────────────────────────────────────────────────────────────────────────
+  describe('updateProject', () => {
+    it('notifies the new manager on a genuine reassignment', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockProject({ managerId: 'old-manager' }));
+      repo.update.mockResolvedValue(createMockProject({ managerId: 'new-manager' }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.updateProject('project-1', { managerId: 'new-manager' });
+
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        userId: 'new-manager',
+        title: 'Project assigned',
+        message: expect.any(String),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('does NOT notify when resubmitting the same managerId (idempotent — no duplicate on retry)', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockProject({ managerId: 'same-manager' }));
+      repo.update.mockResolvedValue(createMockProject({ managerId: 'same-manager' }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.updateProject('project-1', { managerId: 'same-manager' });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
+    });
+
+    it('does NOT notify when managerId is not part of the update at all', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockProject({ managerId: 'existing-manager' }));
+      repo.update.mockResolvedValue(createMockProject({ managerId: 'existing-manager', name: 'Renamed' }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.updateProject('project-1', { name: 'Renamed' });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
   });
 
@@ -207,13 +296,14 @@ describe('ProjectService', () => {
       expect(repo.update).not.toHaveBeenCalled();
     });
 
-    it('allows a legal transition and sets completedAt when moving to COMPLETED', async () => {
+    it('allows a legal transition and sets completedAt when moving to COMPLETED, and notifies the manager', async () => {
       const repo = createMockRepository();
-      repo.findById.mockResolvedValue(createMockProject({ status: ProjectStatus.ACTIVE }));
-      const updated = createMockProject({ status: ProjectStatus.COMPLETED });
+      repo.findById.mockResolvedValue(createMockProject({ status: ProjectStatus.ACTIVE, managerId: 'other-manager', name: 'FY26 Statutory Audit' }));
+      const updated = createMockProject({ status: ProjectStatus.COMPLETED, managerId: 'other-manager' });
       repo.update.mockResolvedValue(updated);
 
-      const service = createService(repo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
       const result = await service.updateProjectStatus('project-1', {
         status: ProjectStatus.COMPLETED,
       });
@@ -224,6 +314,25 @@ describe('ProjectService', () => {
         { tenantId: TENANT_ID },
       );
       expect(result).toBe(updated);
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        userId: 'other-manager',
+        title: 'Project status changed',
+        message: expect.stringContaining('COMPLETED'),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('does NOT notify when the caller changes the status of their own managed project', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockProject({ status: ProjectStatus.ACTIVE, managerId: USER_ID }));
+      repo.update.mockResolvedValue(createMockProject({ status: ProjectStatus.COMPLETED, managerId: USER_ID }));
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, notificationDispatchService);
+      await service.updateProjectStatus('project-1', { status: ProjectStatus.COMPLETED });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
   });
 

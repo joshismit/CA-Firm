@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Permission, PermissionAction, Role, RoleType, User, UserRole, UserStatus } from '@prisma/client';
+import { Permission, PermissionAction, Role, RoleType, User, UserRole, UserStatus, NotificationChannel } from '@prisma/client';
 
 /**
  * See the identical comment in tests/unit/modules/contacts/contact.service.spec.ts
@@ -16,6 +16,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from '@shared/errors';
 import { RoleService } from '@modules/roles/service/role.service';
 import { RoleRepository } from '@modules/roles/repository/role.repository';
 import { CreateRoleDto, UpdateRoleDto, AssignRoleDto } from '@modules/roles/dto/role.req.dto';
+import type { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -168,8 +169,21 @@ function createMockUserRoleAssignment(overrides: Partial<UserRole> = {}): UserRo
   };
 }
 
-function createService(repository: MockedRoleRepository, permissions?: string[]): RoleService {
-  return new RoleService(createFakeRequest(permissions), repository as unknown as RoleRepository);
+function createMockNotificationDispatchService(): { send: jest.Mock } {
+  return { send: jest.fn().mockResolvedValue([]) };
+}
+
+function createService(
+  repository: MockedRoleRepository,
+  permissions?: string[],
+  notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
+): RoleService {
+  return new RoleService(
+    createFakeRequest(permissions),
+    repository as unknown as RoleRepository,
+    undefined,
+    notificationDispatchService as unknown as NotificationDispatchService,
+  );
 }
 
 describe('RoleService', () => {
@@ -474,13 +488,15 @@ describe('RoleService', () => {
       expect(repo.createUserRoleAssignment).not.toHaveBeenCalled();
     });
 
-    it('creates the assignment once role/user/no-duplicate checks pass', async () => {
+    it('creates the assignment once role/user/no-duplicate checks pass, and notifies the target user', async () => {
       const repo = createMockRepository();
-      repo.findByIdWithPermissions.mockResolvedValue(createMockRoleWithPermissions());
+      const role = createMockRoleWithPermissions();
+      repo.findByIdWithPermissions.mockResolvedValue(role);
       repo.userExistsInTenant.mockResolvedValue(true);
       repo.findUserRoleAssignment.mockResolvedValue(null);
 
-      const service = createService(repo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, undefined, notificationDispatchService);
       await service.assignRole(dto);
 
       expect(repo.createUserRoleAssignment).toHaveBeenCalledWith({
@@ -490,6 +506,26 @@ describe('RoleService', () => {
         assignedById: CALLER_ID,
         expiresAt: null,
       });
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        userId: TARGET_USER_ID,
+        title: 'Role assigned',
+        message: expect.stringContaining(role.name),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('never reaches notify when a duplicate assignment is rejected (no double-notify on retry)', async () => {
+      const repo = createMockRepository();
+      repo.findByIdWithPermissions.mockResolvedValue(createMockRoleWithPermissions());
+      repo.userExistsInTenant.mockResolvedValue(true);
+      repo.findUserRoleAssignment.mockResolvedValue(createMockUserRoleAssignment());
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, undefined, notificationDispatchService);
+      await expect(service.assignRole(dto)).rejects.toThrow(ConflictError);
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
   });
 
@@ -506,15 +542,38 @@ describe('RoleService', () => {
       expect(repo.deleteUserRoleAssignment).not.toHaveBeenCalled();
     });
 
-    it('deletes the assignment when it exists', async () => {
+    it('deletes the assignment when it exists, and notifies the target user', async () => {
       const repo = createMockRepository();
       const assignment = createMockUserRoleAssignment();
       repo.findUserRoleAssignment.mockResolvedValue(assignment);
+      const role = createMockRole();
+      repo.findById.mockResolvedValue(role);
 
-      const service = createService(repo);
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, undefined, notificationDispatchService);
       await service.revokeRole(dto);
 
       expect(repo.deleteUserRoleAssignment).toHaveBeenCalledWith(assignment.id);
+      expect(notificationDispatchService.send).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        userId: TARGET_USER_ID,
+        title: 'Role revoked',
+        message: expect.stringContaining(role.name),
+        channels: [NotificationChannel.IN_APP],
+      });
+    });
+
+    it('does NOT notify when a user revokes their own role assignment', async () => {
+      const repo = createMockRepository();
+      const assignment = createMockUserRoleAssignment({ userId: CALLER_ID });
+      repo.findUserRoleAssignment.mockResolvedValue(assignment);
+      repo.findById.mockResolvedValue(createMockRole());
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(repo, undefined, notificationDispatchService);
+      await service.revokeRole({ userId: CALLER_ID, roleId: ROLE_ID });
+
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
   });
 });

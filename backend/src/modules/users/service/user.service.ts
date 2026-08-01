@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { User, UserInvitation, UserStatus, InvitationStatus } from '@prisma/client';
+import { User, UserInvitation, UserStatus, InvitationStatus, NotificationChannel } from '@prisma/client';
 import { prisma } from '@config/database';
 import { env } from '@config/environment';
 import { emailQueue } from '@config/queue';
@@ -11,6 +11,11 @@ import { CryptoUtils } from '@shared/utils';
 import { AuthMapper } from '@modules/auth/mapper/auth.mapper';
 import { SessionResponseDto } from '@modules/auth/dto/auth.res.dto';
 import { PaginationMeta } from '@shared/types';
+// Concrete path, not the `@modules/notifications` barrel — see
+// `middlewares/tenant.middleware.ts`'s header comment for the module-load
+// cycle this avoids (that barrel also re-exports `notificationRoutes`,
+// which imports `tenantMiddleware`).
+import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import { UserRepository } from '../repository/user.repository';
 import { UserInvitationRepository } from '../repository/user-invitation.repository';
 import { RoleWithPermissions } from '../mapper/user.mapper';
@@ -41,6 +46,7 @@ export class UserService extends BaseService {
     req: Request,
     private readonly userRepository: UserRepository = new UserRepository(prisma),
     private readonly userInvitationRepository: UserInvitationRepository = new UserInvitationRepository(prisma),
+    private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
   ) {
     super(req);
   }
@@ -98,11 +104,22 @@ export class UserService extends BaseService {
     // Deactivating (INACTIVE/SUSPENDED/DELETED/INVITED) revokes every active session and
     // refresh token in the same transaction, so the status change takes effect immediately
     // rather than leaving already-issued tokens valid until they naturally expire.
-    return this.transaction(async (tx) => {
-      const updated = await this.userRepository.update(id, dto, { tenantId: this.tenantId, tx });
+    const updated = await this.transaction(async (tx) => {
+      const result = await this.userRepository.update(id, dto, { tenantId: this.tenantId, tx });
       await this.userRepository.revokeAllSessionsAndTokens(id, existing.tenantId, tx);
-      return updated;
+      return result;
     });
+
+    // Notifying the deactivated user themselves is pointless (their sessions
+    // are gone and they can't act on it); the tenant owner is the meaningful
+    // audience — skip only when the owner is the one who did this themselves.
+    await this.notifyOwnerUnlessActor(
+      existing.tenantId,
+      'User deactivated',
+      `${existing.firstName} ${existing.lastName} was deactivated.`,
+    );
+
+    return updated;
   }
 
   async deleteUser(id: string): Promise<void> {
@@ -237,5 +254,22 @@ export class UserService extends BaseService {
       .catch((err: unknown) => {
         this.logger.warn({ err, invitationId: invitation.id }, 'Failed to enqueue invitation email');
       });
+  }
+
+  /**
+   * Tenant-wide events with no more specific per-record recipient notify the
+   * tenant's owner — skipped when the owner is the one who performed the
+   * action themselves (nothing useful to tell them about their own change).
+   * IN_APP-only: no PRD text mandates EMAIL/SMS/WhatsApp for this event.
+   */
+  private async notifyOwnerUnlessActor(tenantId: string, title: string, message: string): Promise<void> {
+    const owner = await this.userRepository.findOwnerByTenant(tenantId);
+    if (!owner || owner.id === this.userId) return;
+
+    try {
+      await this.notificationDispatchService.send({ tenantId, userId: owner.id, title, message, channels: [NotificationChannel.IN_APP] });
+    } catch (err) {
+      this.logger.warn({ err, tenantId, title }, 'Failed to dispatch notification');
+    }
   }
 }

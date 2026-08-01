@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { RoleType, AuditEventType } from '@prisma/client';
+import { RoleType, AuditEventType, NotificationChannel } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { ConflictError, ForbiddenError, NotFoundError } from '@shared/errors';
@@ -8,6 +8,9 @@ import { PaginationMeta } from '@shared/types';
 import { UserMapper } from '@modules/users/mapper/user.mapper';
 import { UserResponseDto } from '@modules/users/dto/user.res.dto';
 import { AuditLogRecorder } from '@modules/audit';
+// Concrete path, not the `@modules/notifications` barrel — see
+// `middlewares/tenant.middleware.ts`'s header comment for why.
+import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import { RoleRepository } from '../repository/role.repository';
 import { RoleWithPermissions } from '../mapper/role.mapper';
 import { CreateRoleDto, UpdateRoleDto, ListRolesQueryDto, AssignRoleDto } from '../dto/role.req.dto';
@@ -35,6 +38,7 @@ export class RoleService extends BaseService {
     req: Request,
     private readonly roleRepository: RoleRepository = new RoleRepository(prisma),
     private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
+    private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
   ) {
     super(req);
   }
@@ -214,6 +218,10 @@ export class RoleService extends BaseService {
       targetId: dto.userId,
       ipAddress: this.req.ip ?? null,
     });
+
+    // No self-notify check needed — assignment to oneself is already
+    // rejected above (line 178).
+    await this.notify(tenantId, dto.userId, 'Role assigned', `You were assigned the "${role.name}" role.`);
   }
 
   async revokeRole(dto: AssignRoleDto): Promise<void> {
@@ -237,5 +245,20 @@ export class RoleService extends BaseService {
       targetId: dto.userId,
       ipAddress: this.req.ip ?? null,
     });
+
+    // Unlike assign, self-revocation isn't blocked at the entry point — skip
+    // notifying someone about their own action.
+    if (dto.userId !== this.userId) {
+      await this.notify(tenantId, dto.userId, 'Role revoked', `Your "${role?.name ?? 'role'}" role was revoked.`);
+    }
+  }
+
+  /** IN_APP-only — no PRD text mandates EMAIL/SMS/WhatsApp for role-change events. Best-effort: never fails the primary action. */
+  private async notify(tenantId: string, userId: string, title: string, message: string): Promise<void> {
+    try {
+      await this.notificationDispatchService.send({ tenantId, userId, title, message, channels: [NotificationChannel.IN_APP] });
+    } catch (err) {
+      this.logger.warn({ err, userId, title }, 'Failed to dispatch notification');
+    }
   }
 }
