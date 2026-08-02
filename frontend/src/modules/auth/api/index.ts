@@ -1,10 +1,9 @@
 // auth API request functions, built on the shared Axios instance from src/services/axios.ts.
 // Every function below hits the real, mounted backend (backend/src/modules/auth/routes/
-// auth.routes.ts) - login/refresh/logout/forgot-password/reset-password/invite are no longer a
-// client-side fixture.
+// auth.routes.ts). No self-service registerRequest() - accounts are provisioned via invitation
+// only (see modules/master-admin's createTenant flow and acceptInviteRequest below).
 
 import { apiClient } from '@/services/axios'
-import type { ApiError } from '@/services/api-error'
 import type { ApiResponse } from '@/types/api.types'
 import type {
   AcceptInviteRequest,
@@ -18,7 +17,6 @@ import type {
   LogoutRequest,
   RefreshTokenRequest,
   RefreshTokenResponse,
-  RegisterRequest,
   ResetPasswordRequest,
 } from '../types'
 
@@ -72,23 +70,4 @@ export async function getInviteInfo(token: string): Promise<InviteInfo> {
 export async function acceptInviteRequest(payload: AcceptInviteRequest): Promise<void> {
   const { token, ...body } = payload
   await apiClient.post(`/auth/invite/${token}/accept`, body)
-}
-
-// ─── NOT YET AVAILABLE (no tenant self-service signup backend route exists) ──────────────────
-// Same notImplemented()/ApiError(501) shape as every other stub module (see modules/compliance/
-// api/index.ts). Registering a brand-new tenant is a separate, larger initiative (tenant
-// provisioning, trial setup) that hasn't been built yet - unlike forgot-password/reset-password/
-// invite above, which are real, mounted backend routes as of this module's Auth Lifecycle work.
-
-function notImplemented(action: string): never {
-  throw {
-    status: 501,
-    code: 'NOT_IMPLEMENTED',
-    message: `This isn't available yet (${action}).`,
-  } satisfies ApiError
-}
-
-// TODO: POST /auth/register (tenant self-service signup - not yet built)
-export async function registerRequest(_payload: RegisterRequest): Promise<void> {
-  return notImplemented('registerRequest')
 }

@@ -311,6 +311,8 @@ function createMockInvitation(overrides: Partial<UserInvitation> = {}): UserInvi
     firstName: null,
     lastName: null,
     invitedById: INVITER_ID,
+    invitedByMasterAdminId: null,
+    isOwner: false,
     roleIds: [ROLE_ID],
     tokenHash: CryptoUtils.sha256('raw-invite-token'),
     status: InvitationStatus.PENDING,
@@ -968,6 +970,27 @@ describe('AuthService', () => {
         role: 'Staff',
       });
     });
+
+    it('on a master-admin-issued (tenant owner) invitation: skips the invitedById lookup and labels the inviter generically', async () => {
+      const authRepo = createMockAuthRepository();
+      const userRepo = createMockUserRepository();
+      const invitationRepo = createMockUserInvitationRepository();
+      const invitation = createMockInvitation({ invitedById: null, invitedByMasterAdminId: 'master-admin-id', isOwner: true });
+      invitationRepo.findByTokenHash.mockResolvedValue(invitation);
+      authRepo.findTenantById.mockResolvedValue(createMockTenant({ name: 'Acme & Co' }));
+      userRepo.findActiveRolesByIds.mockResolvedValue([createMockRole({ name: 'Owner' })]);
+
+      const service = createService(authRepo, createFakeRequest(), userRepo, invitationRepo);
+      const result = await service.getInviteInfo('valid-token');
+
+      expect(authRepo.findUserById).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        email: invitation.email,
+        tenantName: 'Acme & Co',
+        inviterName: 'The Platform Team',
+        role: 'Owner',
+      });
+    });
   });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1086,6 +1109,29 @@ describe('AuthService', () => {
         expect.objectContaining({ firstName: 'Cher', lastName: '' }),
         expect.anything(),
       );
+    });
+
+    it('on a master-admin-issued (tenant owner) invitation: sets isOwner, self-assigns the role, and skips notifying an inviter', async () => {
+      const invitationRepo = createMockUserInvitationRepository();
+      const invitation = createMockInvitation({ invitedById: null, invitedByMasterAdminId: 'master-admin-id', isOwner: true, roleIds: [ROLE_ID] });
+      invitationRepo.findByTokenHash.mockResolvedValue(invitation);
+      const userRepo = createMockUserRepository();
+      userRepo.findByEmail.mockResolvedValue(null);
+      const createdUser = createMockUser({ id: 'new-owner-id', email: invitation.email, firstName: 'Priya', lastName: 'Singh' });
+      userRepo.create.mockResolvedValue(createdUser);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-password');
+
+      const notificationDispatchService = createMockNotificationDispatchService();
+      const service = createService(createMockAuthRepository(), createFakeRequest(), userRepo, invitationRepo, notificationDispatchService);
+      await service.acceptInvite('valid-token', dto, META);
+
+      expect(userRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ email: invitation.email, status: UserStatus.ACTIVE, isOwner: true }),
+        { tenantId: invitation.tenantId, tx: expect.anything() },
+      );
+      // No inviting `User` to attribute the role assignment to — falls back to the created user
+      // assigning it to themselves (see acceptInvite()'s comment on `roleAssignedById`).
+      expect(notificationDispatchService.send).not.toHaveBeenCalled();
     });
   });
 });

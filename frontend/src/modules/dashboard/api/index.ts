@@ -1,12 +1,35 @@
 // dashboard API request functions, built on the shared Axios instance from src/services/axios.ts.
 //
-// NOT YET AVAILABLE: analytics depend on a reporting/analytics backend that doesn't exist yet
-// (same gap documented in modules/reports/api/index.ts - revenue, filing, and client-growth data
-// has no API behind it). Every function below is a typed placeholder - wire the real apiClient
-// call once the backend implements analytics endpoints. No mock data, no guessed endpoint path.
+// getDashboardPreferences/updateDashboardPreferences below are real, backed by
+// backend/src/modules/dashboard. The analytics functions further down are NOT: they depend on a
+// reporting/analytics backend that doesn't exist yet (same gap documented in
+// modules/reports/api/index.ts - revenue, filing, and client-growth data has no API behind it).
+// Each analytics function is a typed placeholder - wire the real apiClient call once the backend
+// implements analytics endpoints. No mock data, no guessed endpoint path.
 
+import { apiClient } from '@/services/axios'
 import type { ApiError } from '@/services/api-error'
-import type { AnalyticsFilters, AnalyticsSummary, ClientGrowthDatum, RevenueDatum } from '../types'
+import type { ApiResponse } from '@/types/api.types'
+import type {
+  AnalyticsFilters,
+  AnalyticsSummary,
+  ClientGrowthDatum,
+  DashboardPreferences,
+  RevenueDatum,
+  UpdateDashboardPreferencesPayload,
+} from '../types'
+
+// Backed by a real endpoint, unlike the analytics placeholders below - hits
+// GET/PATCH /dashboard/preferences (backend/src/modules/dashboard/routes/dashboard-preference.routes.ts).
+export async function getDashboardPreferences(): Promise<DashboardPreferences> {
+  const { data } = await apiClient.get<ApiResponse<DashboardPreferences>>('/dashboard/preferences')
+  return data.data
+}
+
+export async function updateDashboardPreferences(payload: UpdateDashboardPreferencesPayload): Promise<DashboardPreferences> {
+  const { data } = await apiClient.patch<ApiResponse<DashboardPreferences>>('/dashboard/preferences', payload)
+  return data.data
+}
 
 function notImplemented(action: string): never {
   throw {

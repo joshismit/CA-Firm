@@ -5,6 +5,7 @@
 import { apiClient } from '@/services/axios'
 import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type {
+  CreateTenantPayload,
   MasterAdminLoginRequest,
   MasterAdminLoginResponse,
   Tenant,
@@ -16,6 +17,11 @@ import type {
 
 export async function masterAdminLoginRequest(payload: MasterAdminLoginRequest): Promise<MasterAdminLoginResponse> {
   const { data } = await apiClient.post<ApiResponse<MasterAdminLoginResponse>>('/master-admin/auth/login', payload)
+  return data.data
+}
+
+export async function createTenant(payload: CreateTenantPayload): Promise<TenantDetail> {
+  const { data } = await apiClient.post<ApiResponse<TenantDetail>>('/master-admin/tenants', payload)
   return data.data
 }
 

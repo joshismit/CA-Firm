@@ -11,6 +11,7 @@ export type {
   ListTenantsQueryDto,
   UpdateTenantStatusDto,
   UpdateTenantLimitsDto,
+  CreateTenantDto,
 } from './dto/master-admin.req.dto';
 export type {
   MasterAdminResponseDto,

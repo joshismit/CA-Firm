@@ -14,7 +14,6 @@ import {
   listSessions,
   loginRequest,
   logoutRequest,
-  registerRequest,
   resetPasswordRequest,
   revokeSession,
 } from '../api'
@@ -22,7 +21,6 @@ import type {
   AcceptInviteRequest,
   ChangePasswordPayload,
   ForgotPasswordRequest,
-  RegisterRequest,
   ResetPasswordRequest,
 } from '../types'
 
@@ -93,13 +91,6 @@ export function useChangePasswordMutation() {
       navigate('/login', { replace: true })
     },
   })
-}
-
-// `useRegisterMutation` still genuinely 501s (see api/index.ts) - no tenant self-service signup
-// backend route exists yet. The other three below hit real, mounted routes.
-
-export function useRegisterMutation() {
-  return useMutation({ mutationFn: (payload: RegisterRequest) => registerRequest(payload) })
 }
 
 export function useForgotPasswordMutation() {

@@ -12,6 +12,7 @@ import {
   tenantIdParamSchema,
   updateTenantStatusSchema,
   updateTenantLimitsSchema,
+  createTenantSchema,
 } from '../schemas/master-admin.schema';
 import { PlanController, createPlanSchema, updatePlanSchema, planIdParamSchema } from '@modules/billing';
 
@@ -60,10 +61,51 @@ router.post('/auth/login', masterAdminAuthRateLimiter, validate({ body: masterAd
 /**
  * @swagger
  * /master-admin/tenants:
+ *   post:
+ *     tags: [Master Admin]
+ *     summary: Create a tenant and invite its owner
+ *     description: Creates the tenant, its settings, and a full-access "Owner" role, then emails the owner a bootstrap invitation (same accept flow as a staff invite).
+ *     security: [{ BearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, ownerFirstName, ownerLastName, ownerEmail]
+ *             properties:
+ *               name: { type: string, maxLength: 255 }
+ *               slug: { type: string, description: Auto-derived from name if omitted. }
+ *               country: { type: string, minLength: 2, maxLength: 2 }
+ *               timezone: { type: string }
+ *               locale: { type: string }
+ *               defaultCurrency: { type: string, minLength: 3, maxLength: 3 }
+ *               planCode: { type: string }
+ *               ownerFirstName: { type: string, maxLength: 100 }
+ *               ownerLastName: { type: string, maxLength: 100 }
+ *               ownerEmail: { type: string, format: email }
+ *     responses:
+ *       201: { description: Tenant created and owner invited., content: { application/json: { schema: { type: object } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller is not a master admin., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       409: { description: A tenant with this slug already exists., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post(
+  '/tenants',
+  authMiddleware,
+  requireRole(UserRole.MASTER_ADMIN),
+  validate({ body: createTenantSchema }),
+  TenantController.create,
+);
+
+/**
+ * @swagger
+ * /master-admin/tenants:
  *   get:
  *     tags: [Master Admin]
  *     summary: List every tenant on the platform
- *     description: Paginated, filterable, searchable list of tenants. No create endpoint — tenants are provisioned through self-service signup, not by a master admin.
+ *     description: Paginated, filterable, searchable list of tenants.
  *     security: [{ BearerAuth: [] }]
  *     parameters:
  *       - name: page

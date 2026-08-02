@@ -3,13 +3,20 @@ import { HTTP_STATUS, MESSAGES } from '@shared/constants';
 import { ApiResponseHelper } from '@shared/response/api-response';
 import { asyncHandler } from '@shared/utils';
 import { TenantService } from '../service/tenant.service';
-import { ListTenantsQueryDto, UpdateTenantLimitsDto, UpdateTenantStatusDto } from '../dto/master-admin.req.dto';
+import { CreateTenantDto, ListTenantsQueryDto, UpdateTenantLimitsDto, UpdateTenantStatusDto } from '../dto/master-admin.req.dto';
 
 /**
  * Thin HTTP adapter — mirrors `modules/business/controller/business.controller.ts`.
- * No `create`/`delete` handlers: see `TenantService`'s header comment for why.
+ * No `delete` handler: tenants are deactivated (`updateStatus`), never hard-deleted.
  */
 export class TenantController {
+  static create = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TenantService(req);
+    const tenant = await service.createTenant(req.body as CreateTenantDto);
+
+    res.status(HTTP_STATUS.CREATED).json(ApiResponseHelper.success(req, tenant, MESSAGES.CREATED));
+  });
+
   static list = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const service = new TenantService(req);
     const { data, meta } = await service.listTenants(req.query as unknown as ListTenantsQueryDto);

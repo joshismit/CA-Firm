@@ -1,13 +1,15 @@
 // src/modules/master-admin/pages/TenantsListPage.tsx
 // Reference composition: PageLayout > PageHeader > PageContent > DataTable, wired to the real
-// backend/src/modules/master-admin tenants endpoint. No create action - tenant provisioning
-// happens through self-service signup, not an admin "create" action; rows open TenantDetailPage
-// for status/plan changes instead.
+// backend/src/modules/master-admin tenants endpoint. "Create tenant" provisions the tenant +
+// owner bootstrap invite (see CreateTenantPage); rows open TenantDetailPage for status/plan
+// changes instead.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { PageLayout, PageHeader, PageContent } from '@/components/page'
+import { Plus } from 'lucide-react'
+import { PageLayout, PageHeader, PageContent, PageActions } from '@/components/page'
 import { DataTable } from '@/components/tables'
 import { Select } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
 import { normalizeApiError } from '@/services/api-error'
 import { useDebounce } from '@/hooks'
 import { useTenantsQuery } from '../hooks'
@@ -40,7 +42,17 @@ export function TenantsListPage() {
 
   return (
     <PageLayout>
-      <PageHeader title="Tenants" description="Every firm provisioned on this platform." />
+      <PageHeader
+        title="Tenants"
+        description="Every firm provisioned on this platform."
+        actions={
+          <PageActions>
+            <Button leadingIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => navigate('/master-admin/tenants/new')}>
+              Create tenant
+            </Button>
+          </PageActions>
+        }
+      />
       <PageContent>
         <DataTable<Tenant>
           columns={tenantTableColumns}

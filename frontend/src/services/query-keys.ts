@@ -183,6 +183,7 @@ export const queryKeys = {
     documentsList: (filters: SharedDocumentListFilters) => [...queryKeys.clientPortal.documents, filters] as const,
   },
   dashboard: {
+    preferences: ['dashboard', 'preferences'] as const,
     analyticsSummary: (filters: AnalyticsFilters) => ['dashboard', 'analytics-summary', filters] as const,
     revenueTrend: (filters: AnalyticsFilters) => ['dashboard', 'revenue-trend', filters] as const,
     clientGrowthTrend: (filters: AnalyticsFilters) => ['dashboard', 'client-growth-trend', filters] as const,

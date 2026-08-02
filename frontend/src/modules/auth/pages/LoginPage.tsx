@@ -116,13 +116,6 @@ export function LoginPage() {
           </Button>
         </form>
       </Card>
-
-      <p className="mt-6 text-center text-[12px] text-[var(--color-text-muted)]">
-        Don't have an account?{' '}
-        <Link to="/register" className="text-[var(--color-text-link)] hover:text-[var(--color-text-link-hover)]">
-          Create one
-        </Link>
-      </p>
     </div>
   )
 }

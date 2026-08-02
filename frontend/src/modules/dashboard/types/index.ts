@@ -25,3 +25,22 @@ export interface ClientGrowthDatum {
   month: string
   newClients: number
 }
+
+// Backed by a real endpoint - GET/PATCH /dashboard/preferences (backend/src/modules/dashboard),
+// unlike AnalyticsSummary/RevenueDatum/ClientGrowthDatum above. `widgetId` matches a `Widget.id`
+// from `../constants` - the backend treats it as an opaque string and never validates membership.
+
+/** One entry in a saved dashboard layout. Array position (not a separate field) is display order. */
+export interface WidgetPreference {
+  widgetId: string
+  visible: boolean
+}
+
+export interface DashboardPreferences {
+  widgets: WidgetPreference[]
+  updatedAt: string | null
+}
+
+export interface UpdateDashboardPreferencesPayload {
+  widgets: WidgetPreference[]
+}

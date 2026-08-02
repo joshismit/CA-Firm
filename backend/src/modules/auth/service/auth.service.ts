@@ -465,14 +465,23 @@ export class AuthService extends BaseService {
 
     const [tenant, inviter, roles] = await Promise.all([
       this.authRepository.findTenantById(invitation.tenantId),
-      this.authRepository.findUserById(invitation.invitedById),
+      invitation.invitedById ? this.authRepository.findUserById(invitation.invitedById) : Promise.resolve(null),
       this.userRepository.findActiveRolesByIds(invitation.roleIds, invitation.tenantId),
     ]);
+
+    // A master-admin-issued invitation (the tenant owner's bootstrap invite) has no inviting
+    // `User` to name — `MasterAdmin` is a deliberately separate entity/ID space, see this
+    // service's header comment — so it gets a generic, non-personal label instead of blank text.
+    const inviterName = inviter
+      ? `${inviter.firstName} ${inviter.lastName}`.trim()
+      : invitation.invitedByMasterAdminId
+        ? 'The Platform Team'
+        : '';
 
     return {
       email: invitation.email,
       tenantName: tenant?.name ?? '',
-      inviterName: inviter ? `${inviter.firstName} ${inviter.lastName}`.trim() : '',
+      inviterName,
       role: roles.map((r) => r.name).join(', '),
     };
   }
@@ -509,10 +518,17 @@ export class AuthService extends BaseService {
           firstName,
           lastName,
           status: UserStatus.ACTIVE,
+          isOwner: invitation.isOwner,
           emailVerifiedAt: new Date(),
         },
         { tenantId: invitation.tenantId, tx },
       );
+
+      // A master-admin-issued invitation (the tenant owner's bootstrap invite) has no inviting
+      // `User` — fall back to the role being self-assigned by the very user it's granted to,
+      // since `UserRole.assignedById` stays a required FK (unlike `UserInvitation.invitedById`,
+      // deliberately not migrated to nullable — see this method's header comment).
+      const roleAssignedById = invitation.invitedById ?? createdUser.id;
 
       if (invitation.roleIds.length > 0) {
         await tx.userRole.createMany({
@@ -520,7 +536,7 @@ export class AuthService extends BaseService {
             tenantId: invitation.tenantId,
             userId: createdUser.id,
             roleId,
-            assignedById: invitation.invitedById,
+            assignedById: roleAssignedById,
           })),
         });
       }
@@ -545,12 +561,17 @@ export class AuthService extends BaseService {
     });
 
     this.logger.info({ userId: user.id, invitationId: invitation.id }, 'Invitation accepted');
-    await this.notify(
-      invitation.tenantId,
-      invitation.invitedById,
-      'Invitation accepted',
-      `${user.firstName} ${user.lastName} accepted your invitation and joined the team.`,
-    );
+
+    // No inviting `User` to notify for a master-admin-issued (tenant owner) invitation —
+    // `NotificationDispatchService` is User-scoped only, and there's nothing to send here.
+    if (invitation.invitedById) {
+      await this.notify(
+        invitation.tenantId,
+        invitation.invitedById,
+        'Invitation accepted',
+        `${user.firstName} ${user.lastName} accepted your invitation and joined the team.`,
+      );
+    }
   }
 
   // ────────────────────────────────────────────────────────────────────────────

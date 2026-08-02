@@ -1,9 +1,20 @@
+/**
+ * Test-only stub — POST /master-admin/tenants enqueues the owner's invitation onto the real
+ * `emailQueue` (BullMQ), which would otherwise try to talk to a real Redis connection during
+ * these integration tests. Mirrors the `@config/queue` stub in `tests/integration/modules/users/
+ * user.routes.spec.ts`.
+ */
+jest.mock('@config/queue', () => ({
+  emailQueue: { add: jest.fn().mockResolvedValue(undefined) },
+}));
+
 import bcrypt from 'bcryptjs';
 import request from 'supertest';
 import { Application } from 'express';
 import { randomUUID } from 'crypto';
 import { prisma } from '@config/database';
 import { UserRole } from '@shared/enums';
+import { InvitationStatus } from '@prisma/client';
 import { createMasterAdminTestApp } from '../../helpers/master-admin-test-app';
 import { signAccessToken } from '../../helpers/jwt';
 import { seedFixtures, cleanupFixtures, TestFixtures } from '../../helpers/fixtures';
@@ -121,6 +132,87 @@ describe('Master Admin API — integration', () => {
         .get('/api/v1/master-admin/tenants')
         .set('Authorization', `Bearer ${tenantUserToken()}`);
       expect(res.status).toBe(403);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // POST /master-admin/tenants
+  // ────────────────────────────────────────────────────────────────────────
+  describe('POST /master-admin/tenants', () => {
+    const createdTenantIds: string[] = [];
+
+    afterAll(async () => {
+      for (const tenantId of createdTenantIds) {
+        await prisma.role.deleteMany({ where: { tenantId } });
+        await prisma.tenantSettings.deleteMany({ where: { tenantId } });
+        await prisma.userInvitation.deleteMany({ where: { tenantId } });
+        await prisma.tenant.delete({ where: { id: tenantId } });
+      }
+    });
+
+    it('creates the tenant, an Owner role with every permission, and a master-admin-attributed owner invitation', async () => {
+      const name = `Test Firm ${randomUUID().slice(0, 8)}`;
+      const ownerEmail = `owner.${randomUUID().slice(0, 8)}@example.test`;
+
+      const res = await request(app)
+        .post('/api/v1/master-admin/tenants')
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({ name, ownerFirstName: 'Test', ownerLastName: 'Owner', ownerEmail });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.name).toBe(name);
+      createdTenantIds.push(res.body.data.id);
+
+      const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: res.body.data.id } });
+      expect(tenant.slug).toBeTruthy();
+      // Must be ACTIVE, not the schema's TRIAL default — AuthService.login() refuses ANY login
+      // (403 TENANT_INACTIVE) for a non-ACTIVE tenant, so the owner must be able to log in the
+      // moment they accept their invitation, not after a separate manual activation step.
+      expect(tenant.status).toBe('ACTIVE');
+
+      const ownerRole = await prisma.role.findFirstOrThrow({ where: { tenantId: tenant.id, name: 'Owner' } });
+      const permissionCount = await prisma.permission.count();
+      const grantedCount = await prisma.rolePermission.count({ where: { roleId: ownerRole.id } });
+      expect(grantedCount).toBe(permissionCount);
+
+      const invitation = await prisma.userInvitation.findFirstOrThrow({ where: { tenantId: tenant.id, email: ownerEmail } });
+      expect(invitation.isOwner).toBe(true);
+      expect(invitation.invitedById).toBeNull();
+      expect(invitation.invitedByMasterAdminId).toBe(adminId);
+      expect(invitation.roleIds).toEqual([ownerRole.id]);
+      expect(invitation.status).toBe(InvitationStatus.PENDING);
+    });
+
+    it('returns 422 when required fields are missing', async () => {
+      const res = await request(app)
+        .post('/api/v1/master-admin/tenants')
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({ name: 'Incomplete Firm' });
+      expect(res.status).toBe(422);
+    });
+
+    it('returns 403 for a valid but non-MASTER_ADMIN token', async () => {
+      const res = await request(app)
+        .post('/api/v1/master-admin/tenants')
+        .set('Authorization', `Bearer ${tenantUserToken()}`)
+        .send({ name: 'Forbidden Firm', ownerFirstName: 'A', ownerLastName: 'B', ownerEmail: 'a.b@example.test' });
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 409 when the (explicit) slug collides with an existing tenant', async () => {
+      const slug = `dup-slug-${randomUUID().slice(0, 8)}`;
+      const first = await request(app)
+        .post('/api/v1/master-admin/tenants')
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({ name: 'First Firm', slug, ownerFirstName: 'A', ownerLastName: 'B', ownerEmail: `a.${randomUUID().slice(0, 8)}@example.test` });
+      expect(first.status).toBe(201);
+      createdTenantIds.push(first.body.data.id);
+
+      const second = await request(app)
+        .post('/api/v1/master-admin/tenants')
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({ name: 'Second Firm', slug, ownerFirstName: 'C', ownerLastName: 'D', ownerEmail: `c.${randomUUID().slice(0, 8)}@example.test` });
+      expect(second.status).toBe(409);
     });
   });
 

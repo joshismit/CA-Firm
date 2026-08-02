@@ -84,15 +84,8 @@ export interface AuthSession {
 }
 
 // forgot-password/reset-password/invite below are real, mounted backend routes
-// (backend/src/modules/auth/routes/auth.routes.ts). Only RegisterRequest remains provisional
-// (see api/index.ts's notImplemented() block) - tenant self-service signup isn't built yet.
-
-/** Provisional - no backend route exists yet (see api/index.ts's notImplemented() block). */
-export interface RegisterRequest {
-  fullName: string
-  email: string
-  password: string
-}
+// (backend/src/modules/auth/routes/auth.routes.ts). No self-service registration type - accounts
+// are provisioned via invitation only (see modules/master-admin's createTenant flow).
 
 export interface ForgotPasswordRequest {
   email: string

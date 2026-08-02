@@ -484,6 +484,9 @@ model User {
   // ── Relations: Notifications ──────────────────────────────────────────
   notifications Notification[]
 
+  // ── Relations: Dashboard ───────────────────────────────────────────────
+  dashboardPreference DashboardPreference?
+
   @@unique([tenantId, email], name: "uq_users_tenant_email")
   @@index([tenantId, status], name: "idx_users_tenant_status")
   @@index([tenantId, deletedAt], name: "idx_users_soft_delete")
@@ -659,8 +662,19 @@ model UserInvitation {
   firstName String? @map("first_name") @db.VarChar(100)
   lastName  String? @map("last_name") @db.VarChar(100)
 
-  invitedById String   @map("invited_by_id") @db.Uuid
-  roleIds     String[] @map("role_ids")
+  /// Exactly one of `invitedById`/`invitedByMasterAdminId` is set — enforced by the
+  /// `chk_invitation_single_inviter` CHECK constraint (hand-added to the migration SQL, since
+  /// Prisma's schema language can't express a cross-column constraint). A tenant owner's very
+  /// first invitation has no inviting `User` (the tenant doesn't exist yet, and `MasterAdmin` is a
+  /// deliberately separate entity/ID space — see that model's header comment) so `invitedById`
+  /// must be nullable for that one case; every staff invitation still sets it as before.
+  invitedById             String?  @map("invited_by_id") @db.Uuid
+  invitedByMasterAdminId  String?  @map("invited_by_master_admin_id") @db.Uuid
+  /// Set only for the tenant-owner bootstrap invitation issued by `TenantService.createTenant()` —
+  /// tells `AuthService.acceptInvite()` to set `User.isOwner = true`. Staff invitations
+  /// (`UserService.inviteUser()`) never set this.
+  isOwner                 Boolean  @default(false) @map("is_owner")
+  roleIds                 String[] @map("role_ids")
 
   tokenHash String @unique @map("token_hash") @db.VarChar(64)
 
@@ -676,9 +690,10 @@ model UserInvitation {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   revokedAt DateTime? @map("revoked_at") @db.Timestamptz
 
-  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  invitedBy  User   @relation("InvitedByUser", fields: [invitedById], references: [id], onDelete: Restrict)
-  acceptedBy User?  @relation("AcceptedUser", fields: [acceptedById], references: [id], onDelete: SetNull)
+  tenant               Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy            User?        @relation("InvitedByUser", fields: [invitedById], references: [id], onDelete: Restrict)
+  invitedByMasterAdmin MasterAdmin? @relation(fields: [invitedByMasterAdminId], references: [id], onDelete: Restrict)
+  acceptedBy           User?        @relation("AcceptedUser", fields: [acceptedById], references: [id], onDelete: SetNull)
 
   @@index([tenantId, email], name: "idx_invitations_tenant_email")
   @@index([expiresAt, status], name: "idx_invitations_expiry_status")
@@ -1774,6 +1789,32 @@ enum NotificationStatus {
   @@map("notification_status")
 }
 
+// One-row-per-user singleton (`userId` is `@unique`, not just indexed) — same
+// shape as `MfaConfig` above, not `Notification`'s many-rows-per-user shape.
+// `widgets` holds the caller's full widget layout as an ordered JSON array
+// (`[{ widgetId, visible }, ...]`); array order IS display order, so no
+// separate `order` column is needed. Widget identity, labels, and the
+// permission each widget requires live in the frontend's own registry
+// (`frontend/src/modules/dashboard/constants/index.ts`) — this table only
+// ever stores an opaque per-user ordering/visibility preference, never a
+// widget catalog, matching how this app already has no backend "dashboard"
+// module of its own (see `modules/dashboard/api/index.ts`'s header comment).
+model DashboardPreference {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @unique @map("user_id") @db.Uuid
+
+  widgets Json @default("[]") @map("widgets") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], name: "idx_dashboard_preferences_tenant")
+  @@map("dashboard_preferences")
+}
+
 // =============================================================================
 // SECTION 15 — MASTER ADMIN MODULE
 // =============================================================================
@@ -1890,6 +1931,8 @@ model MasterAdmin {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  invitedTenantOwners UserInvitation[]
 
   @@map("master_admins")
 }

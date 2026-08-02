@@ -11,6 +11,7 @@ import { MasterAdminLayout } from '@/layouts/MasterAdminLayout/MasterAdminLayout
 import {
   MasterAdminDashboardPage,
   MasterAdminLoginPage,
+  CreateTenantPage,
   TenantDetailPage,
   TenantsListPage,
   SubscriptionsPage,
@@ -47,6 +48,7 @@ export const masterAdminRoutes: RouteObject = {
       children: [
         { index: true, element: <MasterAdminDashboardPage /> },
         { path: 'tenants', element: <TenantsListPage /> },
+        { path: 'tenants/new', element: <CreateTenantPage /> },
         { path: 'tenants/:id', element: <TenantDetailPage /> },
         { path: 'subscriptions', element: <SubscriptionsPage /> },
       ],

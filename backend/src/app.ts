@@ -27,6 +27,7 @@ import { createComplianceFilingRoutes } from '@modules/compliance';
 import { ComplianceCategory } from '@prisma/client';
 import { invoiceRoutes, expenseRoutes, paymentRoutes } from '@modules/client-billing';
 import { notificationRoutes } from '@modules/notifications';
+import { dashboardPreferenceRoutes } from '@modules/dashboard';
 import { reportRoutes } from '@modules/reports';
 import { masterAdminRoutes } from '@modules/master-admin';
 import { billingRoutes } from '@modules/billing';
@@ -154,6 +155,7 @@ app.use(`${API.PREFIX}/billing/invoices`, invoiceRoutes);
 app.use(`${API.PREFIX}/billing/expenses`, expenseRoutes);
 app.use(`${API.PREFIX}/billing/payments`, paymentRoutes);
 app.use(`${API.PREFIX}/notifications`, notificationRoutes);
+app.use(`${API.PREFIX}/dashboard/preferences`, dashboardPreferenceRoutes);
 app.use(`${API.PREFIX}/reports`, reportRoutes);
 
 // Platform-level admin panel (PRD §4.1 "Master Login") — cross-tenant, gated by

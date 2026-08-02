@@ -83,6 +83,11 @@ export class TenantRepository {
     return this.prisma.tenant.findFirst({ where: { id, deletedAt: null } });
   }
 
+  async create(data: Prisma.TenantUncheckedCreateInput, tx?: Prisma.TransactionClient): Promise<Tenant> {
+    const client = tx ?? this.prisma;
+    return client.tenant.create({ data });
+  }
+
   async updateStatus(id: string, status: TenantStatus): Promise<Tenant> {
     return this.prisma.tenant.update({ where: { id }, data: { status } });
   }

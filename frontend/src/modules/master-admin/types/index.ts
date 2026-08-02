@@ -58,6 +58,21 @@ export interface UpdateTenantLimitsPayload {
   maxDocuments?: number | null
 }
 
+/** POST /master-admin/tenants - creates the tenant and emails its owner a bootstrap invitation
+ * (same accept flow as a staff invite). `slug` is auto-derived from `name` server-side when omitted. */
+export interface CreateTenantPayload {
+  name: string
+  slug?: string
+  country?: string
+  timezone?: string
+  locale?: string
+  defaultCurrency?: string
+  planCode?: string
+  ownerFirstName: string
+  ownerLastName: string
+  ownerEmail: string
+}
+
 // ─── Master admin auth ─────────────────────────────────────────────────────────
 
 export interface MasterAdminLoginRequest {

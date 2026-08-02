@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { queryKeys } from '@/services/query-keys'
 import { useAuthStore } from '@/store/auth.store'
-import { getTenant, listTenants, masterAdminLoginRequest, updateTenantLimits, updateTenantStatus } from '../api'
-import type { TenantListFilters, UpdateTenantLimitsPayload, UpdateTenantStatusPayload } from '../types'
+import { createTenant, getTenant, listTenants, masterAdminLoginRequest, updateTenantLimits, updateTenantStatus } from '../api'
+import type { CreateTenantPayload, TenantListFilters, UpdateTenantLimitsPayload, UpdateTenantStatusPayload } from '../types'
 
 // Real endpoints (backend/src/modules/master-admin) - not NOT_IMPLEMENTED stubs.
 
@@ -21,6 +21,19 @@ export function useMasterAdminLoginMutation() {
       // so a lapsed token just hard-logs-out instead of looping.
       login(data.accessToken, '', { ...data.admin, role: 'MASTER_ADMIN', permissions: [] })
       navigate('/master-admin', { replace: true })
+    },
+  })
+}
+
+export function useCreateTenantMutation() {
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+
+  return useMutation({
+    mutationFn: (payload: CreateTenantPayload) => createTenant(payload),
+    onSuccess: (tenant) => {
+      qc.invalidateQueries({ queryKey: queryKeys.masterAdmin.tenants })
+      navigate(`/master-admin/tenants/${tenant.id}`, { replace: true })
     },
   })
 }
