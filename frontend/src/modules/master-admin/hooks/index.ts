@@ -4,8 +4,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { queryKeys } from '@/services/query-keys'
 import { useAuthStore } from '@/store/auth.store'
-import { createTenant, getTenant, listTenants, masterAdminLoginRequest, updateTenantLimits, updateTenantStatus } from '../api'
-import type { CreateTenantPayload, TenantListFilters, UpdateTenantLimitsPayload, UpdateTenantStatusPayload } from '../types'
+import {
+  createTenant,
+  getMasterAdminAuditLogEntry,
+  getTenant,
+  listMasterAdminAuditLogs,
+  listTenants,
+  listTenantUsers,
+  masterAdminLoginRequest,
+  updateTenantLimits,
+  updateTenantStatus,
+} from '../api'
+import type {
+  CreateTenantPayload,
+  MasterAdminAuditLogFilters,
+  TenantListFilters,
+  UpdateTenantLimitsPayload,
+  UpdateTenantStatusPayload,
+} from '../types'
 
 // Real endpoints (backend/src/modules/master-admin) - not NOT_IMPLEMENTED stubs.
 
@@ -77,3 +93,32 @@ export function useUpdateTenantLimitsMutation(id: string) {
 
 // Plan catalog queries/mutations (useAdminPlansQuery etc.) live in @/modules/billing/hooks -
 // that module owns `Plan` end-to-end (see backend/src/modules/billing/index.ts's header comment).
+
+// ─── System-level audit monitoring (PRD §4.1) ──────────────────────────────────
+// retry: false - mirrors @/modules/audit/hooks's own convention for these list/detail queries.
+
+export function useMasterAdminAuditLogsQuery(filters: MasterAdminAuditLogFilters) {
+  return useQuery({
+    queryKey: queryKeys.masterAdmin.auditLogsList(filters),
+    queryFn: () => listMasterAdminAuditLogs(filters),
+    retry: false,
+  })
+}
+
+export function useMasterAdminAuditLogEntryQuery(id: string) {
+  return useQuery({
+    queryKey: queryKeys.masterAdmin.auditLogDetail(id),
+    queryFn: () => getMasterAdminAuditLogEntry(id),
+    enabled: !!id,
+    retry: false,
+  })
+}
+
+/** Backs the audit filter's "User" selector - only meaningful once a tenant is chosen, hence `enabled: !!tenantId`. */
+export function useTenantUsersQuery(tenantId: string) {
+  return useQuery({
+    queryKey: queryKeys.masterAdmin.tenantUsers(tenantId),
+    queryFn: () => listTenantUsers(tenantId),
+    enabled: !!tenantId,
+  })
+}

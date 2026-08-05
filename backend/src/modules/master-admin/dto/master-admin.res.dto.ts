@@ -1,4 +1,5 @@
 import { TenantStatus, SubscriptionStatus } from '@prisma/client';
+import { AuditLogResponseDto } from '@modules/audit';
 
 /**
  * Response DTOs — deliberately omit internal-only fields. Dates are
@@ -50,6 +51,26 @@ export interface TenantDetailResponseDto extends Omit<TenantResponseDto, 'userCo
   maxClients: number | null;
   maxStorageGb: number | null;
   maxDocuments: number | null;
+  /** PRD §7.4 — per-file upload size ceiling in MB. Null = falls back to `UPLOAD.DEFAULT_MAX_FILE_SIZE_BYTES` (100 MB). */
+  maxUploadSizeMb: number | null;
   usage: TenantUsageDto;
   updatedAt: string;
+}
+
+/** Minimal user row for the master-admin audit filter's "User" selector (PRD §4.1). */
+export interface TenantUserOptionResponseDto {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/**
+ * `AuditLogResponseDto` plus the two fields a cross-tenant view needs that the
+ * tenant-scoped one deliberately omits: which tenant the entry belongs to, and
+ * its name (resolved separately — see `MasterAdminAuditService.resolveTenantNames()`,
+ * since `AuditLog` has no Prisma relation back to `Tenant`).
+ */
+export interface MasterAdminAuditLogResponseDto extends AuditLogResponseDto {
+  tenantId: string;
+  tenantName: string | null;
 }

@@ -22,19 +22,6 @@ export const storageConfig = {
   bucketName: env.AWS_BUCKET_NAME || '',
   region: env.AWS_REGION || 'auto',
 
-  // Upload constraints
-  maxFileSizeMB: 50,
-  allowedMimeTypes: [
-    'application/pdf',
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  ],
-
   // Signed URL expiry for downloads
   presignedUrlExpirySeconds: 60 * 60, // 1 hour
 } as const;

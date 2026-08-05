@@ -21,6 +21,14 @@ import {
 import { PrismaPg } from '@prisma/adapter-pg';
 import { seedPermissions } from './permissions.seed';
 import { seedBusinessTypes } from './business-type.seed';
+import {
+  ACCOUNTANT_ROLE_NAME,
+  AUDITOR_ROLE_NAME,
+  HR_ROLE_NAME,
+  ACCOUNTANT_PERMISSION_CODES,
+  AUDITOR_PERMISSION_CODES,
+  HR_PERMISSION_CODES,
+} from '../../src/modules/roles/constants/extended-roles.constants';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -48,6 +56,9 @@ const DEMO_PASSWORD = 'Passw0rd!123';
 
 const OWNER_EMAIL = 'owner@democafirm.test';
 const STAFF_EMAIL = 'staff@democafirm.test';
+const ACCOUNTANT_EMAIL = 'accountant@democafirm.test';
+const AUDITOR_EMAIL = 'auditor@democafirm.test';
+const HR_EMAIL = 'hr@democafirm.test';
 
 async function seedTenant() {
   const tenant = await prisma.tenant.upsert({
@@ -119,10 +130,74 @@ async function seedUsers(tenantId: string) {
     },
   });
 
-  return { owner, staff };
+  const accountant = await prisma.user.upsert({
+    where: { uq_users_tenant_email: { tenantId, email: ACCOUNTANT_EMAIL } },
+    update: {},
+    create: {
+      tenantId,
+      email: ACCOUNTANT_EMAIL,
+      passwordHash,
+      firstName: 'Priya',
+      lastName: 'Kulkarni',
+      phone: '+919820098765',
+      status: UserStatus.ACTIVE,
+      isOwner: false,
+      jobTitle: 'Accountant',
+      emailVerifiedAt: new Date(),
+      passwordChangedAt: new Date(),
+      createdBy: owner.id,
+    },
+  });
+
+  const auditor = await prisma.user.upsert({
+    where: { uq_users_tenant_email: { tenantId, email: AUDITOR_EMAIL } },
+    update: {},
+    create: {
+      tenantId,
+      email: AUDITOR_EMAIL,
+      passwordHash,
+      firstName: 'Rajesh',
+      lastName: 'Iyer',
+      phone: '+919820011223',
+      status: UserStatus.ACTIVE,
+      isOwner: false,
+      jobTitle: 'Auditor',
+      emailVerifiedAt: new Date(),
+      passwordChangedAt: new Date(),
+      createdBy: owner.id,
+    },
+  });
+
+  const hr = await prisma.user.upsert({
+    where: { uq_users_tenant_email: { tenantId, email: HR_EMAIL } },
+    update: {},
+    create: {
+      tenantId,
+      email: HR_EMAIL,
+      passwordHash,
+      firstName: 'Neha',
+      lastName: 'Bhatt',
+      phone: '+919820033445',
+      status: UserStatus.ACTIVE,
+      isOwner: false,
+      jobTitle: 'HR Executive',
+      emailVerifiedAt: new Date(),
+      passwordChangedAt: new Date(),
+      createdBy: owner.id,
+    },
+  });
+
+  return { owner, staff, accountant, auditor, hr };
 }
 
-async function seedRolesAndPermissions(tenantId: string, ownerId: string, staffId: string) {
+async function seedRolesAndPermissions(
+  tenantId: string,
+  ownerId: string,
+  staffId: string,
+  accountantId: string,
+  auditorId: string,
+  hrId: string,
+) {
   const ownerRole = await prisma.role.upsert({
     where: { uq_roles_tenant_name: { tenantId, name: 'Owner' } },
     update: {},
@@ -181,6 +256,66 @@ async function seedRolesAndPermissions(tenantId: string, ownerId: string, staffI
     update: {},
     create: { tenantId, userId: staffId, roleId: staffRole.id, assignedById: ownerId },
   });
+
+  // ── Accountant / Auditor / HR — PRD 6.2 (Permission Philosophy) ───────────
+  // `DocumentAccessScopeService` (modules/documents/service/
+  // document-access-scope.service.ts) matches Accountant/Auditor by role
+  // *name* and further restricts them at request time (assigned Businesses /
+  // AUDIT-category documents, respectively — see that service). HR
+  // deliberately gets no `documents:*` permission at all; `HR_PERMISSION_CODES`
+  // is the single source of truth both this seed and the test suite assert
+  // against.
+  const roleDefinitions: Array<{ name: string; description: string; userId: string; codes: string[] }> = [
+    {
+      name: ACCOUNTANT_ROLE_NAME,
+      description: 'Manages documents for their assigned Businesses only.',
+      userId: accountantId,
+      codes: ACCOUNTANT_PERMISSION_CODES,
+    },
+    {
+      name: AUDITOR_ROLE_NAME,
+      description: 'Reviews AUDIT-category documents only.',
+      userId: auditorId,
+      codes: AUDITOR_PERMISSION_CODES,
+    },
+    {
+      name: HR_ROLE_NAME,
+      description: 'Manages staff users. No access to client documents.',
+      userId: hrId,
+      codes: HR_PERMISSION_CODES,
+    },
+  ];
+
+  for (const definition of roleDefinitions) {
+    const role = await prisma.role.upsert({
+      where: { uq_roles_tenant_name: { tenantId, name: definition.name } },
+      update: {},
+      create: {
+        tenantId,
+        name: definition.name,
+        description: definition.description,
+        type: RoleType.SYSTEM,
+        createdById: ownerId,
+      },
+    });
+
+    await prisma.rolePermission.createMany({
+      data: allPermissions
+        .filter((permission) => definition.codes.includes(permission.code))
+        .map((permission) => ({
+          roleId: role.id,
+          permissionId: permission.id,
+          grantedById: ownerId,
+        })),
+      skipDuplicates: true,
+    });
+
+    await prisma.userRole.upsert({
+      where: { uq_user_role: { tenantId, userId: definition.userId, roleId: role.id } },
+      update: {},
+      create: { tenantId, userId: definition.userId, roleId: role.id, assignedById: ownerId },
+    });
+  }
 }
 
 async function seedCrmReferenceData(tenantId: string) {
@@ -240,6 +375,7 @@ async function seedDemoEntities(
   tenantId: string,
   owner: { id: string },
   staff: { id: string },
+  accountant: { id: string },
 ) {
   const refData = await seedCrmReferenceData(tenantId);
 
@@ -613,12 +749,46 @@ async function seedDemoEntities(
     },
   });
 
+  // ── Document folders (PRD §7.1 rule 3 — Business → category → Folder → Subfolder) ──
+  // Demonstrates the adjacency-list hierarchy: a flat PAN folder plus a nested
+  // GST folder, both under business1, so the frontend folder tree/breadcrumbs
+  // have real data to render against out of the box.
+  const panFolder = await prisma.documentFolder.create({
+    data: {
+      tenantId,
+      businessId: business1.id,
+      category: DocumentCategory.PAN,
+      name: 'Registration Documents',
+      createdById: owner.id,
+    },
+  });
+  const gstFolder = await prisma.documentFolder.create({
+    data: {
+      tenantId,
+      businessId: business1.id,
+      category: DocumentCategory.GST,
+      name: 'GST Certificates',
+      createdById: owner.id,
+    },
+  });
+  const gstSubFolder = await prisma.documentFolder.create({
+    data: {
+      tenantId,
+      businessId: business1.id,
+      category: DocumentCategory.GST,
+      parentFolderId: gstFolder.id,
+      name: 'FY 2025-26',
+      createdById: owner.id,
+    },
+  });
+
   // ── Documents (metadata only — no file actually uploaded to storage) ──────
   await prisma.document.createMany({
     data: [
       {
         tenantId,
         businessId: business1.id,
+        folderId: panFolder.id,
         category: DocumentCategory.PAN,
         fileName: 'sharma_sons_pan.pdf',
         storageKey: `tenants/${tenantId}/documents/${randomUUID()}.pdf`,
@@ -629,6 +799,7 @@ async function seedDemoEntities(
       {
         tenantId,
         businessId: business1.id,
+        folderId: gstSubFolder.id,
         category: DocumentCategory.GST,
         fileName: 'sharma_sons_gst_certificate.pdf',
         storageKey: `tenants/${tenantId}/documents/${randomUUID()}.pdf`,
@@ -658,6 +829,14 @@ async function seedDemoEntities(
       },
     ],
   });
+
+  // ── Business assignment — scopes the demo Accountant to Sharma & Sons only ─
+  // (`DocumentAccessScopeService` denies them business2/business3's documents).
+  await prisma.businessAssignment.upsert({
+    where: { businessId_userId: { businessId: business1.id, userId: accountant.id } },
+    update: {},
+    create: { tenantId, businessId: business1.id, userId: accountant.id, role: 'ACCOUNTANT' },
+  });
 }
 
 async function main(): Promise<void> {
@@ -669,22 +848,25 @@ async function main(): Promise<void> {
   await seedBusinessTypes(prisma);
 
   console.log('Seeding demo users...');
-  const { owner, staff } = await seedUsers(tenant.id);
+  const { owner, staff, accountant, auditor, hr } = await seedUsers(tenant.id);
 
   console.log('Seeding roles & permission grants...');
-  await seedRolesAndPermissions(tenant.id, owner.id, staff.id);
+  await seedRolesAndPermissions(tenant.id, owner.id, staff.id, accountant.id, auditor.id, hr.id);
 
   const existingBusinessCount = await prisma.business.count({ where: { tenantId: tenant.id } });
   if (existingBusinessCount > 0) {
     console.log('Demo business/CRM/project/task/document data already present — skipping.');
   } else {
     console.log('Seeding businesses, contacts, leads, clients, projects, tasks, documents...');
-    await seedDemoEntities(tenant.id, owner, staff);
+    await seedDemoEntities(tenant.id, owner, staff, accountant);
   }
 
   console.log('\nDone. Log in with:');
   console.log(`  Owner: ${OWNER_EMAIL} / ${DEMO_PASSWORD}`);
   console.log(`  Staff: ${STAFF_EMAIL} / ${DEMO_PASSWORD}`);
+  console.log(`  Accountant: ${ACCOUNTANT_EMAIL} / ${DEMO_PASSWORD}`);
+  console.log(`  Auditor: ${AUDITOR_EMAIL} / ${DEMO_PASSWORD}`);
+  console.log(`  HR: ${HR_EMAIL} / ${DEMO_PASSWORD}`);
 }
 
 main()

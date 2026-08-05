@@ -36,9 +36,29 @@ export class S3StorageService {
     );
   }
 
-  /** Returns a time-limited presigned GET URL for downloading `key`. */
-  async getDownloadUrl(key: string): Promise<string> {
-    const command = new GetObjectCommand({ Bucket: storageConfig.bucketName, Key: key });
+  /**
+   * Returns a time-limited presigned GET URL for downloading `key`. When
+   * `downloadFileName` is given, sets `ResponseContentDisposition` so the
+   * browser saves the file under its original name (PRD §7.2 — "keep the
+   * original filename for download display") rather than the opaque
+   * internal `key`, without ever renaming the object in the bucket itself.
+   */
+  async getDownloadUrl(key: string, downloadFileName?: string): Promise<string> {
+    const command = new GetObjectCommand({
+      Bucket: storageConfig.bucketName,
+      Key: key,
+      ResponseContentDisposition: downloadFileName ? buildContentDisposition(downloadFileName) : undefined,
+    });
     return getSignedUrl(this.client, command, { expiresIn: storageConfig.presignedUrlExpirySeconds });
   }
+}
+
+/**
+ * RFC 6266/5987 `Content-Disposition` value: an ASCII-safe `filename` fallback
+ * plus a `filename*` UTF-8 form, so names with non-ASCII characters (e.g. "ग्राहक.pdf")
+ * still download correctly in modern browsers instead of being mangled or rejected.
+ */
+function buildContentDisposition(fileName: string): string {
+  const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, "'");
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }

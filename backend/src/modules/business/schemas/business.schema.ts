@@ -58,6 +58,11 @@ export const createBusinessSchema = z.object({
 // typeId is immutable after creation (mirrors Project's clientId/code) — no
 // reassignment endpoint for it exists here or on the frontend.
 
+// `storageQuotaMb` (PRD §7.4) — per-business storage quota override in MB. `null` reverts to the
+// tenant's `TenantSettings.defaultBusinessStorageQuotaMb` (itself falling back to the global
+// 500 MB default) — see `StorageQuotaService`.
+const storageQuotaMb = z.coerce.number().int().min(1, 'Storage quota must be at least 1 MB');
+
 export const updateBusinessSchema = z.object({
   name: businessName.optional(),
   legalName: legalName.nullable().optional(),
@@ -67,6 +72,7 @@ export const updateBusinessSchema = z.object({
   incorporationDate: z.coerce.date().nullable().optional(),
   financialYearStart: financialYearStart.nullable().optional(),
   industry: industry.nullable().optional(),
+  storageQuotaMb: storageQuotaMb.nullable().optional(),
 });
 
 // ─── Params ───────────────────────────────────────────────────────────────────

@@ -47,11 +47,14 @@ export class BusinessController {
 
   static getById = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const service = new BusinessService(req);
-    const business = await service.getBusinessById(req.params.id);
+    const [business, storageUsage] = await Promise.all([
+      service.getBusinessById(req.params.id),
+      service.getBusinessStorageUsage(req.params.id),
+    ]);
 
     res
       .status(HTTP_STATUS.OK)
-      .json(ApiResponseHelper.success(req, BusinessMapper.toResponseDto(business), MESSAGES.FETCHED));
+      .json(ApiResponseHelper.success(req, BusinessMapper.toResponseDto(business, storageUsage), MESSAGES.FETCHED));
   });
 
   static list = asyncHandler(async (req: Request, res: Response): Promise<void> => {

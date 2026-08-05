@@ -1,8 +1,10 @@
 import { Request } from 'express';
-import { Business, BusinessType } from '@prisma/client';
+import { Business, BusinessType, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { PaginationMeta } from '@shared/types';
+import { AuditLogRecorder } from '@modules/audit';
+import { StorageQuotaService, StorageSummary } from '@modules/documents';
 import { BusinessRepository } from '../repository/business.repository';
 import { BusinessTypeRepository } from '../repository/business-type.repository';
 import { CreateBusinessDto, UpdateBusinessDto, ListBusinessesQueryDto } from '../dto/business.req.dto';
@@ -31,6 +33,8 @@ export class BusinessService extends BaseService {
     req: Request,
     private readonly businessRepository: BusinessRepository = new BusinessRepository(prisma),
     private readonly businessTypeRepository: BusinessTypeRepository = new BusinessTypeRepository(prisma),
+    private readonly storageQuotaService: StorageQuotaService = new StorageQuotaService(),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -67,7 +71,24 @@ export class BusinessService extends BaseService {
 
     this.logger.info({ businessId: id }, 'Updating business');
 
-    return this.businessRepository.update(id, dto, { tenantId: this.tenantId });
+    const updated = await this.businessRepository.update(id, dto, { tenantId: this.tenantId });
+
+    // PRD §7.4 — "changing upload limits must generate audit logs" extends to the business
+    // quota override; only fires when the field is actually part of this diff, and only if a
+    // real change occurred (a no-op re-set to the same value must not audit-spam).
+    if (dto.storageQuotaMb !== undefined && dto.storageQuotaMb !== existing.storageQuotaMb && this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.SETTINGS_UPDATE,
+        description: `Changed storage quota for business "${updated.name}" from ${existing.storageQuotaMb ?? 'default'} MB to ${updated.storageQuotaMb ?? 'default'} MB`,
+        targetType: 'Business',
+        targetId: updated.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    return updated;
   }
 
   async deleteBusiness(id: string): Promise<void> {
@@ -87,6 +108,18 @@ export class BusinessService extends BaseService {
     const business = await this.businessRepository.findById(id, { tenantId: this.tenantId });
     this.validateExists(business, 'Business');
     return business;
+  }
+
+  /**
+   * PRD §7.4 — live storage usage summary for the Business Detail page (Storage Used / Remaining
+   * / quota progress bar). Reuses `StorageQuotaService` — the same engine `DocumentService`
+   * enforces uploads against — rather than a second usage computation. Only called from
+   * `GET /business/:id`, never the list endpoint (see `BusinessMapper.toResponseDto()`).
+   */
+  async getBusinessStorageUsage(id: string): Promise<StorageSummary> {
+    const business = await this.businessRepository.findById(id, { tenantId: this.tenantId });
+    this.validateExists(business, 'Business');
+    return this.storageQuotaService.getBusinessStorageSummary(this.tenantId as string, id);
   }
 
   async listBusinesses(query: ListBusinessesQueryDto): Promise<{ data: Business[]; meta: PaginationMeta }> {

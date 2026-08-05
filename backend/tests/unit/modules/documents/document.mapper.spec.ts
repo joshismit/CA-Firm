@@ -19,13 +19,19 @@ function buildDocument(overrides: Partial<Document> = {}): Document {
     tenantId: 'tenant-1',
     businessId: 'business-1',
     contactId: 'contact-1',
+    folderId: null,
     category: DocumentCategory.PAN,
     fileName: 'pan-card.pdf',
     storageKey: 'tenant-1/abc123-pan-card.pdf',
     mimeType: 'application/pdf',
     sizeBytes: 204800,
     version: 1,
+    isLatestVersion: true,
+    rootDocumentId: null,
+    previousVersionId: null,
     uploadedById: 'user-1',
+    archived: false,
+    retentionUntil: null,
     createdAt: new Date('2026-01-01T10:00:00.000Z'),
     updatedAt: new Date('2026-01-02T11:30:00.000Z'),
     deletedAt: null,
@@ -45,12 +51,16 @@ describe('DocumentMapper', () => {
         id: 'doc-1',
         businessId: 'business-1',
         contactId: 'contact-1',
+        folderId: null,
         category: DocumentCategory.PAN,
         fileName: 'pan-card.pdf',
         storageKey: 'tenant-1/abc123-pan-card.pdf',
         mimeType: 'application/pdf',
         sizeBytes: 204800,
         version: 1,
+        isLatestVersion: true,
+        rootDocumentId: null,
+        previousVersionId: null,
         uploadedById: 'user-1',
         createdAt: '2026-01-01T10:00:00.000Z',
       });
@@ -82,6 +92,21 @@ describe('DocumentMapper', () => {
       const dto = DocumentMapper.toResponseDto(document);
 
       expect(dto.version).toBe(2);
+    });
+
+    it('maps the version-chain fields (PRD §7.2) through as-is', () => {
+      const document = buildDocument({
+        version: 2,
+        isLatestVersion: false,
+        rootDocumentId: 'doc-1',
+        previousVersionId: 'doc-1',
+      });
+
+      const dto = DocumentMapper.toResponseDto(document);
+
+      expect(dto.isLatestVersion).toBe(false);
+      expect(dto.rootDocumentId).toBe('doc-1');
+      expect(dto.previousVersionId).toBe('doc-1');
     });
   });
 

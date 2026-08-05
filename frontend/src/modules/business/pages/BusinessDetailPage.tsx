@@ -10,6 +10,7 @@ import {
   BusinessInformationCard,
   BusinessContactsCard,
   BusinessDocumentsCard,
+  BusinessStorageCard,
   BusinessTimelineCard,
 } from '../components'
 
@@ -50,6 +51,7 @@ export function BusinessDetailPage() {
             <BusinessDocumentsCard businessId={business.id} />
           </div>
           <div className="space-y-4">
+            <BusinessStorageCard business={business} />
             <BusinessTimelineCard business={business} />
           </div>
         </div>

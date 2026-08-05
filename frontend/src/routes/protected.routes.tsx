@@ -54,6 +54,7 @@ import {
   DocumentUploadPage,
   DocumentEditPage,
   DocumentTemplatesPage,
+  DocumentFoldersPage,
 } from '@/modules/documents/pages'
 import { HelpPage } from '@/modules/help/pages'
 import { settingsRoutes } from './settings.routes'
@@ -120,6 +121,7 @@ export const protectedRoutes: RouteObject = {
         { path: 'documents', element: <DocumentListPage /> },
         { path: 'documents/upload', element: <DocumentUploadPage /> },
         { path: 'documents/templates', element: <DocumentTemplatesPage /> },
+        { path: 'documents/folders/:businessId', element: <DocumentFoldersPage /> },
         { path: 'documents/:id', element: <DocumentDetailPage /> },
         { path: 'documents/:id/edit', element: <DocumentEditPage /> },
         { path: 'staff', element: <AdministrationHomePage /> },

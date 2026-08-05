@@ -16,6 +16,7 @@ export const QUEUE_NAMES = {
   REPORT: 'report',
   AUDIT: 'audit',
   DOCUMENT_PROCESSING: 'document-processing',
+  TASK_REMINDER: 'task-reminder',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -71,5 +72,21 @@ export const documentProcessingQueue = new Queue(QUEUE_NAMES.DOCUMENT_PROCESSING
     backoff: { type: 'fixed', delay: 15000 },
     removeOnComplete: { count: 100 },
     removeOnFail: { count: 200 },
+  },
+});
+
+/**
+ * The one repeatable-job queue in this codebase (every other queue above is
+ * enqueued per business event). `workers/task-reminder.worker.ts` schedules
+ * its single recurring job onto this queue at worker-process startup — see
+ * `scheduleTaskReminderJob()` there.
+ */
+export const taskReminderQueue = new Queue(QUEUE_NAMES.TASK_REMINDER, {
+  connection,
+  defaultJobOptions: {
+    attempts: 2,
+    backoff: { type: 'fixed', delay: 30000 },
+    removeOnComplete: { count: 30 },
+    removeOnFail: { count: 30 },
   },
 });

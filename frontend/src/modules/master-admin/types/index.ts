@@ -2,6 +2,8 @@
 // Field-for-field match with backend/src/modules/master-admin/dto/master-admin.res.dto.ts -
 // the platform-admin backend module is real and mounted (backend/src/modules/master-admin).
 
+import type { AuditEventType, AuditLogEntry } from '@/modules/audit/types'
+
 export type TenantStatus = 'ACTIVE' | 'TRIAL' | 'SUSPENDED' | 'DEACTIVATED'
 
 export type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'CANCELLED' | 'EXPIRED'
@@ -94,3 +96,36 @@ export interface MasterAdminLoginResponse {
 
 // Plan catalog types (`AdminPlan` etc.) live in @/modules/billing/types - that module owns `Plan`
 // end-to-end (see backend/src/modules/billing/index.ts's header comment).
+
+// ─── System-level audit monitoring (PRD §4.1) ──────────────────────────────────
+// GET /master-admin/audit-logs* - the cross-tenant counterpart of @/modules/audit's own
+// AuditLogEntry/AuditLogFilters. `MasterAdminAuditLogEntry` extends the tenant-scoped shape
+// with the two fields only a cross-tenant view needs (backend/src/modules/master-admin/dto/
+// master-admin.res.dto.ts's `MasterAdminAuditLogResponseDto`) rather than redeclaring every
+// shared field from scratch.
+
+export interface MasterAdminAuditLogEntry extends AuditLogEntry {
+  tenantId: string
+  tenantName: string | null
+}
+
+export interface MasterAdminAuditLogFilters {
+  page?: number
+  limit?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+  search?: string
+  tenantId?: string
+  eventType?: AuditEventType
+  actorId?: string
+  targetType?: string
+  from?: string
+  to?: string
+}
+
+/** GET /master-admin/tenants/:id/users - backs the audit filter's "User" selector. */
+export interface TenantUserOption {
+  id: string
+  name: string
+  email: string
+}

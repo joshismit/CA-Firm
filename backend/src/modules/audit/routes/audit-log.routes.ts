@@ -27,7 +27,7 @@ const router = Router();
  *   schemas:
  *     AuditEventType:
  *       type: string
- *       enum: [UPLOAD, DOWNLOAD, SHARE, LOGIN, LOGOUT, ROLE_CHANGE, TASK_UPDATE, PAYMENT_ACTION, PERMISSION_CHANGE]
+ *       enum: [UPLOAD, DOWNLOAD, SHARE, LOGIN, LOGOUT, ROLE_CHANGE, TASK_UPDATE, PAYMENT_ACTION, PERMISSION_CHANGE, PASSWORD_RESET, INVITATION_ACCEPTED, TASK_REMINDER_SENT]
  *     AuditLog:
  *       type: object
  *       description: A security-relevant activity record, as returned by the API — never the raw database row.

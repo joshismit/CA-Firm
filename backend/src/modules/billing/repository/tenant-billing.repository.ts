@@ -8,6 +8,8 @@ export interface ApplyPlanData {
   maxClients: number | null;
   maxStorageGb: number | null;
   maxDocuments: number | null;
+  /** PRD §7.4 — per-file upload size ceiling in MB, copied from the plan alongside `maxStorageGb`. */
+  maxUploadSizeMb: number | null;
 }
 
 /**
@@ -43,6 +45,7 @@ export class TenantBillingRepository {
         maxClients: data.maxClients,
         maxStorageGb: data.maxStorageGb,
         maxDocuments: data.maxDocuments,
+        maxUploadSizeMb: data.maxUploadSizeMb,
       },
     });
   }

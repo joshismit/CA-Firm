@@ -1,6 +1,8 @@
-import { Router } from 'express';
-import multer from 'multer';
+import { Router, Request } from 'express';
+import multer, { FileFilterCallback } from 'multer';
 import { UPLOAD } from '@shared/constants';
+import { UnsupportedMediaTypeError } from '@shared/errors';
+import { FileValidation } from '@shared/utils';
 import { authMiddleware } from '@middlewares/auth.middleware';
 import { tenantMiddleware } from '@middlewares/tenant.middleware';
 import { requirePermission } from '@middlewares/permission.middleware';
@@ -12,6 +14,7 @@ import {
   updateDocumentSchema,
   listDocumentsQuerySchema,
   documentIdParamSchema,
+  shareDocumentSchema,
 } from '../schemas/document.schema';
 
 /**
@@ -22,20 +25,45 @@ import {
  * Every route runs: authMiddleware → tenantMiddleware → requirePermission →
  * [upload →] validate → controller. Mirrors `modules/crm/routes/lead.routes.ts`.
  *
- * `upload` (in-memory `multer`, capped at `UPLOAD.MAX_FILE_SIZE_BYTES`) runs
- * only on `POST /` — after `requirePermission`, so an unauthorized caller's
- * file is never parsed — and before `validate()`, since `multer` is what
- * populates `req.body`'s text fields (`category`/`businessId`/`contactId`)
- * from the multipart payload in the first place. A `MulterError` (e.g. file
- * too large) is handled centrally by `errorMiddleware`, exactly like a Zod
- * or Prisma error.
+ * `upload` (in-memory `multer`, capped at `UPLOAD.MAX_FILE_SIZE_CEILING_BYTES`)
+ * runs only on `POST /` — after `requirePermission`, so an unauthorized
+ * caller's file is never parsed — and before `validate()`, since `multer` is
+ * what populates `req.body`'s text fields (`category`/`businessId`/
+ * `contactId`) from the multipart payload in the first place. A `MulterError`
+ * (e.g. file too large) is handled centrally by `errorMiddleware`, exactly
+ * like a Zod or Prisma error.
+ *
+ * PRD §7.4 — the ceiling here is a transport-layer safety backstop only
+ * (large enough for the biggest plan tier), not the enforced business rule.
+ * The real, tenant-specific limit is resolved and checked by
+ * `DocumentService`/`StorageQuotaService` — see that service's header
+ * comment — because `multer`'s `limits.fileSize` is fixed at router-setup
+ * time and can't vary per tenant/request.
+ *
+ * PRD §7.5 — `fileFilter` rejects an unsupported extension/MIME type (or an
+ * explicitly blocked executable/script extension) before the file body is
+ * even read into memory, via the shared `FileValidation.validate()` — the
+ * same check `DocumentService.validateFile()` runs again once the buffer is
+ * available (see that method's header comment for why both layers check).
+ * A rejection throws `UnsupportedMediaTypeError` (415), which `multer`
+ * forwards to `errorMiddleware` exactly like any other thrown `AppError`.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 const router = Router();
 
+function documentFileFilter(_req: Request, file: Express.Multer.File, cb: FileFilterCallback): void {
+  const result = FileValidation.validate(file.originalname, file.mimetype);
+  if (!result.valid) {
+    cb(new UnsupportedMediaTypeError(result.reason));
+    return;
+  }
+  cb(null, true);
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: UPLOAD.MAX_FILE_SIZE_BYTES },
+  limits: { fileSize: UPLOAD.MAX_FILE_SIZE_CEILING_BYTES },
+  fileFilter: documentFileFilter,
 });
 
 /**
@@ -52,21 +80,26 @@ const upload = multer({
  *         id: { type: string, format: uuid }
  *         businessId: { type: string, format: uuid, nullable: true }
  *         contactId: { type: string, format: uuid, nullable: true }
+ *         folderId: { type: string, format: uuid, nullable: true }
  *         category: { $ref: '#/components/schemas/DocumentCategory' }
  *         fileName: { type: string, example: pan-card.pdf }
  *         storageKey: { type: string }
  *         mimeType: { type: string, example: application/pdf }
  *         sizeBytes: { type: integer }
- *         version: { type: integer, example: 1 }
+ *         version: { type: integer, example: 1, description: This row's own position in its version chain. }
+ *         isLatestVersion: { type: boolean, description: True only for the newest row in the chain. }
+ *         rootDocumentId: { type: string, format: uuid, nullable: true, description: Null on the first (v1) version, which is the root; every later version points at it. }
+ *         previousVersionId: { type: string, format: uuid, nullable: true, description: The version this one replaced, if any. }
  *         uploadedById: { type: string, format: uuid }
  *         createdAt: { type: string, format: date-time }
- *       required: [id, category, fileName, storageKey, mimeType, sizeBytes, version, uploadedById, createdAt]
+ *       required: [id, category, fileName, storageKey, mimeType, sizeBytes, version, isLatestVersion, rootDocumentId, previousVersionId, uploadedById, createdAt]
  *     UpdateDocumentRequest:
  *       type: object
  *       description: Partial metadata update. The file itself cannot be replaced through this endpoint.
  *       properties:
  *         businessId: { type: string, format: uuid, nullable: true }
  *         contactId: { type: string, format: uuid, nullable: true }
+ *         folderId: { type: string, format: uuid, nullable: true }
  *         category: { $ref: '#/components/schemas/DocumentCategory' }
  *     DocumentDownloadUrl:
  *       type: object
@@ -107,7 +140,17 @@ const upload = multer({
  *   post:
  *     tags: [Documents]
  *     summary: Upload a document
- *     description: Uploads the file to the configured bucket and creates its metadata record.
+ *     description: >
+ *       Uploads the file to the configured bucket and creates its metadata record.
+ *
+ *       PRD §7.5 — supported file types (extension AND MIME type must both match): PDF
+ *       (application/pdf), Word (.doc application/msword, .docx
+ *       application/vnd.openxmlformats-officedocument.wordprocessingml.document), Excel (.xls
+ *       application/vnd.ms-excel, .xlsx
+ *       application/vnd.openxmlformats-officedocument.spreadsheetml.sheet), JPG/JPEG
+ *       (image/jpeg), PNG (image/png), and ZIP (application/zip). Executable/script files
+ *       (.exe, .dll, .bat, .cmd, .sh, .js, .ts, .php, .py, .jar, .apk, .ipa) are always rejected,
+ *       even if renamed to a supported extension.
  *     security: [{ BearerAuth: [] }]
  *     x-permission: documents:create
  *     requestBody:
@@ -118,16 +161,19 @@ const upload = multer({
  *             type: object
  *             required: [file, category]
  *             properties:
- *               file: { type: string, format: binary }
+ *               file: { type: string, format: binary, description: 'Supported types: PDF, Word (.doc/.docx), Excel (.xls/.xlsx), JPG, JPEG, PNG, ZIP.' }
  *               category: { $ref: '#/components/schemas/DocumentCategory' }
  *               businessId: { type: string, format: uuid }
  *               contactId: { type: string, format: uuid }
+ *               folderId: { type: string, format: uuid, description: Optional — must belong to the same Business/category. }
+ *               createVersion: { type: boolean, default: false, description: 'PRD §7.2 rule 7 — confirms a replace after receiving a 409 on a prior attempt with the same Business+Contact+Folder+Category+filename.' }
  *     responses:
- *       201: { description: Document uploaded., content: { application/json: { schema: { $ref: '#/components/schemas/DocumentEnvelope' } } } }
- *       400: { description: No file, unsupported file type, or file exceeds the maximum upload size., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       201: { description: Document uploaded (a fresh document, or — with createVersion=true and a matching prior upload — a new version of it)., content: { application/json: { schema: { $ref: '#/components/schemas/DocumentEnvelope' } } } }
+ *       400: { description: No file, file exceeds the tenant's effective maximum upload size (PRD §7.4), folderId belongs to a different Business/category, or the document has neither businessId nor contactId., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
  *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
- *       403: { description: Caller lacks the `documents:create` permission., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
- *       409: { description: Referenced businessId/contactId does not exist (foreign key violation)., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `documents:create` permission, or the upload would exceed the business's or tenant's storage quota (PRD §7.4)., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       409: { description: A document already exists at this exact Business+Contact+Folder+Category+filename ("replacement candidate detected") and createVersion was not set, or a referenced businessId/contactId does not exist., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       415: { description: 'PRD §7.5 — unsupported file extension, MIME type, extension/MIME mismatch, content that does not match the declared type, or a blocked executable/script extension.', content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
  *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
  */
 router.post(
@@ -172,6 +218,17 @@ router.post(
  *       - name: businessId
  *         in: query
  *         schema: { type: string, format: uuid }
+ *       - name: folderId
+ *         in: query
+ *         schema: { type: string, format: uuid }
+ *       - name: uploadedFrom
+ *         in: query
+ *         description: Lower bound (inclusive) on the upload date (createdAt).
+ *         schema: { type: string, format: date-time }
+ *       - name: uploadedTo
+ *         in: query
+ *         description: Upper bound (inclusive) on the upload date (createdAt).
+ *         schema: { type: string, format: date-time }
  *     responses:
  *       200: { description: Paginated list of documents., content: { application/json: { schema: { $ref: '#/components/schemas/DocumentListEnvelope' } } } }
  *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
@@ -290,6 +347,114 @@ router.delete(
   requirePermission(DOCUMENT_PERMISSIONS.DELETE),
   validate({ params: documentIdParamSchema }),
   DocumentController.delete,
+);
+
+/**
+ * @swagger
+ * /documents/{id}/share:
+ *   post:
+ *     tags: [Documents]
+ *     summary: Share a document with another user in the tenant
+ *     description: Grants the target user read access to this document, bypassing their normal Business/category scope (PRD 6.2). The caller must already be able to see the document themselves.
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: documents:share
+ *     parameters: [{ $ref: '#/components/parameters/DocumentIdParam' }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [userId]
+ *             properties:
+ *               userId: { type: string, format: uuid }
+ *               expiresAt: { type: string, format: date-time }
+ *     responses:
+ *       200: { description: Document shared., content: { application/json: { schema: { $ref: '#/components/schemas/DocumentEnvelope' } } } }
+ *       400: { description: Target user not found in this tenant, or sharing with yourself., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `documents:share` permission, or cannot see this document., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No document with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post(
+  '/:id/share',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(DOCUMENT_PERMISSIONS.SHARE),
+  validate({ params: documentIdParamSchema, body: shareDocumentSchema }),
+  DocumentController.share,
+);
+
+/**
+ * @swagger
+ * /documents/{id}/versions:
+ *   get:
+ *     tags: [Documents]
+ *     summary: Get a document's full version history
+ *     description: Returns every version in this document's chain (oldest first) — PRD §7.2. `id` may be any version, not just the latest.
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: documents:read
+ *     parameters: [{ $ref: '#/components/parameters/DocumentIdParam' }]
+ *     responses:
+ *       200: { description: Version history., content: { application/json: { schema: { $ref: '#/components/schemas/DocumentListEnvelope' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `documents:read` permission, or cannot see this document., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No document with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: id is not a valid UUID., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.get(
+  '/:id/versions',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(DOCUMENT_PERMISSIONS.READ),
+  validate({ params: documentIdParamSchema }),
+  DocumentController.getVersionHistory,
+);
+
+/**
+ * @swagger
+ * /documents/{id}/version:
+ *   post:
+ *     tags: [Documents]
+ *     summary: Confirm replacement — create a new version of this document
+ *     description: >
+ *       PRD §7.2 rules 7-8 — the explicit "confirm" step after a 409 replace-candidate response
+ *       (or a direct replace from a known document id). Always versions the given document
+ *       regardless of the new file's name; the prior version is kept (isLatestVersion=false),
+ *       never overwritten or deleted.
+ *
+ *       PRD §7.5 — the replacement file must be one of the same supported types as a fresh
+ *       upload: PDF, Word (.doc/.docx), Excel (.xls/.xlsx), JPG, JPEG, PNG, or ZIP.
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: documents:create
+ *     parameters: [{ $ref: '#/components/parameters/DocumentIdParam' }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file: { type: string, format: binary, description: 'Supported types: PDF, Word (.doc/.docx), Excel (.xls/.xlsx), JPG, JPEG, PNG, ZIP.' }
+ *     responses:
+ *       201: { description: New version created., content: { application/json: { schema: { $ref: '#/components/schemas/DocumentEnvelope' } } } }
+ *       400: { description: No file, or file exceeds the tenant's effective maximum upload size (PRD §7.4)., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `documents:create` permission, cannot see this document, or the upload would exceed the business's or tenant's storage quota (PRD §7.4)., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No document with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       415: { description: 'PRD §7.5 — unsupported file extension, MIME type, extension/MIME mismatch, content that does not match the declared type, or a blocked executable/script extension.', content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: id is not a valid UUID., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post(
+  '/:id/version',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(DOCUMENT_PERMISSIONS.CREATE),
+  upload.single('file'),
+  validate({ params: documentIdParamSchema }),
+  DocumentController.createVersion,
 );
 
 export default router;

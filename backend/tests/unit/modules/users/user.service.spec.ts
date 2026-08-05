@@ -130,6 +130,8 @@ function createMockInvitation(overrides: Partial<UserInvitation> = {}): UserInvi
     firstName: 'New',
     lastName: 'Hire',
     invitedById: CALLER_ID,
+    invitedByMasterAdminId: null,
+    isOwner: false,
     roleIds: ['role-55555555-5555-5555-5555-555555555555'],
     tokenHash: 'hash',
     status: InvitationStatus.PENDING,

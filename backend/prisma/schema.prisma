@@ -274,6 +274,11 @@ model Tenant {
   maxClients            Int?               @map("max_clients")
   maxStorageGb          Int?               @map("max_storage_gb")
   maxDocuments          Int?               @map("max_documents")
+  /// PRD §7.4 — per-file upload size ceiling in MB, copied from `Plan.maxUploadSizeMb` on subscribe
+  /// (mirrors `maxStorageGb`'s flow via `TenantBillingRepository.applyPlan()`), master-admin
+  /// overridable via `PATCH /master-admin/tenants/:id/limits`. Null = fall back to
+  /// `UPLOAD.DEFAULT_MAX_FILE_SIZE_BYTES` (100 MB).
+  maxUploadSizeMb       Int?               @map("max_upload_size_mb")
 
   onboardingCompletedAt DateTime? @map("onboarding_completed_at") @db.Timestamptz
 
@@ -325,6 +330,10 @@ model TenantSettings {
   enableOcr          Boolean @default(false) @map("enable_ocr")
 
   defaultNotificationEmail String? @map("default_notification_email") @db.VarChar(255)
+
+  /// PRD §7.4 — firm-admin-editable default `Business.storageQuotaMb` for businesses that don't set
+  /// their own override. Null = fall back to `UPLOAD.DEFAULT_BUSINESS_STORAGE_QUOTA_BYTES` (500 MB).
+  defaultBusinessStorageQuotaMb Int? @map("default_business_storage_quota_mb")
 
   extraSettings Json? @map("extra_settings") @db.JsonB
 
@@ -473,13 +482,15 @@ model User {
   managedProjects Project[] @relation("ProjectManager")
 
   // ── Relations: Tasks ───────────────────────────────────────────────────
-  assignedTasks Task[] @relation("TaskAssignee")
-  createdTasks  Task[] @relation("TaskCreatedBy")
-  deletedTasks  Task[] @relation("TaskDeletedBy")
+  assignedTasks Task[]         @relation("TaskAssignee")
+  createdTasks  Task[]         @relation("TaskCreatedBy")
+  deletedTasks  Task[]         @relation("TaskDeletedBy")
+  taskReminders TaskReminder[] @relation("TaskReminderRecipient")
 
   // ── Relations: Documents ───────────────────────────────────────────────
-  uploadedDocuments Document[] @relation("DocumentUploadedBy")
-  deletedDocuments  Document[] @relation("DocumentDeletedBy")
+  uploadedDocuments      Document[]       @relation("DocumentUploadedBy")
+  deletedDocuments       Document[]       @relation("DocumentDeletedBy")
+  createdDocumentFolders DocumentFolder[] @relation("DocumentFolderCreatedBy")
 
   // ── Relations: Notifications ──────────────────────────────────────────
   notifications Notification[]
@@ -668,13 +679,13 @@ model UserInvitation {
   /// first invitation has no inviting `User` (the tenant doesn't exist yet, and `MasterAdmin` is a
   /// deliberately separate entity/ID space — see that model's header comment) so `invitedById`
   /// must be nullable for that one case; every staff invitation still sets it as before.
-  invitedById             String?  @map("invited_by_id") @db.Uuid
-  invitedByMasterAdminId  String?  @map("invited_by_master_admin_id") @db.Uuid
+  invitedById            String?  @map("invited_by_id") @db.Uuid
+  invitedByMasterAdminId String?  @map("invited_by_master_admin_id") @db.Uuid
   /// Set only for the tenant-owner bootstrap invitation issued by `TenantService.createTenant()` —
   /// tells `AuthService.acceptInvite()` to set `User.isOwner = true`. Staff invitations
   /// (`UserService.inviteUser()`) never set this.
-  isOwner                 Boolean  @default(false) @map("is_owner")
-  roleIds                 String[] @map("role_ids")
+  isOwner                Boolean  @default(false) @map("is_owner")
+  roleIds                String[] @map("role_ids")
 
   tokenHash String @unique @map("token_hash") @db.VarChar(64)
 
@@ -918,6 +929,12 @@ model Business {
   financialYearStart Int       @default(4) @map("financial_year_start")
   industry           String?   @db.VarChar(100)
 
+  /// PRD §7.4 — per-business storage quota override in MB. Null = fall back to the tenant's
+  /// `TenantSettings.defaultBusinessStorageQuotaMb`, which itself falls back to
+  /// `UPLOAD.DEFAULT_BUSINESS_STORAGE_QUOTA_BYTES` (500 MB). Enforced by `StorageQuotaService`,
+  /// never against a maintained counter — usage is always a live `SUM(Document.sizeBytes)`.
+  storageQuotaMb Int? @map("storage_quota_mb")
+
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
@@ -928,15 +945,16 @@ model Business {
   createdByUser User?        @relation("BusinessCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
   deletedByUser User?        @relation("BusinessDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
 
-  addresses     BusinessAddress[]
-  registrations BusinessRegistration[]
-  assignments   BusinessAssignment[]
-  statusHistory BusinessStatusHistory[]
-  contactRoles  ContactRole[]
-  client        Client?
-  leads         Lead[]
-  documents     Document[]
-  invoices      Invoice[]
+  addresses       BusinessAddress[]
+  registrations   BusinessRegistration[]
+  assignments     BusinessAssignment[]
+  statusHistory   BusinessStatusHistory[]
+  contactRoles    ContactRole[]
+  client          Client?
+  leads           Lead[]
+  documents       Document[]
+  documentFolders DocumentFolder[]
+  invoices        Invoice[]
 
   @@index([tenantId, status])
   @@index([tenantId, pan])
@@ -1418,9 +1436,12 @@ enum ProjectStatus {
 //
 // Deliberately minimal, matching the same scope discipline used for Project:
 // no TaskAssignment/TaskDependency/TaskLabel satellite tables, and per explicit
-// instruction, no milestones, comments, notifications, activities, or time
-// tracking. `assigneeId` is a single nullable FK (mirrors Project.managerId)
-// rather than a many-to-many assignment join table.
+// instruction, no milestones, comments, activities, or time tracking.
+// `assigneeId` is a single nullable FK (mirrors Project.managerId) rather than
+// a many-to-many assignment join table. `TaskReminder` (below) is the one
+// exception carved out of that "no notifications" scope, per PRD §4.2 —
+// see its own header comment for why it's a separate table rather than reusing
+// `Notification`.
 
 model Task {
   id         String  @id @default(uuid()) @db.Uuid
@@ -1447,6 +1468,8 @@ model Task {
   createdByUser User?    @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
   deletedByUser User?    @relation("TaskDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
 
+  reminders TaskReminder[]
+
   @@index([tenantId, status])
   @@index([tenantId, projectId])
   @@index([tenantId, assigneeId])
@@ -1465,19 +1488,79 @@ enum TaskStatus {
   @@map("task_status")
 }
 
+/// Which due-date milestone a `TaskReminder` was sent for — the three cases
+/// PRD §4.2 asks for, no more (no "N days before" or tenant-configurable
+/// offsets).
+enum TaskReminderType {
+  DUE_TOMORROW
+  DUE_TODAY
+  OVERDUE
+
+  @@map("task_reminder_type")
+}
+
+/// One row per (task, recipient, reminder type) ever sent — the idempotency
+/// ledger for the scheduled reminder scan (`TaskReminderService`, PRD §4.2).
+/// A dedicated table rather than reusing `Notification` for the check: a
+/// `Notification` row records *that a message was delivered*, not *whether a
+/// DUE_TODAY reminder has already fired for this task* — deriving the latter
+/// from the former would mean matching on title/message text, which is
+/// fragile and not indexable the way `@@unique([taskId, userId, type])` is.
+/// That unique constraint is the actual duplicate-send guard — enforced by
+/// Postgres, not just application logic, so even a second overlapping scan
+/// run can't double-send. Never updated or soft-deleted: a permanent record
+/// of "this reminder was sent," matching `AuditLog`'s same reasoning for
+/// having no `deletedAt`.
+model TaskReminder {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  taskId   String @map("task_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  type   TaskReminderType @map("type")
+  sentAt DateTime         @default(now()) @map("sent_at") @db.Timestamptz
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation("TaskReminderRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId, type], name: "uq_task_reminder_once")
+  @@index([tenantId, taskId])
+  @@index([tenantId, userId])
+  @@map("task_reminders")
+}
+
 // =============================================================================
 // SECTION 11 — DOCUMENTS MODULE
 // =============================================================================
 //
 // Deliberately minimal, matching the same scope discipline used for Project/
-// Task: a single `Document` metadata table, no DocumentFolder/DocumentShare/
-// DocumentTemplate satellite tables, and `version` tracked as a plain
-// incrementing Int rather than a full version-history table. Matches
-// frontend/src/modules/documents/types/index.ts's `DocumentFile` shape,
-// which predates this schema and was marked PROVISIONAL pending backend
-// design. `category` is a fixed enum (mirrors the frontend's
-// DOCUMENT_CATEGORY_VALUES) rather than a tenant-configurable table like
-// BusinessType/ClientCategory — no signal that firms need custom categories.
+// Task: a single `Document` metadata table, no DocumentShare/DocumentTemplate
+// satellite tables, and `version` tracked as a plain incrementing Int rather
+// than a full version-history table. Matches frontend/src/modules/documents/
+// types/index.ts's `DocumentFile` shape, which predates this schema and was
+// marked PROVISIONAL pending backend design. `category` is a fixed enum
+// (mirrors the frontend's DOCUMENT_CATEGORY_VALUES) rather than a
+// tenant-configurable table like BusinessType/ClientCategory — no signal
+// that firms need custom categories.
+//
+// `DocumentFolder` (PRD §7.1) is an adjacency-list hierarchy — one
+// self-referencing `parentFolderId` — layered under Business → category, not
+// a fully separate module: it reuses `DocumentCategory`, `Document.folderId`
+// is optional (a document may sit flat under its Business/category with no
+// folder, exactly as before), and it deliberately does NOT touch
+// `Document.businessId`/`contactId` nullability. Those stay optional because
+// existing, intentionally-tested behavior (see
+// `tests/integration/modules/documents/document-access-scope.routes.spec.ts`'s
+// `clientPersonalDocumentId` fixture) allows a document to be linked only to
+// a `Contact` with no `Business` yet (e.g. an individual's personal ID before
+// any formal Business exists for them) — PRD 7.1 rule 1's "never introduce
+// tenant-level orphan documents" is read as forbidding a document anchored to
+// *neither* Business nor Contact (a true orphan), not as retroactively
+// banning that pre-existing Contact-only case; `DocumentService` enforces the
+// "at least one of businessId/contactId" rule (see that file). Folders
+// themselves, however, are always Business-rooted per the PRD's tree
+// (Business → Category → Folder → Subfolder → Documents) — `businessId` is
+// required on `DocumentFolder`.
 
 model Document {
   id       String @id @default(uuid()) @db.Uuid
@@ -1485,30 +1568,60 @@ model Document {
 
   businessId String? @map("business_id") @db.Uuid
   contactId  String? @map("contact_id") @db.Uuid
+  folderId   String? @map("folder_id") @db.Uuid
 
   category   DocumentCategory
   fileName   String           @map("file_name") @db.VarChar(255)
   storageKey String           @unique @map("storage_key") @db.VarChar(500)
   mimeType   String           @map("mime_type") @db.VarChar(150)
   sizeBytes  Int              @map("size_bytes")
-  version    Int              @default(1)
+
+  /// This row's own position in its version chain (1 for the first upload, 2+ for
+  /// each confirmed replacement — see `rootDocumentId`/`previousVersionId` below).
+  version         Int     @default(1)
+  /// True only for the newest row in the chain — the one every read (list/search/
+  /// download) should resolve to. Flipped to `false` on the prior latest row in the
+  /// same DB transaction that creates a new version (`DocumentService.createVersion`).
+  isLatestVersion Boolean @default(true) @map("is_latest_version")
+  /// Null on the chain's first (v1) row, which *is* the root; every later version
+  /// points at that same v1 row's id, so "all versions of a document" is a single
+  /// `WHERE id = rootId OR rootDocumentId = rootId` query (`DocumentRepository.findVersionChain`).
+  rootDocumentId String? @map("root_document_id") @db.Uuid
+  /// The version this one replaced, if any — `null` on v1. `@unique` because a given
+  /// version can only ever be superseded by exactly one next version.
+  previousVersionId String? @unique @map("previous_version_id") @db.Uuid
 
   uploadedById String @map("uploaded_by_id") @db.Uuid
+
+  /// PRD §7.4 — retention scaffolding only, no scheduler/enforcement exists yet. `archived`
+  /// marks a document as retired from active use; `retentionUntil` records the date it must be
+  /// kept until. Both are inert today — reserved for a future retention-policy feature.
+  archived       Boolean   @default(false) @map("archived")
+  retentionUntil DateTime? @map("retention_until") @db.Timestamptz
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
   deletedBy String?   @map("deleted_by") @db.Uuid
 
-  business      Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  contact       Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  uploadedBy    User      @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
-  deletedByUser User?     @relation("DocumentDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+  business      Business?       @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  contact       Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  folder        DocumentFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  uploadedBy    User            @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  deletedByUser User?           @relation("DocumentDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  rootDocument    Document?  @relation("DocumentVersionGroup", fields: [rootDocumentId], references: [id], onDelete: SetNull)
+  versions        Document[] @relation("DocumentVersionGroup")
+  previousVersion Document?  @relation("DocumentVersionChain", fields: [previousVersionId], references: [id], onDelete: SetNull)
+  nextVersion     Document?  @relation("DocumentVersionChain")
 
   @@index([tenantId, category])
   @@index([tenantId, businessId])
   @@index([tenantId, contactId])
+  @@index([tenantId, folderId])
   @@index([tenantId, deletedAt])
+  @@index([tenantId, rootDocumentId])
+  @@index([tenantId, archived])
   @@index([fileName(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("documents")
 }
@@ -1527,6 +1640,41 @@ enum DocumentCategory {
   OTHER
 
   @@map("document_category")
+}
+
+/// Adjacency-list folder hierarchy (PRD §7.1 rule 3): Business → category →
+/// Folder → Subfolder → Documents. Always rooted at one Business and one
+/// category — `parentFolder`, if set, must belong to the same
+/// `businessId`/`category` (enforced in `DocumentFolderService`, not the DB,
+/// mirroring how `Document`'s own cross-field rules are enforced at the
+/// service layer per this schema's other header comments).
+model DocumentFolder {
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
+
+  category DocumentCategory
+
+  parentFolderId String? @map("parent_folder_id") @db.Uuid
+  name           String  @db.VarChar(255)
+
+  createdById String    @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+
+  business     Business         @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  parentFolder DocumentFolder?  @relation("FolderHierarchy", fields: [parentFolderId], references: [id], onDelete: Restrict)
+  childFolders DocumentFolder[] @relation("FolderHierarchy")
+  createdBy    User             @relation("DocumentFolderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  documents    Document[]
+
+  @@unique([tenantId, businessId, category, parentFolderId, name], name: "uq_folder_sibling_name")
+  @@index([tenantId, businessId, category])
+  @@index([tenantId, parentFolderId])
+  @@index([tenantId, deletedAt])
+  @@map("document_folders")
 }
 
 // =============================================================================
@@ -1861,6 +2009,10 @@ model Plan {
   maxClients   Int? @map("max_clients")
   maxStorageGb Int? @map("max_storage_gb")
   maxDocuments Int? @map("max_documents")
+  /// PRD §7.4 — per-file upload size ceiling in MB for tenants on this plan (e.g. Starter 100,
+  /// Professional 250, Enterprise 1024). Copied onto `Tenant.maxUploadSizeMb` by
+  /// `TenantBillingRepository.applyPlan()`, same flow as `maxStorageGb`.
+  maxUploadSizeMb Int? @map("max_upload_size_mb")
 
   isActive     Boolean @default(true) @map("is_active")
   displayOrder Int     @default(0) @map("display_order")
@@ -1990,6 +2142,10 @@ enum AuditEventType {
   UPLOAD
   DOWNLOAD
   SHARE
+  /// A new `Document` version was created via the PRD §7.2 replace flow
+  /// (`DocumentService.createVersion`) — distinct from `UPLOAD`, which is only ever
+  /// the first version of a document.
+  VERSION_CREATE
   LOGIN
   LOGOUT
   ROLE_CHANGE
@@ -1998,6 +2154,18 @@ enum AuditEventType {
   PERMISSION_CHANGE
   PASSWORD_RESET
   INVITATION_ACCEPTED
+  /// A `TaskReminder` (DUE_TOMORROW/DUE_TODAY/OVERDUE) was dispatched by the
+  /// scheduled reminder scan — the only `AuditLog` event type ever written by
+  /// a system/cron actor rather than a real authenticated request; see
+  /// `TaskReminderService`'s header comment.
+  TASK_REMINDER_SENT
+  /// PRD §7.4 — a tenant/business/plan storage or upload-limit setting was changed
+  /// (master-admin tenant limits, firm storage settings, business quota override).
+  SETTINGS_UPDATE
+  /// PRD §7.4 — an upload was blocked by the file-size limit or a business/tenant
+  /// storage quota. Written best-effort by `DocumentService.assertUploadAllowed()`,
+  /// same swallow-errors semantics as every other `AuditLogRecorder.record()` call.
+  UPLOAD_REJECTED
 
   @@map("audit_event_type")
 }

@@ -9,7 +9,7 @@ jest.mock('@config/database', () => ({
 jest.mock('@config/queue', () => ({ emailQueue: { add: jest.fn().mockResolvedValue(undefined) } }));
 
 import { Request } from 'express';
-import { Tenant, TenantStatus, SubscriptionStatus, RoleType, User, UserStatus, NotificationChannel } from '@prisma/client';
+import { Tenant, TenantStatus, SubscriptionStatus, RoleType, User, UserStatus, NotificationChannel, AuditEventType } from '@prisma/client';
 import { NotFoundError } from '@shared/errors';
 import { TenantService } from '@modules/master-admin/service/tenant.service';
 import { TenantRepository } from '@modules/master-admin/repository/tenant.repository';
@@ -18,6 +18,7 @@ import { UserRepository } from '@modules/users/repository/user.repository';
 import { UserInvitationRepository } from '@modules/users/repository/user-invitation.repository';
 import { RoleRepository } from '@modules/roles/repository/role.repository';
 import { PermissionRepository } from '@modules/permissions/repository/permission.repository';
+import { AuditLogRecorder } from '@modules/audit';
 import { emailQueue } from '@config/queue';
 import type { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import type {
@@ -64,12 +65,19 @@ function createFakeRequest(): Request {
 
 /** A master-admin-authenticated request — `BaseService.userId` reads `req.user.id`, which for a master-admin JWT is the admin's own id (see `master-admin-auth.service.ts`'s `login()`). */
 function createMasterAdminRequest(): Request {
-  return { correlationId: 'test-correlation-id', user: { id: MASTER_ADMIN_ID } } as unknown as Request;
+  return {
+    correlationId: 'test-correlation-id',
+    user: { id: MASTER_ADMIN_ID, email: 'admin@platform.test' },
+    ip: '127.0.0.1',
+  } as unknown as Request;
 }
 
-/** Returns `null` (no owner found) by default — sufficient for `notifyOwner()`'s best-effort dispatch to no-op cleanly, since it isn't the subject of these tests. */
-function createMockUserRepository(): { findOwnerByTenant: jest.Mock } {
-  return { findOwnerByTenant: jest.fn().mockResolvedValue(null) };
+/** `findOwnerByTenant` returns `null` (no owner found) by default — sufficient for `notifyOwner()`'s best-effort dispatch to no-op cleanly, since it isn't the subject of most of these tests. `search` backs `listTenantUsers()`. */
+function createMockUserRepository(): { findOwnerByTenant: jest.Mock; search: jest.Mock } {
+  return {
+    findOwnerByTenant: jest.fn().mockResolvedValue(null),
+    search: jest.fn().mockResolvedValue({ data: [], meta: { page: 1, limit: 200, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false } }),
+  };
 }
 
 function createMockUserInvitationRepository(): { [K in keyof UserInvitationRepository]: jest.Mock } {
@@ -108,6 +116,7 @@ function createMockTenant(overrides: Partial<Tenant> = {}): Tenant {
     maxClients: 500,
     maxStorageGb: 50,
     maxDocuments: 5000,
+    maxUploadSizeMb: null,
     onboardingCompletedAt: null,
     createdAt: now,
     updatedAt: now,
@@ -156,14 +165,19 @@ function createMockNotificationDispatchService(): { send: jest.Mock } {
   return { send: jest.fn().mockResolvedValue([]) };
 }
 
+function createMockAuditLogRecorder(): { record: jest.Mock } {
+  return { record: jest.fn().mockResolvedValue(undefined) };
+}
+
 function createService(
   repository: MockedTenantRepository,
-  userRepository: { findOwnerByTenant: jest.Mock } = createMockUserRepository(),
+  userRepository: { findOwnerByTenant: jest.Mock; search: jest.Mock } = createMockUserRepository(),
   notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
   request: Request = createFakeRequest(),
   userInvitationRepository: { [K in keyof UserInvitationRepository]: jest.Mock } = createMockUserInvitationRepository(),
   roleRepository: { create: jest.Mock } = createMockRoleRepository(),
   permissionRepository: { findAll: jest.Mock } = createMockPermissionRepository(),
+  auditLogRecorder: { record: jest.Mock } = createMockAuditLogRecorder(),
 ): TenantService {
   return new TenantService(
     request,
@@ -173,6 +187,7 @@ function createService(
     roleRepository as unknown as RoleRepository,
     permissionRepository as unknown as PermissionRepository,
     notificationDispatchService as unknown as NotificationDispatchService,
+    auditLogRecorder as unknown as AuditLogRecorder,
   );
 }
 
@@ -425,6 +440,108 @@ describe('TenantService', () => {
       expect(repo.updateLimits).toHaveBeenCalledWith(TENANT_ID, dto);
       expect(result.maxUsers).toBe(50);
       expect(result.planCode).toBe('enterprise');
+    });
+
+    // PRD §7.4 — maxUploadSizeMb flows through updateLimits exactly like every other plan limit.
+    it('passes maxUploadSizeMb through to the repository and the response', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTenant());
+      repo.updateLimits.mockResolvedValue(createMockTenant({ maxUploadSizeMb: 1024 }));
+      repo.getUsage.mockResolvedValue(USAGE);
+
+      const service = createService(repo);
+      const dto: UpdateTenantLimitsDto = { maxUploadSizeMb: 1024 };
+      const result = await service.updateLimits(TENANT_ID, dto);
+
+      expect(repo.updateLimits).toHaveBeenCalledWith(TENANT_ID, dto);
+      expect(result.maxUploadSizeMb).toBe(1024);
+    });
+
+    // PRD §7.4 — "changing upload limits must generate audit logs."
+    it('audit-logs a SETTINGS_UPDATE entry attributed to the master admin, with an explicit actorName override', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTenant());
+      repo.updateLimits.mockResolvedValue(createMockTenant({ maxUploadSizeMb: 1024 }));
+      repo.getUsage.mockResolvedValue(USAGE);
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(
+        repo,
+        createMockUserRepository(),
+        createMockNotificationDispatchService(),
+        createMasterAdminRequest(),
+        createMockUserInvitationRepository(),
+        createMockRoleRepository(),
+        createMockPermissionRepository(),
+        auditLogRecorder,
+      );
+      await service.updateLimits(TENANT_ID, { maxUploadSizeMb: 1024 });
+
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          actorId: MASTER_ADMIN_ID,
+          eventType: AuditEventType.SETTINGS_UPDATE,
+          targetType: 'Tenant',
+          targetId: TENANT_ID,
+          actorName: 'admin@platform.test',
+        }),
+      );
+    });
+
+    it('does not audit-log when the request has no authenticated actor', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTenant());
+      repo.updateLimits.mockResolvedValue(createMockTenant());
+      repo.getUsage.mockResolvedValue(USAGE);
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(
+        repo,
+        createMockUserRepository(),
+        createMockNotificationDispatchService(),
+        createFakeRequest(), // no `user`
+        createMockUserInvitationRepository(),
+        createMockRoleRepository(),
+        createMockPermissionRepository(),
+        auditLogRecorder,
+      );
+      await service.updateLimits(TENANT_ID, { maxUsers: 10 });
+
+      expect(auditLogRecorder.record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listTenantUsers', () => {
+    it('throws NotFoundError when the tenant does not exist, without querying users', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(null);
+      const userRepo = createMockUserRepository();
+
+      const service = createService(repo, userRepo);
+
+      await expect(service.listTenantUsers('missing-id')).rejects.toThrow(NotFoundError);
+      expect(userRepo.search).not.toHaveBeenCalled();
+    });
+
+    it('scopes the user search to this tenant and maps each row to a minimal id/name/email option', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTenant());
+      const userRepo = createMockUserRepository();
+      userRepo.search.mockResolvedValue({
+        data: [createMockOwner({ id: 'user-a', firstName: 'Rohan', lastName: 'Mehta', email: 'rohan@acme.test' })],
+        meta: { page: 1, limit: 200, total: 1, totalPages: 1, hasNextPage: false, hasPrevPage: false },
+      });
+
+      const service = createService(repo, userRepo);
+      const result = await service.listTenantUsers(TENANT_ID);
+
+      expect(userRepo.search).toHaveBeenCalledWith(
+        {},
+        { page: 1, limit: 200, sortBy: 'firstName', sortOrder: 'asc' },
+        { tenantId: TENANT_ID },
+      );
+      expect(result).toEqual([{ id: 'user-a', name: 'Rohan Mehta', email: 'rohan@acme.test' }]);
     });
   });
 });

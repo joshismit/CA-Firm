@@ -200,6 +200,7 @@ export class BillingService extends BaseService {
         maxClients: invoice.plan.maxClients,
         maxStorageGb: invoice.plan.maxStorageGb,
         maxDocuments: invoice.plan.maxDocuments,
+        maxUploadSizeMb: invoice.plan.maxUploadSizeMb,
       }),
     ]);
 

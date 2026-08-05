@@ -114,6 +114,29 @@ export class RoleRepository extends BaseRepository<Prisma.RoleDelegate, Role> {
     await this.prisma.userRole.delete({ where: { id } });
   }
 
+  /**
+   * Resolves a user's currently-active role names: `UserRole` (not expired)
+   * → `Role` (active, not soft-deleted) → `Role.name`. Same query shape as
+   * `AuthRepository.resolvePermissionCodes()`, but returns role *names*
+   * rather than flattened permission codes — used by
+   * `DocumentAccessScopeService` to detect Accountant/Auditor membership at
+   * request time (deliberately not cached in the JWT, so an assignment
+   * change takes effect without the user needing to re-login).
+   */
+  async findActiveRoleNamesForUser(userId: string, tenantId: string): Promise<string[]> {
+    const assignments = await this.prisma.userRole.findMany({
+      where: {
+        userId,
+        tenantId,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        role: { isActive: true, deletedAt: null },
+      },
+      select: { role: { select: { name: true } } },
+    });
+
+    return assignments.map((assignment) => assignment.role.name);
+  }
+
   /** Users currently holding this role (excluding expired assignments and soft-deleted users) — for GET /roles/:id/users. */
   async findActiveUsersForRole(roleId: string, tenantId: string): Promise<User[]> {
     const assignments = await this.prisma.userRole.findMany({

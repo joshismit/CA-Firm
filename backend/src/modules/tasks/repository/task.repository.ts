@@ -88,6 +88,28 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
   }
 
   /**
+   * Tasks eligible for a `TaskReminder` (PRD §4.2): open (non-terminal) status,
+   * has an assignee (there's nobody to remind otherwise), and `dueDate` falls
+   * within the caller's range. Deliberately unscoped by default — the
+   * reminder scan runs once across every tenant, not per-tenant, so
+   * `TaskReminderService` always passes `{ ignoreTenant: true }` here (the
+   * same escape hatch `MasterAdminAuditService` uses for the same reason).
+   * `dueDateRange` is a plain `[gte, lt)` pair rather than a `Prisma.DateTimeFilter`
+   * so this method's signature stays Prisma-agnostic, matching every other
+   * method on this repository.
+   */
+  async findReminderCandidates(dueDateRange: { gte?: Date; lt?: Date }, options: RepositoryOptions = {}): Promise<Task[]> {
+    return this.findMany(
+      {
+        dueDate: dueDateRange,
+        status: { notIn: TERMINAL_STATUSES },
+        assigneeId: { not: null },
+      },
+      options,
+    );
+  }
+
+  /**
    * Paginated search combining the standard list filters. Builds the Prisma
    * `where` clause internally so callers only ever deal with
    * `TaskSearchFilters`.

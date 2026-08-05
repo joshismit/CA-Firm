@@ -10,6 +10,7 @@ export enum PermissionAction {
   EXPORT = 'export',
   IMPORT = 'import',
   APPROVE = 'approve',
+  SHARE = 'share',
   MANAGE = 'manage',     // Full control (admin only)
 }
 

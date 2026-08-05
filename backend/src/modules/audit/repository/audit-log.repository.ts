@@ -9,6 +9,16 @@ export interface AuditLogSearchFilters {
   targetType?: string;
   from?: Date;
   to?: Date;
+  /**
+   * Restricts the search to one tenant. Only ever set by the master-admin
+   * cross-tenant caller (`modules/master-admin/service/master-admin-audit.service.ts`),
+   * which also passes `{ ignoreTenant: true }` in `options` so `BaseRepository`'s
+   * mandatory tenant guard doesn't fire — see that guard's comment on
+   * `RepositoryOptions.ignoreTenant`. The tenant-scoped `AuditLogService` never
+   * sets this; it relies entirely on `options.tenantId` instead, exactly as
+   * before this field existed.
+   */
+  tenantId?: string;
 }
 
 export interface RecordAuditLogInput {
@@ -45,6 +55,9 @@ export class AuditLogRepository extends BaseRepository<Prisma.AuditLogDelegate, 
   ): Promise<{ data: AuditLog[]; meta: PaginationMeta }> {
     const where: Prisma.AuditLogWhereInput = {};
 
+    if (filters.tenantId) {
+      where.tenantId = filters.tenantId;
+    }
     if (filters.eventType) {
       where.eventType = filters.eventType;
     }

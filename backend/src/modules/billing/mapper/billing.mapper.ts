@@ -21,6 +21,7 @@ export class BillingMapper {
       maxClients: plan.maxClients,
       maxStorageGb: plan.maxStorageGb,
       maxDocuments: plan.maxDocuments,
+      maxUploadSizeMb: plan.maxUploadSizeMb,
       isActive: plan.isActive,
       displayOrder: plan.displayOrder,
     };

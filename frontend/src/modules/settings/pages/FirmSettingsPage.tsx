@@ -11,7 +11,7 @@ import { Can } from '@/components/common/Can'
 import { PERMISSIONS } from '@/config/permissions.config'
 import { normalizeApiError } from '@/services/api-error'
 import { useFirmSettingsQuery, useUpdateFirmSettingsMutation } from '../hooks'
-import { SettingsNav, SettingsSection, FirmSettingsForm } from '../components'
+import { SettingsNav, SettingsSection, FirmSettingsForm, StorageSettingsCard } from '../components'
 import type { UpdateFirmSettingsFormValues } from '../schemas'
 
 export function FirmSettingsPage() {
@@ -69,6 +69,8 @@ export function FirmSettingsPage() {
               </div>
             )}
           </SettingsSection>
+
+          <StorageSettingsCard />
         </div>
       </PageContent>
     </PageLayout>

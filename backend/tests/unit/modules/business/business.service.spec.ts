@@ -10,11 +10,14 @@ import { Business, BusinessStatus, BusinessType } from '@prisma/client';
  * Stubbing the module here is test-only and does not touch production code.
  */
 jest.mock('@config/database', () => ({ prisma: {} }));
+import { AuditEventType } from '@prisma/client';
 import { UserRole } from '@shared/enums';
 import { NotFoundError } from '@shared/errors';
 import { BusinessService } from '@modules/business/service/business.service';
 import { BusinessRepository } from '@modules/business/repository/business.repository';
 import { BusinessTypeRepository } from '@modules/business/repository/business-type.repository';
+import { StorageQuotaService } from '@modules/documents';
+import { AuditLogRecorder } from '@modules/audit';
 import { CreateBusinessDto, ListBusinessesQueryDto, UpdateBusinessDto } from '@modules/business/dto/business.req.dto';
 
 /**
@@ -42,6 +45,9 @@ type MockedBusinessTypeRepository = {
   [K in 'listActive']: jest.Mock;
 };
 
+type MockedStorageQuotaService = { [K in 'getBusinessStorageSummary']: jest.Mock };
+type MockedAuditLogRecorder = { record: jest.Mock };
+
 function createMockRepository(): MockedBusinessRepository {
   return {
     findById: jest.fn(),
@@ -54,6 +60,16 @@ function createMockRepository(): MockedBusinessRepository {
 
 function createMockTypeRepository(): MockedBusinessTypeRepository {
   return { listActive: jest.fn() };
+}
+
+function createMockStorageQuotaService(): MockedStorageQuotaService {
+  return {
+    getBusinessStorageSummary: jest.fn().mockResolvedValue({ usedBytes: 0, quotaBytes: 500 * 1024 * 1024, remainingBytes: 500 * 1024 * 1024 }),
+  };
+}
+
+function createMockAuditLogRecorder(): MockedAuditLogRecorder {
+  return { record: jest.fn().mockResolvedValue(undefined) };
 }
 
 function createFakeRequest(): Request {
@@ -79,6 +95,7 @@ function createMockBusiness(overrides: Partial<Business> = {}): Business {
     incorporationDate: null,
     financialYearStart: 4,
     industry: null,
+    storageQuotaMb: null,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -103,11 +120,15 @@ function createMockBusinessType(overrides: Partial<BusinessType> = {}): Business
 function createService(
   repository: MockedBusinessRepository,
   typeRepository: MockedBusinessTypeRepository = createMockTypeRepository(),
+  storageQuotaService: MockedStorageQuotaService = createMockStorageQuotaService(),
+  auditLogRecorder: MockedAuditLogRecorder = createMockAuditLogRecorder(),
 ): BusinessService {
   return new BusinessService(
     createFakeRequest(),
     repository as unknown as BusinessRepository,
     typeRepository as unknown as BusinessTypeRepository,
+    storageQuotaService as unknown as StorageQuotaService,
+    auditLogRecorder as unknown as AuditLogRecorder,
   );
 }
 
@@ -208,6 +229,53 @@ describe('BusinessService', () => {
       expect(repo.update).toHaveBeenCalledWith('business-1', dto, { tenantId: TENANT_ID });
       expect(result).toBe(updated);
     });
+
+    // ────────────────────────────────────────────────────────────────────
+    // storageQuotaMb (PRD §7.4) — audit-logged only when it actually changes
+    // ────────────────────────────────────────────────────────────────────
+    it('audit-logs a SETTINGS_UPDATE entry when storageQuotaMb changes', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness({ storageQuotaMb: null }));
+      repo.update.mockResolvedValue(createMockBusiness({ storageQuotaMb: 1000 }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
+      await service.updateBusiness('business-1', { storageQuotaMb: 1000 });
+
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          actorId: USER_ID,
+          eventType: AuditEventType.SETTINGS_UPDATE,
+          targetType: 'Business',
+          targetId: 'business-33333333-3333-3333-3333-333333333333',
+        }),
+      );
+    });
+
+    it('does not audit-log when storageQuotaMb is absent from the update payload', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness({ storageQuotaMb: null }));
+      repo.update.mockResolvedValue(createMockBusiness({ name: 'Renamed only' }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
+      await service.updateBusiness('business-1', { name: 'Renamed only' });
+
+      expect(auditLogRecorder.record).not.toHaveBeenCalled();
+    });
+
+    it('does not audit-log a no-op re-set to the same storageQuotaMb value', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness({ storageQuotaMb: 1000 }));
+      repo.update.mockResolvedValue(createMockBusiness({ storageQuotaMb: 1000 }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
+      await service.updateBusiness('business-1', { storageQuotaMb: 1000 });
+
+      expect(auditLogRecorder.record).not.toHaveBeenCalled();
+    });
   });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -259,6 +327,37 @@ describe('BusinessService', () => {
       const service = createService(repo);
 
       await expect(service.getBusinessById('missing-id')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // getBusinessStorageUsage (PRD §7.4)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('getBusinessStorageUsage', () => {
+    it('throws NotFoundError when no business matches the ID', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(null);
+      const storageQuotaService = createMockStorageQuotaService();
+
+      const service = createService(repo, createMockTypeRepository(), storageQuotaService);
+
+      await expect(service.getBusinessStorageUsage('missing-id')).rejects.toThrow(NotFoundError);
+      expect(storageQuotaService.getBusinessStorageSummary).not.toHaveBeenCalled();
+    });
+
+    it('delegates to StorageQuotaService.getBusinessStorageSummary, reusing the same engine DocumentService enforces uploads against', async () => {
+      const repo = createMockRepository();
+      const business = createMockBusiness();
+      repo.findById.mockResolvedValue(business);
+      const storageQuotaService = createMockStorageQuotaService();
+      const summary = { usedBytes: 12_345, quotaBytes: 500 * 1024 * 1024, remainingBytes: 500 * 1024 * 1024 - 12_345 };
+      storageQuotaService.getBusinessStorageSummary.mockResolvedValue(summary);
+
+      const service = createService(repo, createMockTypeRepository(), storageQuotaService);
+      const result = await service.getBusinessStorageUsage(business.id);
+
+      expect(storageQuotaService.getBusinessStorageSummary).toHaveBeenCalledWith(TENANT_ID, business.id);
+      expect(result).toBe(summary);
     });
   });
 

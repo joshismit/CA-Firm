@@ -19,8 +19,24 @@ export interface BusinessResponseDto {
   incorporationDate: string | null;
   financialYearStart: number;
   industry: string | null;
+  /** PRD §7.4 — per-business storage quota override in MB; `null` = inherit the tenant's default. */
+  storageQuotaMb: number | null;
+  /**
+   * PRD §7.4 — live storage usage summary. Only populated on `GET /business/:id` (one aggregate
+   * query per request) — omitted from the list endpoint (`GET /business`) to keep paginated
+   * listings cheap, mirroring `TenantResponseDto` (list) vs `TenantDetailResponseDto` (detail) in
+   * the master-admin module.
+   */
+  storageUsage?: BusinessStorageUsageDto;
   createdAt: string;
   updatedAt: string;
+}
+
+/** PRD §7.4 — see `StorageQuotaService.getBusinessStorageSummary()`. */
+export interface BusinessStorageUsageDto {
+  usedBytes: number;
+  quotaBytes: number;
+  remainingBytes: number;
 }
 
 /**

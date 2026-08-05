@@ -64,6 +64,7 @@ export class PlanService extends BaseService {
       maxClients: dto.maxClients ?? null,
       maxStorageGb: dto.maxStorageGb ?? null,
       maxDocuments: dto.maxDocuments ?? null,
+      maxUploadSizeMb: dto.maxUploadSizeMb ?? null,
       displayOrder: dto.displayOrder ?? 0,
     });
     return BillingMapper.toPlanResponseDto(plan);

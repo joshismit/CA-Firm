@@ -27,6 +27,8 @@ export const createPlanSchema = z.object({
   maxClients: z.coerce.number().int().min(0).nullable().optional(),
   maxStorageGb: z.coerce.number().int().min(0).nullable().optional(),
   maxDocuments: z.coerce.number().int().min(0).nullable().optional(),
+  // PRD §7.4 — per-file upload size ceiling in MB for tenants on this plan.
+  maxUploadSizeMb: z.coerce.number().int().min(0).nullable().optional(),
   displayOrder: z.coerce.number().int().min(0).optional(),
 });
 
@@ -37,6 +39,7 @@ export const updatePlanSchema = z.object({
   maxClients: z.coerce.number().int().min(0).nullable().optional(),
   maxStorageGb: z.coerce.number().int().min(0).nullable().optional(),
   maxDocuments: z.coerce.number().int().min(0).nullable().optional(),
+  maxUploadSizeMb: z.coerce.number().int().min(0).nullable().optional(),
   displayOrder: z.coerce.number().int().min(0).optional(),
   isActive: z.coerce.boolean().optional(),
 });

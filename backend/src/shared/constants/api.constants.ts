@@ -57,28 +57,40 @@ export const OTP = {
   RATE_LIMIT_WINDOW_MINUTES: 60,
 } as const;
 
-// ─── File Upload ──────────────────────────────────────────────────────────────
+// ─── File Upload (PRD §7.4 — Upload Rules) ────────────────────────────────────
 
 export const UPLOAD = {
-  /** Maximum file size for general document uploads (bytes) — 10 MB */
-  MAX_FILE_SIZE_BYTES: 10 * 1024 * 1024,
+  /**
+   * Default per-file upload size limit for document uploads (bytes) — 100 MB.
+   * Used when a tenant has no plan-derived override (`Tenant.maxUploadSizeMb`,
+   * see `StorageQuotaService.getEffectiveMaxUploadBytes()`). Never compare a
+   * file's size against this constant directly — always go through
+   * `StorageQuotaService`, which resolves the tenant's effective limit first.
+   */
+  DEFAULT_MAX_FILE_SIZE_BYTES: 100 * 1024 * 1024,
+  /**
+   * Absolute transport-layer ceiling `multer` enforces on every request
+   * regardless of tenant/plan (see `document.routes.ts`) — a safety backstop
+   * against abuse, not a business rule. Must stay >= the largest plan tier's
+   * `maxUploadSizeMb` (Enterprise, 1024 MB) or a legitimate Enterprise upload
+   * would be rejected by multer before `StorageQuotaService` ever runs.
+   */
+  MAX_FILE_SIZE_CEILING_BYTES: 1024 * 1024 * 1024,
+  /**
+   * Default per-business storage quota (bytes) — 500 MB. Used when neither
+   * `Business.storageQuotaMb` nor `TenantSettings.defaultBusinessStorageQuotaMb`
+   * is set. See `StorageQuotaService.getBusinessStorageSummary()`.
+   */
+  DEFAULT_BUSINESS_STORAGE_QUOTA_BYTES: 500 * 1024 * 1024,
   /** Maximum file size for avatar/logo uploads (bytes) — 2 MB */
   MAX_AVATAR_SIZE_BYTES: 2 * 1024 * 1024,
   /** Maximum file size for bulk imports (bytes) — 25 MB */
   MAX_IMPORT_SIZE_BYTES: 25 * 1024 * 1024,
-  /** Permitted MIME types for document uploads */
-  ALLOWED_DOCUMENT_TYPES: [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'text/plain',
-    'text/csv',
-  ] as const,
+  /**
+   * Permitted extensions/MIME types for document uploads (PRD §7.5) now live in
+   * `SUPPORTED_DOCUMENT_TYPES` (`file-types.constants.ts`) — the single source of truth shared by
+   * the `multer` fileFilter and `DocumentService`. Not duplicated here.
+   */
   /** Permitted MIME types for avatar/logo uploads */
   ALLOWED_AVATAR_TYPES: [
     'image/jpeg',
@@ -183,6 +195,28 @@ export const AUDIT = {
   RETENTION_DAYS: 365 * 8,
   /** Maximum number of audit log entries to return in a single query */
   MAX_QUERY_LIMIT: 500,
+  /**
+   * Sentinel `actorId` for an `AuditLog` entry written by a scheduled job
+   * rather than a real authenticated request (currently only
+   * `TaskReminderService`) — the nil UUID, guaranteed to never collide with a
+   * real `User.id` (a `uuid()` default never generates it). `AuditLog.actorId`
+   * has no FK to `User`, so this is a safe, greppable placeholder rather than
+   * a real row that would need to exist.
+   */
+  SYSTEM_ACTOR_ID: '00000000-0000-0000-0000-000000000000',
+  /** Paired with `SYSTEM_ACTOR_ID` — passed as `AuditLogRecorder`'s `actorName` override so it never attempts (and fails) a `User` lookup for this id. */
+  SYSTEM_ACTOR_NAME: 'System',
+} as const;
+
+// ─── Task Reminders (PRD §4.2) ─────────────────────────────────────────────────
+
+export const TASK_REMINDER = {
+  /** Cron schedule for the daily reminder scan — once a day is sufficient since `Task.dueDate` is a
+   *  date (not a datetime): re-running more often within the same day can never change which of the
+   *  three cases a task falls into. 08:00 server time, before most firms' work day starts. */
+  CRON_SCHEDULE: '0 8 * * *',
+  /** BullMQ repeatable job name — also the idempotency key `scheduleTaskReminderJob()` dedupes on. */
+  JOB_NAME: 'scan',
 } as const;
 
 // ─── White-Label (PRD §4.3) ───────────────────────────────────────────────────

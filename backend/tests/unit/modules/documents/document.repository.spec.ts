@@ -217,6 +217,34 @@ describe('DocumentRepository', () => {
       expect(where).not.toHaveProperty('category');
       expect(where).not.toHaveProperty('businessId');
       expect(where).not.toHaveProperty('fileName');
+      expect(where).not.toHaveProperty('folderId');
+      expect(where).not.toHaveProperty('createdAt');
+    });
+
+    it('filters by folderId when provided', async () => {
+      const { repository, delegate } = createRepository();
+      delegate.findMany.mockResolvedValue([]);
+      delegate.count.mockResolvedValue(0);
+
+      await repository.search({ folderId: 'folder-1' }, { page: 1, limit: 20 }, { tenantId: TENANT_ID });
+
+      expect(delegate.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ folderId: 'folder-1' }) }),
+      );
+    });
+
+    it('builds a createdAt gte/lte clause from uploadedFrom/uploadedTo', async () => {
+      const { repository, delegate } = createRepository();
+      delegate.findMany.mockResolvedValue([]);
+      delegate.count.mockResolvedValue(0);
+      const from = new Date('2026-01-01T00:00:00.000Z');
+      const to = new Date('2026-01-31T23:59:59.999Z');
+
+      await repository.search({ uploadedFrom: from, uploadedTo: to }, { page: 1, limit: 20 }, { tenantId: TENANT_ID });
+
+      expect(delegate.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ createdAt: { gte: from, lte: to } }) }),
+      );
     });
   });
 
@@ -253,6 +281,74 @@ describe('DocumentRepository', () => {
       await repository.search({}, { page: 1, limit: 20 }, { tenantId: TENANT_ID });
 
       expect(delegate.findMany).toHaveBeenCalledWith(expect.objectContaining({ orderBy: undefined }));
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Versioning (PRD §7.2)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('findConflict', () => {
+    it('looks up the current latest version matching Business+Contact+Folder+Category+filename', async () => {
+      const { repository, delegate } = createRepository();
+      delegate.findFirst.mockResolvedValue(null);
+
+      await repository.findConflict(
+        { businessId: 'business-1', contactId: null, folderId: 'folder-1', category: DocumentCategory.PAN, fileName: 'pan-card.pdf' },
+        { tenantId: TENANT_ID },
+      );
+
+      expect(delegate.findFirst).toHaveBeenCalledWith({
+        where: {
+          businessId: 'business-1',
+          contactId: null,
+          folderId: 'folder-1',
+          category: DocumentCategory.PAN,
+          fileName: 'pan-card.pdf',
+          isLatestVersion: true,
+          deletedAt: null,
+          tenantId: TENANT_ID,
+        },
+        include: undefined,
+        orderBy: undefined,
+      });
+    });
+
+    it('returns null when no conflict exists', async () => {
+      const { repository, delegate } = createRepository();
+      delegate.findFirst.mockResolvedValue(null);
+
+      const result = await repository.findConflict(
+        { businessId: 'business-1', contactId: null, folderId: null, category: DocumentCategory.PAN, fileName: 'pan-card.pdf' },
+        { tenantId: TENANT_ID },
+      );
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('findVersionChain', () => {
+    it('queries the root row plus every version pointing at it, oldest first, when given a v1 (root) row', async () => {
+      const { repository, delegate } = createRepository();
+      delegate.findMany.mockResolvedValue([]);
+
+      await repository.findVersionChain({ id: 'doc-1', rootDocumentId: null }, { tenantId: TENANT_ID });
+
+      expect(delegate.findMany).toHaveBeenCalledWith({
+        where: { OR: [{ id: 'doc-1' }, { rootDocumentId: 'doc-1' }], deletedAt: null, tenantId: TENANT_ID },
+        include: undefined,
+        orderBy: { version: 'asc' },
+      });
+    });
+
+    it('resolves the root id from rootDocumentId when given a later version', async () => {
+      const { repository, delegate } = createRepository();
+      delegate.findMany.mockResolvedValue([]);
+
+      await repository.findVersionChain({ id: 'doc-2', rootDocumentId: 'doc-1' }, { tenantId: TENANT_ID });
+
+      expect(delegate.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ OR: [{ id: 'doc-1' }, { rootDocumentId: 'doc-1' }] }) }),
+      );
     });
   });
 });

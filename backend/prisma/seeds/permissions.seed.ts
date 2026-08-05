@@ -271,6 +271,12 @@ const DOCUMENT_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     name: 'Export Documents',
     description: 'Export/download document lists and reports.',
   },
+  {
+    action: PermissionAction.SHARE,
+    dbAction: PrismaPermissionAction.SHARE,
+    name: 'Share Documents',
+    description: 'Grant another user in the tenant access to a specific document.',
+  },
 ];
 
 const TASK_PERMISSION_DEFINITIONS: PermissionDefinition[] = [

@@ -3,7 +3,7 @@
 // repository/document.repository.ts: `where.businessId = filters.businessId` - a direct FK, unlike
 // Contacts' indirect ContactRole join). Reuses the Documents module's own useDocumentsQuery hook
 // directly, mirroring BusinessContactsCard's identical cross-module reuse.
-import { FileText } from 'lucide-react'
+import { FileText, FolderTree } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Card, CardHeader } from '@/components/shared/Card/Card'
 import { Spinner, ErrorState, EmptyState } from '@/components/feedback'
@@ -25,14 +25,23 @@ export function BusinessDocumentsCard({ businessId }: BusinessDocumentsCardProps
       <CardHeader
         title="Documents"
         action={
-          data && data.meta.total > 0 ? (
+          <div className="flex items-center gap-3">
             <Link
-              to={`/documents?businessId=${businessId}`}
-              className="text-[12px] text-[var(--color-primary-600)] hover:text-[var(--color-primary-700)]"
+              to={`/documents/folders/${businessId}`}
+              className="flex items-center gap-1 text-[12px] text-[var(--color-primary-600)] hover:text-[var(--color-primary-700)]"
             >
-              View all ({data.meta.total})
+              <FolderTree className="w-3.5 h-3.5" />
+              Browse folders
             </Link>
-          ) : undefined
+            {data && data.meta.total > 0 && (
+              <Link
+                to={`/documents?businessId=${businessId}`}
+                className="text-[12px] text-[var(--color-primary-600)] hover:text-[var(--color-primary-700)]"
+              >
+                View all ({data.meta.total})
+              </Link>
+            )}
+          </div>
         }
       />
       {isLoading ? (

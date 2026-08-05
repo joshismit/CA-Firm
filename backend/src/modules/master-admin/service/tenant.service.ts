@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Tenant, TenantStatus, RoleType, NotificationChannel } from '@prisma/client';
+import { Tenant, TenantStatus, RoleType, NotificationChannel, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { env } from '@config/environment';
 import { emailQueue } from '@config/queue';
@@ -7,6 +7,7 @@ import { BaseService } from '@shared/base';
 import { PaginationMeta } from '@shared/types';
 import { TOKEN } from '@shared/constants';
 import { CryptoUtils } from '@shared/utils';
+import { AuditLogRecorder } from '@modules/audit';
 // Concrete paths, not the `@modules/notifications`/`@modules/roles`/`@modules/permissions`/
 // `@modules/users` barrels — see `middlewares/tenant.middleware.ts`'s header comment for why.
 // Each barrel deliberately doesn't export its repository (see those modules' `index.ts` headers),
@@ -21,7 +22,7 @@ import { PermissionRepository } from '@modules/permissions/repository/permission
 import { TenantRepository } from '../repository/tenant.repository';
 import { TenantMapper, TenantWithUserCount } from '../mapper/tenant.mapper';
 import { CreateTenantDto, ListTenantsQueryDto, UpdateTenantLimitsDto, UpdateTenantStatusDto } from '../dto/master-admin.req.dto';
-import { TenantDetailResponseDto, TenantResponseDto } from '../dto/master-admin.res.dto';
+import { TenantDetailResponseDto, TenantResponseDto, TenantUserOptionResponseDto } from '../dto/master-admin.res.dto';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -49,6 +50,7 @@ export class TenantService extends BaseService {
     private readonly roleRepository: RoleRepository = new RoleRepository(prisma),
     private readonly permissionRepository: PermissionRepository = new PermissionRepository(prisma),
     private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -179,8 +181,49 @@ export class TenantService extends BaseService {
     this.logger.info({ tenantId: id }, 'Master admin changing tenant plan/limits');
     const updated = await this.tenantRepository.updateLimits(id, dto);
 
+    // PRD §7.4 — "changing upload limits must generate audit logs" extends to every field this
+    // endpoint touches, not just `maxUploadSizeMb`. `actorName` is supplied explicitly — the
+    // actor is a `MasterAdmin`, a different id space from `User`, so the recorder's own lookup
+    // (scoped to `{ id: actorId, tenantId }`) would never find a match for it. Best-effort, same
+    // as every other `AuditLogRecorder.record()` call — never blocks the limits update itself.
+    if (this.userId) {
+      await this.auditLogRecorder.record({
+        tenantId: id,
+        actorId: this.userId,
+        eventType: AuditEventType.SETTINGS_UPDATE,
+        description: `Master admin updated plan/limits for tenant "${updated.name}"`,
+        targetType: 'Tenant',
+        targetId: id,
+        ipAddress: this.req.ip ?? null,
+        actorName: this.req.user?.email,
+      });
+    }
+
     const usage = await this.tenantRepository.getUsage(id);
     return TenantMapper.toDetailResponseDto(updated, usage);
+  }
+
+  /**
+   * Minimal user list for one tenant — backs the master-admin audit filter's
+   * "User" selector (PRD §4.1 system-level audit monitoring). Reuses
+   * `UserRepository.search()` (already injected here for `notifyOwner()`)
+   * rather than a bespoke query; `{ tenantId }` scopes it to just this tenant,
+   * the same option shape every tenant-facing caller of that repository uses.
+   */
+  async listTenantUsers(tenantId: string): Promise<TenantUserOptionResponseDto[]> {
+    await this.requireTenant(tenantId);
+
+    const { data } = await this.userRepository.search(
+      {},
+      { page: 1, limit: 200, sortBy: 'firstName', sortOrder: 'asc' },
+      { tenantId },
+    );
+
+    return data.map((user) => ({
+      id: user.id,
+      name: `${user.firstName} ${user.lastName}`.trim(),
+      email: user.email,
+    }));
   }
 
   private async requireTenant(id: string): Promise<Tenant> {

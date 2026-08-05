@@ -19,7 +19,7 @@ import { taskRoutes } from '@modules/tasks';
 import { businessRoutes } from '@modules/business';
 import { contactRoutes } from '@modules/contacts';
 import { crmRoutes } from '@modules/crm';
-import { documentRoutes } from '@modules/documents';
+import { documentRoutes, documentFolderRoutes } from '@modules/documents';
 import { userRoutes } from '@modules/users';
 import { roleRoutes } from '@modules/roles';
 import { permissionRoutes } from '@modules/permissions';
@@ -32,7 +32,7 @@ import { reportRoutes } from '@modules/reports';
 import { masterAdminRoutes } from '@modules/master-admin';
 import { billingRoutes } from '@modules/billing';
 import { auditRoutes } from '@modules/audit';
-import { brandingRoutes, domainRoutes, publicBrandingRoutes } from '@modules/tenant';
+import { brandingRoutes, domainRoutes, publicBrandingRoutes, storageSettingsRoutes } from '@modules/tenant';
 
 const app: Application = express();
 
@@ -132,6 +132,7 @@ app.use(`${API.PREFIX}/business`, businessRoutes);
 app.use(`${API.PREFIX}/contacts`, contactRoutes);
 app.use(`${API.PREFIX}/crm`, crmRoutes);
 app.use(`${API.PREFIX}/documents`, documentRoutes);
+app.use(`${API.PREFIX}/documents`, documentFolderRoutes);
 app.use(`${API.PREFIX}/users`, userRoutes);
 app.use(`${API.PREFIX}/roles`, roleRoutes);
 app.use(`${API.PREFIX}/permissions`, permissionRoutes);
@@ -179,6 +180,10 @@ app.use(`${API.PREFIX}/audit-logs`, auditRoutes);
 app.use(`${API.PREFIX}/settings/branding`, brandingRoutes);
 app.use(`${API.PREFIX}/settings/domain`, domainRoutes);
 app.use(`${API.PREFIX}/public`, publicBrandingRoutes);
+
+// Firm storage settings (PRD §7.4 — Upload Rules): max upload size (read-only, plan-derived) +
+// default business storage quota (firm-admin editable).
+app.use(`${API.PREFIX}/settings/storage`, storageSettingsRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

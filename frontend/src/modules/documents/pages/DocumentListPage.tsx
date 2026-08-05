@@ -37,6 +37,9 @@ export function DocumentListPage() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<DocumentCategory | undefined>()
   const [businessId, setBusinessId] = useState(searchParams.get('businessId') ?? '')
+  const [folderId, setFolderId] = useState(searchParams.get('folderId') ?? '')
+  const [uploadedFrom, setUploadedFrom] = useState('')
+  const [uploadedTo, setUploadedTo] = useState('')
   const [sorting, setSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [pageIndex, setPageIndex] = useState(0)
@@ -50,6 +53,9 @@ export function DocumentListPage() {
     search: debouncedSearch || undefined,
     category,
     businessId: businessId || undefined,
+    folderId: folderId || undefined,
+    uploadedFrom: uploadedFrom || undefined,
+    uploadedTo: uploadedTo || undefined,
     sortBy: sorting[0]?.id,
     sortOrder: sorting[0] ? (sorting[0].desc ? 'desc' : 'asc') : undefined,
   }
@@ -72,12 +78,18 @@ export function DocumentListPage() {
     ...(debouncedSearch ? [{ key: 'search', label: `Search: "${debouncedSearch}"` }] : []),
     ...(category ? [{ key: 'category', label: `Category: ${DOCUMENT_CATEGORY_LABELS[category] ?? category}` }] : []),
     ...(businessId ? [{ key: 'businessId', label: `Business: ${businessId.slice(0, 8)}…` }] : []),
+    ...(folderId ? [{ key: 'folderId', label: `Folder: ${folderId.slice(0, 8)}…` }] : []),
+    ...(uploadedFrom ? [{ key: 'uploadedFrom', label: `Uploaded from: ${uploadedFrom}` }] : []),
+    ...(uploadedTo ? [{ key: 'uploadedTo', label: `Uploaded to: ${uploadedTo}` }] : []),
   ]
 
   const removeChip = (key: string) => {
     if (key === 'search') setSearch('')
     if (key === 'category') setCategory(undefined)
     if (key === 'businessId') setBusinessId('')
+    if (key === 'folderId') setFolderId('')
+    if (key === 'uploadedFrom') setUploadedFrom('')
+    if (key === 'uploadedTo') setUploadedTo('')
     setPageIndex(0)
   }
 
@@ -85,6 +97,9 @@ export function DocumentListPage() {
     setSearch('')
     setCategory(undefined)
     setBusinessId('')
+    setFolderId('')
+    setUploadedFrom('')
+    setUploadedTo('')
     setPageIndex(0)
   }
 
@@ -144,6 +159,21 @@ export function DocumentListPage() {
                 businessId={businessId}
                 onBusinessIdChange={(next) => {
                   setBusinessId(next)
+                  setPageIndex(0)
+                }}
+                folderId={folderId}
+                onFolderIdChange={(next) => {
+                  setFolderId(next)
+                  setPageIndex(0)
+                }}
+                uploadedFrom={uploadedFrom}
+                onUploadedFromChange={(next) => {
+                  setUploadedFrom(next)
+                  setPageIndex(0)
+                }}
+                uploadedTo={uploadedTo}
+                onUploadedToChange={(next) => {
+                  setUploadedTo(next)
                   setPageIndex(0)
                 }}
               />

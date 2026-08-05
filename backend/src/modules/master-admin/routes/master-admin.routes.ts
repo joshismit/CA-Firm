@@ -6,6 +6,7 @@ import { masterAdminAuthRateLimiter } from '@middlewares/rate-limit.middleware';
 import { UserRole } from '@shared/enums';
 import { MasterAdminAuthController } from '../controller/master-admin-auth.controller';
 import { TenantController } from '../controller/tenant.controller';
+import { MasterAdminAuditController } from '../controller/master-admin-audit.controller';
 import {
   masterAdminLoginSchema,
   listTenantsQuerySchema,
@@ -13,6 +14,8 @@ import {
   updateTenantStatusSchema,
   updateTenantLimitsSchema,
   createTenantSchema,
+  listMasterAdminAuditLogsQuerySchema,
+  auditLogIdParamSchema,
 } from '../schemas/master-admin.schema';
 import { PlanController, createPlanSchema, updatePlanSchema, planIdParamSchema } from '@modules/billing';
 
@@ -222,6 +225,7 @@ router.patch(
  *               maxClients: { type: integer, nullable: true }
  *               maxStorageGb: { type: integer, nullable: true }
  *               maxDocuments: { type: integer, nullable: true }
+ *               maxUploadSizeMb: { type: integer, nullable: true, description: 'PRD §7.4 — per-file upload size ceiling in MB.' }
  *     responses:
  *       200: { description: Tenant limits updated., content: { application/json: { schema: { type: object } } } }
  *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
@@ -235,6 +239,126 @@ router.patch(
   requireRole(UserRole.MASTER_ADMIN),
   validate({ params: tenantIdParamSchema, body: updateTenantLimitsSchema }),
   TenantController.updateLimits,
+);
+
+/**
+ * @swagger
+ * /master-admin/tenants/{id}/users:
+ *   get:
+ *     tags: [Master Admin]
+ *     summary: List a tenant's users
+ *     description: Minimal id/name/email rows for this tenant — backs the master-admin audit log's "User" filter selector (PRD §4.1).
+ *     security: [{ BearerAuth: [] }]
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Every user in this tenant (up to 200)., content: { application/json: { schema: { type: object } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller is not a master admin., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No tenant with this ID exists., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.get(
+  '/tenants/:id/users',
+  authMiddleware,
+  requireRole(UserRole.MASTER_ADMIN),
+  validate({ params: tenantIdParamSchema }),
+  TenantController.listUsers,
+);
+
+// ─── System-level audit monitoring (PRD §4.1) ─────────────────────────────────
+// Reads the SAME `AuditLog` table as the tenant-scoped `/audit-logs` routes
+// (`modules/audit/routes/audit-log.routes.ts`) — no second audit table, no
+// duplicated query-building logic (see `MasterAdminAuditService`'s header
+// comment). Deliberately no `tenantMiddleware` here, same reasoning as every
+// other route in this file: a master admin isn't scoped to one tenant, so
+// `requireRole(MASTER_ADMIN)` is the only gate, not `requirePermission()`.
+
+/**
+ * @swagger
+ * /master-admin/audit-logs:
+ *   get:
+ *     tags: [Master Admin]
+ *     summary: List audit log entries across every tenant
+ *     description: Paginated, filterable, searchable cross-tenant activity feed. Each row includes the owning tenant's id and name.
+ *     security: [{ BearerAuth: [] }]
+ *     parameters:
+ *       - name: page
+ *         in: query
+ *         schema: { type: integer, minimum: 1, default: 1 }
+ *       - name: limit
+ *         in: query
+ *         schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+ *       - name: sortBy
+ *         in: query
+ *         schema: { type: string, default: createdAt }
+ *       - name: sortOrder
+ *         in: query
+ *         schema: { type: string, enum: [asc, desc], default: desc }
+ *       - name: search
+ *         in: query
+ *         description: Case-insensitive match against description.
+ *         schema: { type: string, maxLength: 100 }
+ *       - name: tenantId
+ *         in: query
+ *         description: Restrict to one tenant. Omit to search across every tenant.
+ *         schema: { type: string, format: uuid }
+ *       - name: eventType
+ *         in: query
+ *         schema: { $ref: '#/components/schemas/AuditEventType' }
+ *       - name: actorId
+ *         in: query
+ *         schema: { type: string, format: uuid }
+ *       - name: targetType
+ *         in: query
+ *         schema: { type: string }
+ *       - name: from
+ *         in: query
+ *         schema: { type: string, format: date }
+ *       - name: to
+ *         in: query
+ *         schema: { type: string, format: date }
+ *     responses:
+ *       200: { description: Paginated list of audit log entries, each including tenantId/tenantName. }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller is not a master admin., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Invalid query parameters., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.get(
+  '/audit-logs',
+  authMiddleware,
+  requireRole(UserRole.MASTER_ADMIN),
+  validate({ query: listMasterAdminAuditLogsQuerySchema }),
+  MasterAdminAuditController.list,
+);
+
+/**
+ * @swagger
+ * /master-admin/audit-logs/{id}:
+ *   get:
+ *     tags: [Master Admin]
+ *     summary: Get an audit log entry by ID (any tenant)
+ *     security: [{ BearerAuth: [] }]
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Audit log entry found, including tenantId/tenantName. }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller is not a master admin., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No audit log entry with this ID exists., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: id is not a valid UUID., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.get(
+  '/audit-logs/:id',
+  authMiddleware,
+  requireRole(UserRole.MASTER_ADMIN),
+  validate({ params: auditLogIdParamSchema }),
+  MasterAdminAuditController.getById,
 );
 
 // ─── Plan catalog (PRD §4.1 "Manage plans and add-ons") ──────────────────────

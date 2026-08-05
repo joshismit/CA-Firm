@@ -6,13 +6,17 @@
 // modules/client-billing, modules/notifications, modules/reports, and modules/audit. No mock
 // data, no guessed endpoint path beyond the plausible, provisional `/settings/*` base that matches
 // this app's route naming. Never returns a fabricated successful response.
+import { apiClient } from '@/services/axios'
 import type { ApiError } from '@/services/api-error'
+import type { ApiResponse } from '@/types/api.types'
 import type {
   FirmSettings,
   IntegrationConnection,
   IntegrationProvider,
+  StorageSettings,
   TeamSettings,
   UpdateFirmSettingsPayload,
+  UpdateStorageSettingsPayload,
   UpdateTeamSettingsPayload,
 } from '../types'
 
@@ -57,4 +61,16 @@ export async function connectIntegration(_provider: IntegrationProvider): Promis
 // TODO: POST /settings/integrations/:provider/disconnect
 export async function disconnectIntegration(_provider: IntegrationProvider): Promise<void> {
   return notImplemented('disconnectIntegration')
+}
+
+// PRD §7.4 — Upload Rules. Real endpoint, unlike everything above in this file — hits
+// backend/src/modules/tenant/routes/storage-settings.routes.ts.
+export async function getStorageSettings(): Promise<StorageSettings> {
+  const { data } = await apiClient.get<ApiResponse<StorageSettings>>('/settings/storage')
+  return data.data
+}
+
+export async function updateStorageSettings(payload: UpdateStorageSettingsPayload): Promise<StorageSettings> {
+  const { data } = await apiClient.patch<ApiResponse<StorageSettings>>('/settings/storage', payload)
+  return data.data
 }

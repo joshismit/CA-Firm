@@ -36,3 +36,11 @@ export const updateTeamSettingsSchema = z.object({
 })
 
 export type UpdateTeamSettingsFormValues = z.infer<typeof updateTeamSettingsSchema>
+
+// PRD §7.4 — mirrors the backend's `updateStorageSettingsSchema` exactly
+// (backend/src/modules/tenant/schemas/storage-settings.schema.ts).
+export const updateStorageSettingsSchema = z.object({
+  defaultBusinessStorageQuotaMb: z.coerce.number().int().min(1, 'Quota must be at least 1 MB').optional(),
+})
+
+export type UpdateStorageSettingsFormValues = z.infer<typeof updateStorageSettingsSchema>

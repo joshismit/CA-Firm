@@ -44,4 +44,12 @@ export class TenantController {
 
     res.status(HTTP_STATUS.OK).json(ApiResponseHelper.updated(req, tenant));
   });
+
+  /** Backs the master-admin audit filter's "User" selector — see `TenantService.listTenantUsers()`. */
+  static listUsers = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TenantService(req);
+    const users = await service.listTenantUsers(req.params.id);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, users, MESSAGES.FETCHED));
+  });
 }

@@ -15,6 +15,8 @@ import {
   TenantDetailPage,
   TenantsListPage,
   SubscriptionsPage,
+  MasterAdminAuditListPage,
+  MasterAdminAuditDetailPage,
 } from '@/modules/master-admin/pages'
 
 function MasterAdminGuard() {
@@ -51,6 +53,8 @@ export const masterAdminRoutes: RouteObject = {
         { path: 'tenants/new', element: <CreateTenantPage /> },
         { path: 'tenants/:id', element: <TenantDetailPage /> },
         { path: 'subscriptions', element: <SubscriptionsPage /> },
+        { path: 'audit', element: <MasterAdminAuditListPage /> },
+        { path: 'audit/:id', element: <MasterAdminAuditDetailPage /> },
       ],
     },
   ],

@@ -4,7 +4,7 @@ import { ApiResponseHelper } from '@shared/response/api-response';
 import { asyncHandler } from '@shared/utils';
 import { DocumentService } from '../service/document.service';
 import { DocumentMapper } from '../mapper/document.mapper';
-import { CreateDocumentDto, UpdateDocumentDto, ListDocumentsQueryDto } from '../dto/document.req.dto';
+import { CreateDocumentDto, UpdateDocumentDto, ListDocumentsQueryDto, ShareDocumentDto } from '../dto/document.req.dto';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -62,5 +62,26 @@ export class DocumentController {
     const downloadUrl = await service.getDownloadUrl(req.params.id);
 
     res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, downloadUrl, MESSAGES.FETCHED));
+  });
+
+  static share = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new DocumentService(req);
+    const document = await service.shareDocument(req.params.id, req.body as ShareDocumentDto);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, DocumentMapper.toResponseDto(document), 'Document shared successfully'));
+  });
+
+  static createVersion = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new DocumentService(req);
+    const document = await service.createVersion(req.params.id, req.file);
+
+    res.status(HTTP_STATUS.CREATED).json(ApiResponseHelper.created(req, DocumentMapper.toResponseDto(document)));
+  });
+
+  static getVersionHistory = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new DocumentService(req);
+    const versions = await service.getVersionHistory(req.params.id);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, DocumentMapper.toResponseDtoList(versions), MESSAGES.FETCHED));
   });
 }

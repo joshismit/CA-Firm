@@ -53,6 +53,14 @@ const router = Router();
  *         incorporationDate: { type: string, format: date-time, nullable: true }
  *         financialYearStart: { type: integer, minimum: 1, maximum: 12, example: 4 }
  *         industry: { type: string, nullable: true }
+ *         storageQuotaMb: { type: integer, nullable: true, description: 'PRD §7.4 — per-business storage quota override in MB. Null means the business inherits the tenant''s default quota.' }
+ *         storageUsage:
+ *           type: object
+ *           description: 'PRD §7.4 — live storage usage summary. Only present on GET /business/{id}, omitted from the list endpoint.'
+ *           properties:
+ *             usedBytes: { type: integer }
+ *             quotaBytes: { type: integer }
+ *             remainingBytes: { type: integer }
  *         createdAt: { type: string, format: date-time }
  *         updatedAt: { type: string, format: date-time }
  *       required: [id, typeId, name, status, financialYearStart, createdAt, updatedAt]
@@ -90,6 +98,7 @@ const router = Router();
  *         incorporationDate: { type: string, format: date-time, nullable: true }
  *         financialYearStart: { type: integer, minimum: 1, maximum: 12, nullable: true }
  *         industry: { type: string, maxLength: 100, nullable: true }
+ *         storageQuotaMb: { type: integer, minimum: 1, nullable: true, description: 'PRD §7.4 — set to override this business''s storage quota, or null to revert to the tenant default.' }
  *     BusinessEnvelope:
  *       type: object
  *       properties:

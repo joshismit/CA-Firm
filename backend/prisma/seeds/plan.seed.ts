@@ -12,6 +12,9 @@ import { PrismaClient, BillingCycle } from '@prisma/client';
  * is just seed data, not hardcoded business logic. One row per (tier, cycle)
  * combination with its own already-discounted price, rather than a
  * tier row plus a cycle multiplier computed at checkout time.
+ *
+ * `maxUploadSizeMb` (PRD §7.4) follows the same per-tier convention as
+ * `maxStorageGb` — Starter 100 MB, Professional 250 MB, Enterprise 1024 MB (1 GB).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -24,24 +27,25 @@ interface PlanDefinition {
   maxClients: number | null;
   maxStorageGb: number | null;
   maxDocuments: number | null;
+  maxUploadSizeMb: number | null;
   displayOrder: number;
 }
 
 const PLAN_DEFINITIONS: PlanDefinition[] = [
   // ─── Starter ────────────────────────────────────────────────────────────
-  { code: 'STARTER_MONTHLY', name: 'Starter', billingCycle: BillingCycle.MONTHLY, priceInPaise: 99_900, maxUsers: 3, maxClients: 50, maxStorageGb: 5, maxDocuments: 1_000, displayOrder: 1 },
-  { code: 'STARTER_QUARTERLY', name: 'Starter', billingCycle: BillingCycle.QUARTERLY, priceInPaise: 269_900, maxUsers: 3, maxClients: 50, maxStorageGb: 5, maxDocuments: 1_000, displayOrder: 1 },
-  { code: 'STARTER_YEARLY', name: 'Starter', billingCycle: BillingCycle.YEARLY, priceInPaise: 999_900, maxUsers: 3, maxClients: 50, maxStorageGb: 5, maxDocuments: 1_000, displayOrder: 1 },
+  { code: 'STARTER_MONTHLY', name: 'Starter', billingCycle: BillingCycle.MONTHLY, priceInPaise: 99_900, maxUsers: 3, maxClients: 50, maxStorageGb: 5, maxDocuments: 1_000, maxUploadSizeMb: 100, displayOrder: 1 },
+  { code: 'STARTER_QUARTERLY', name: 'Starter', billingCycle: BillingCycle.QUARTERLY, priceInPaise: 269_900, maxUsers: 3, maxClients: 50, maxStorageGb: 5, maxDocuments: 1_000, maxUploadSizeMb: 100, displayOrder: 1 },
+  { code: 'STARTER_YEARLY', name: 'Starter', billingCycle: BillingCycle.YEARLY, priceInPaise: 999_900, maxUsers: 3, maxClients: 50, maxStorageGb: 5, maxDocuments: 1_000, maxUploadSizeMb: 100, displayOrder: 1 },
 
   // ─── Professional ───────────────────────────────────────────────────────
-  { code: 'PROFESSIONAL_MONTHLY', name: 'Professional', billingCycle: BillingCycle.MONTHLY, priceInPaise: 249_900, maxUsers: 15, maxClients: 500, maxStorageGb: 50, maxDocuments: 10_000, displayOrder: 2 },
-  { code: 'PROFESSIONAL_QUARTERLY', name: 'Professional', billingCycle: BillingCycle.QUARTERLY, priceInPaise: 699_900, maxUsers: 15, maxClients: 500, maxStorageGb: 50, maxDocuments: 10_000, displayOrder: 2 },
-  { code: 'PROFESSIONAL_YEARLY', name: 'Professional', billingCycle: BillingCycle.YEARLY, priceInPaise: 2_499_900, maxUsers: 15, maxClients: 500, maxStorageGb: 50, maxDocuments: 10_000, displayOrder: 2 },
+  { code: 'PROFESSIONAL_MONTHLY', name: 'Professional', billingCycle: BillingCycle.MONTHLY, priceInPaise: 249_900, maxUsers: 15, maxClients: 500, maxStorageGb: 50, maxDocuments: 10_000, maxUploadSizeMb: 250, displayOrder: 2 },
+  { code: 'PROFESSIONAL_QUARTERLY', name: 'Professional', billingCycle: BillingCycle.QUARTERLY, priceInPaise: 699_900, maxUsers: 15, maxClients: 500, maxStorageGb: 50, maxDocuments: 10_000, maxUploadSizeMb: 250, displayOrder: 2 },
+  { code: 'PROFESSIONAL_YEARLY', name: 'Professional', billingCycle: BillingCycle.YEARLY, priceInPaise: 2_499_900, maxUsers: 15, maxClients: 500, maxStorageGb: 50, maxDocuments: 10_000, maxUploadSizeMb: 250, displayOrder: 2 },
 
   // ─── Enterprise ─────────────────────────────────────────────────────────
-  { code: 'ENTERPRISE_MONTHLY', name: 'Enterprise', billingCycle: BillingCycle.MONTHLY, priceInPaise: 599_900, maxUsers: null, maxClients: null, maxStorageGb: 250, maxDocuments: null, displayOrder: 3 },
-  { code: 'ENTERPRISE_QUARTERLY', name: 'Enterprise', billingCycle: BillingCycle.QUARTERLY, priceInPaise: 1_699_900, maxUsers: null, maxClients: null, maxStorageGb: 250, maxDocuments: null, displayOrder: 3 },
-  { code: 'ENTERPRISE_YEARLY', name: 'Enterprise', billingCycle: BillingCycle.YEARLY, priceInPaise: 5_999_900, maxUsers: null, maxClients: null, maxStorageGb: 250, maxDocuments: null, displayOrder: 3 },
+  { code: 'ENTERPRISE_MONTHLY', name: 'Enterprise', billingCycle: BillingCycle.MONTHLY, priceInPaise: 599_900, maxUsers: null, maxClients: null, maxStorageGb: 250, maxDocuments: null, maxUploadSizeMb: 1024, displayOrder: 3 },
+  { code: 'ENTERPRISE_QUARTERLY', name: 'Enterprise', billingCycle: BillingCycle.QUARTERLY, priceInPaise: 1_699_900, maxUsers: null, maxClients: null, maxStorageGb: 250, maxDocuments: null, maxUploadSizeMb: 1024, displayOrder: 3 },
+  { code: 'ENTERPRISE_YEARLY', name: 'Enterprise', billingCycle: BillingCycle.YEARLY, priceInPaise: 5_999_900, maxUsers: null, maxClients: null, maxStorageGb: 250, maxDocuments: null, maxUploadSizeMb: 1024, displayOrder: 3 },
 ];
 
 /**
@@ -60,6 +64,7 @@ export async function seedPlans(prisma: PrismaClient): Promise<void> {
         maxClients: def.maxClients,
         maxStorageGb: def.maxStorageGb,
         maxDocuments: def.maxDocuments,
+        maxUploadSizeMb: def.maxUploadSizeMb,
         displayOrder: def.displayOrder,
         isActive: true,
       },
@@ -72,6 +77,7 @@ export async function seedPlans(prisma: PrismaClient): Promise<void> {
         maxClients: def.maxClients,
         maxStorageGb: def.maxStorageGb,
         maxDocuments: def.maxDocuments,
+        maxUploadSizeMb: def.maxUploadSizeMb,
         displayOrder: def.displayOrder,
       },
     });

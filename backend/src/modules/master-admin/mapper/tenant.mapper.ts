@@ -40,6 +40,7 @@ export class TenantMapper {
       maxClients: tenant.maxClients,
       maxStorageGb: tenant.maxStorageGb,
       maxDocuments: tenant.maxDocuments,
+      maxUploadSizeMb: tenant.maxUploadSizeMb,
       usage,
       createdAt: tenant.createdAt.toISOString(),
       updatedAt: tenant.updatedAt.toISOString(),

@@ -3,18 +3,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/services/query-keys'
 import {
+  createFolder,
   deleteDocument,
+  deleteFolder,
   getDocument,
   getDocumentDownloadUrl,
+  getDocumentVersions,
+  getFolder,
   listDocumentTemplates,
   listDocuments,
+  listFolders,
+  renameFolder,
   updateDocument,
   uploadDocument,
+  uploadDocumentVersion,
 } from '../api'
 import type {
+  CreateFolderPayload,
+  DocumentFolderListFilters,
   DocumentListFilters,
   DocumentTemplateListFilters,
   UpdateDocumentPayload,
+  UpdateFolderPayload,
   UploadDocumentPayload,
 } from '../types'
 
@@ -89,11 +99,84 @@ export function useDocumentDownloadUrlQuery(id: string, enabled: boolean) {
   })
 }
 
+// ─── Versioning (PRD §7.2) ──────────────────────────────────────────────────
+
+/** Full version history (oldest first) - see api/index.ts's getDocumentVersions(). */
+export function useDocumentVersionsQuery(id: string) {
+  return useQuery({ queryKey: queryKeys.documents.versions(id), queryFn: () => getDocumentVersions(id), enabled: !!id })
+}
+
+export interface UploadDocumentVersionVariables {
+  id: string
+  file: File
+  onUploadProgress?: (percent: number) => void
+}
+
+/**
+ * PRD §7.2 rules 7-8 - confirmed replacement. Invalidates both the version history and the
+ * document list (the new version becomes the row `listDocuments` surfaces), plus the detail/
+ * download-url queries for the *previous* latest version's id, which callers pass in as
+ * `previousId` since the new version has a different id the cache doesn't know about yet.
+ */
+export function useUploadDocumentVersionMutation(previousId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, file, onUploadProgress }: UploadDocumentVersionVariables) => uploadDocumentVersion(id, file, onUploadProgress),
+    onSuccess: (newVersion) => {
+      qc.invalidateQueries({ queryKey: queryKeys.documents.versions(previousId) })
+      qc.invalidateQueries({ queryKey: queryKeys.documents.versions(newVersion.id) })
+      qc.invalidateQueries({ queryKey: queryKeys.documents.detail(previousId) })
+      qc.invalidateQueries({ queryKey: queryKeys.documents.lists() })
+    },
+  })
+}
+
 /** `retry: false` - the templates API is a guaranteed 501 today, no point retry-storming it. */
 export function useDocumentTemplatesQuery(filters: DocumentTemplateListFilters) {
   return useQuery({
     queryKey: queryKeys.documents.templatesList(filters),
     queryFn: () => listDocumentTemplates(filters),
     retry: false,
+  })
+}
+
+// ─── Folders (PRD §7.1 rule 3) ─────────────────────────────────────────────────
+
+export function useFoldersQuery(businessId: string, filters: DocumentFolderListFilters = {}) {
+  return useQuery({
+    queryKey: queryKeys.documents.foldersList(businessId, filters),
+    queryFn: () => listFolders(businessId, filters),
+    enabled: !!businessId,
+  })
+}
+
+export function useFolderQuery(id: string) {
+  return useQuery({ queryKey: queryKeys.documents.folderDetail(id), queryFn: () => getFolder(id), enabled: !!id })
+}
+
+export function useCreateFolderMutation(businessId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: CreateFolderPayload) => createFolder(businessId, payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.documents.folders(businessId) }),
+  })
+}
+
+export function useRenameFolderMutation(businessId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateFolderPayload }) => renameFolder(id, payload),
+    onSuccess: (folder) => {
+      qc.invalidateQueries({ queryKey: queryKeys.documents.folders(businessId) })
+      qc.invalidateQueries({ queryKey: queryKeys.documents.folderDetail(folder.id) })
+    },
+  })
+}
+
+export function useDeleteFolderMutation(businessId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => deleteFolder(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.documents.folders(businessId) }),
   })
 }

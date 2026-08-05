@@ -123,6 +123,45 @@ describe('Documents API — permission middleware integration', () => {
     });
   });
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Versioning (PRD §7.2) — same permission-middleware-only scope as the rest
+  // of this file (see header comment): `requirePermission` runs before
+  // `multer`/`validate()`/the controller, so a 403 short-circuits before ever
+  // needing a real file or S3 bucket. The actual replace-flow/version-chain
+  // business logic (conflict detection, createVersion, getVersionHistory,
+  // Content-Disposition) is covered against a mocked S3StorageService in
+  // tests/unit/modules/documents/document.service.spec.ts.
+  // ────────────────────────────────────────────────────────────────────────
+  describe('versioning', () => {
+    it('returns 403 for GET /documents/:id/versions when the caller lacks documents:read', async () => {
+      const token = tokenMissing(DOCUMENT_PERMISSIONS.READ);
+      const res = await request(app)
+        .get(`/api/v1/documents/${randomUUID()}/versions`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 403 for POST /documents/:id/version when the caller lacks documents:create', async () => {
+      const token = tokenMissing(DOCUMENT_PERMISSIONS.CREATE);
+      const res = await request(app)
+        .post(`/api/v1/documents/${randomUUID()}/version`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 401 for GET /documents/:id/versions when no Authorization header is present', async () => {
+      const res = await request(app).get(`/api/v1/documents/${randomUUID()}/versions`);
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 401 for POST /documents/:id/version when no Authorization header is present', async () => {
+      const res = await request(app).post(`/api/v1/documents/${randomUUID()}/version`);
+      expect(res.status).toBe(401);
+    });
+  });
+
   describe('authentication middleware', () => {
     it('returns 401 for every Documents route when no Authorization header is present', async () => {
       const res = await request(app).get('/api/v1/documents');

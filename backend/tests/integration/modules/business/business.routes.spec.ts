@@ -262,6 +262,77 @@ describe('Business API — integration', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
+  // Storage quota (PRD §7.4)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('storage quota', () => {
+    let quotaBusinessId: string;
+
+    beforeAll(async () => {
+      const res = await request(app)
+        .post('/api/v1/business')
+        .set('Authorization', `Bearer ${tokenForTenantA()}`)
+        .send({ typeId, name: 'Storage Quota Business' });
+      expect(res.status).toBe(201);
+      quotaBusinessId = res.body.data.id;
+    });
+
+    it('GET /business/:id includes a storageUsage summary (0 used, quota from the 500 MB global default)', async () => {
+      const res = await request(app)
+        .get(`/api/v1/business/${quotaBusinessId}`)
+        .set('Authorization', `Bearer ${tokenForTenantA()}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.storageQuotaMb).toBeNull();
+      expect(res.body.data.storageUsage).toMatchObject({
+        usedBytes: 0,
+        quotaBytes: 500 * 1024 * 1024,
+        remainingBytes: 500 * 1024 * 1024,
+      });
+    });
+
+    it('GET /business (list) omits storageUsage — kept cheap, no per-row aggregate', async () => {
+      const res = await request(app)
+        .get('/api/v1/business')
+        .query({ search: 'Storage Quota Business' })
+        .set('Authorization', `Bearer ${tokenForTenantA()}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data[0].storageUsage).toBeUndefined();
+    });
+
+    it('PATCH /business/:id sets a storageQuotaMb override, reflected in the next GET and audit-logged', async () => {
+      const patchRes = await request(app)
+        .patch(`/api/v1/business/${quotaBusinessId}`)
+        .set('Authorization', `Bearer ${tokenForTenantA()}`)
+        .send({ storageQuotaMb: 100 });
+
+      expect(patchRes.status).toBe(200);
+      expect(patchRes.body.data.storageQuotaMb).toBe(100);
+
+      const getRes = await request(app)
+        .get(`/api/v1/business/${quotaBusinessId}`)
+        .set('Authorization', `Bearer ${tokenForTenantA()}`);
+      expect(getRes.body.data.storageQuotaMb).toBe(100);
+      expect(getRes.body.data.storageUsage.quotaBytes).toBe(100 * 1024 * 1024);
+
+      const auditEntry = await prisma.auditLog.findFirst({
+        where: { tenantId: fixtures.tenantA.tenantId, eventType: 'SETTINGS_UPDATE', targetType: 'Business', targetId: quotaBusinessId },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(auditEntry).not.toBeNull();
+    });
+
+    it('PATCH /business/:id rejects a storageQuotaMb below the 1 MB minimum with 422', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/business/${quotaBusinessId}`)
+        .set('Authorization', `Bearer ${tokenForTenantA()}`)
+        .send({ storageQuotaMb: 0 });
+
+      expect(res.status).toBe(422);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
   // Business Types
   // ────────────────────────────────────────────────────────────────────────
   describe('GET /business/types', () => {

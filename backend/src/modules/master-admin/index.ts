@@ -12,6 +12,7 @@ export type {
   UpdateTenantStatusDto,
   UpdateTenantLimitsDto,
   CreateTenantDto,
+  ListMasterAdminAuditLogsQueryDto,
 } from './dto/master-admin.req.dto';
 export type {
   MasterAdminResponseDto,
@@ -19,4 +20,6 @@ export type {
   TenantResponseDto,
   TenantDetailResponseDto,
   TenantUsageDto,
+  TenantUserOptionResponseDto,
+  MasterAdminAuditLogResponseDto,
 } from './dto/master-admin.res.dto';

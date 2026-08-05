@@ -8,12 +8,14 @@ import {
   connectIntegration,
   disconnectIntegration,
   getFirmSettings,
+  getStorageSettings,
   getTeamSettings,
   listIntegrations,
   updateFirmSettings,
+  updateStorageSettings,
   updateTeamSettings,
 } from '../api'
-import type { IntegrationProvider, UpdateFirmSettingsPayload, UpdateTeamSettingsPayload } from '../types'
+import type { IntegrationProvider, UpdateFirmSettingsPayload, UpdateStorageSettingsPayload, UpdateTeamSettingsPayload } from '../types'
 
 export function useFirmSettingsQuery() {
   return useQuery({ queryKey: queryKeys.settings.firm, queryFn: getFirmSettings, retry: false })
@@ -56,5 +58,19 @@ export function useDisconnectIntegrationMutation() {
   return useMutation({
     mutationFn: (provider: IntegrationProvider) => disconnectIntegration(provider),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.settings.integrations }),
+  })
+}
+
+// PRD §7.4 — real endpoint, unlike every hook above (no `retry: false` — a transient network
+// failure here is worth a normal retry, same as any other real query in the app).
+export function useStorageSettingsQuery() {
+  return useQuery({ queryKey: queryKeys.settings.storage, queryFn: getStorageSettings })
+}
+
+export function useUpdateStorageSettingsMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: UpdateStorageSettingsPayload) => updateStorageSettings(payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.settings.storage }),
   })
 }

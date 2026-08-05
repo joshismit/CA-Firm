@@ -5,6 +5,7 @@ import {
   updateTenantStatusSchema,
   updateTenantLimitsSchema,
   createTenantSchema,
+  listMasterAdminAuditLogsQuerySchema,
 } from '../schemas/master-admin.schema';
 
 /**
@@ -17,3 +18,4 @@ export type ListTenantsQueryDto = z.infer<typeof listTenantsQuerySchema>;
 export type UpdateTenantStatusDto = z.infer<typeof updateTenantStatusSchema>;
 export type UpdateTenantLimitsDto = z.infer<typeof updateTenantLimitsSchema>;
 export type CreateTenantDto = z.infer<typeof createTenantSchema>;
+export type ListMasterAdminAuditLogsQueryDto = z.infer<typeof listMasterAdminAuditLogsQuerySchema>;

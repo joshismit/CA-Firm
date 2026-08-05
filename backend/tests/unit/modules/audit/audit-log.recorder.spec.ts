@@ -89,6 +89,28 @@ describe('AuditLogRecorder', () => {
     );
   });
 
+  it('uses an explicit actorName directly, skipping the User lookup entirely (system/cron-triggered events)', async () => {
+    const repo = createMockRepository();
+
+    const recorder = createRecorder(repo);
+    await recorder.record({
+      tenantId: TENANT_ID,
+      actorId: '00000000-0000-0000-0000-000000000000',
+      actorName: 'System',
+      eventType: AuditEventType.TASK_REMINDER_SENT,
+      description: 'Sent "DUE_TODAY" reminder for task "File GST return"',
+      targetType: 'Task',
+      targetId: 'task-1',
+      ipAddress: null,
+    });
+
+    expect(findFirstMock).not.toHaveBeenCalled();
+    expect(repo.record).toHaveBeenCalledWith(
+      expect.objectContaining({ actorName: 'System', eventType: AuditEventType.TASK_REMINDER_SENT }),
+      { tenantId: TENANT_ID },
+    );
+  });
+
   it('swallows a repository failure — never throws, only logs a warning', async () => {
     findFirstMock.mockResolvedValue({ firstName: 'Priya', lastName: 'Sharma' });
     const repo = createMockRepository();

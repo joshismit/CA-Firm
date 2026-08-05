@@ -6,11 +6,14 @@ import { apiClient } from '@/services/axios'
 import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type {
   CreateTenantPayload,
+  MasterAdminAuditLogEntry,
+  MasterAdminAuditLogFilters,
   MasterAdminLoginRequest,
   MasterAdminLoginResponse,
   Tenant,
   TenantDetail,
   TenantListFilters,
+  TenantUserOption,
   UpdateTenantLimitsPayload,
   UpdateTenantStatusPayload,
 } from '../types'
@@ -48,3 +51,22 @@ export async function updateTenantLimits(id: string, payload: UpdateTenantLimits
 // Plan catalog management (GET/POST/PATCH /master-admin/plans) lives in @/modules/billing's api -
 // that module owns `Plan` end-to-end (see backend/src/modules/billing/index.ts's header comment),
 // this module just adds the role-gated route surface on top of it.
+
+// ─── System-level audit monitoring (PRD §4.1) ──────────────────────────────────
+// Hits the same backend Audit Logs feature as @/modules/audit's own api/index.ts, just the
+// cross-tenant `/master-admin/audit-logs*` routes instead of the tenant-scoped `/audit-logs*` ones.
+
+export async function listMasterAdminAuditLogs(filters: MasterAdminAuditLogFilters): Promise<PaginatedResponse<MasterAdminAuditLogEntry>> {
+  const { data } = await apiClient.get<PaginatedResponse<MasterAdminAuditLogEntry>>('/master-admin/audit-logs', { params: filters })
+  return data
+}
+
+export async function getMasterAdminAuditLogEntry(id: string): Promise<MasterAdminAuditLogEntry> {
+  const { data } = await apiClient.get<ApiResponse<MasterAdminAuditLogEntry>>(`/master-admin/audit-logs/${id}`)
+  return data.data
+}
+
+export async function listTenantUsers(tenantId: string): Promise<TenantUserOption[]> {
+  const { data } = await apiClient.get<ApiResponse<TenantUserOption[]>>(`/master-admin/tenants/${tenantId}/users`)
+  return data.data
+}

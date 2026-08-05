@@ -9,6 +9,7 @@ try {
 import { logger } from '@config/logger';
 import { createEmailWorker } from './email.worker';
 import { createNotificationWorker } from './notification.worker';
+import { createTaskReminderWorker, scheduleTaskReminderJob } from './task-reminder.worker';
 
 // Same rationale as src/server.ts — a worker mid-job that hits an unhandled
 // error is in an unknown state; BullMQ's own retry/backoff picks the job back
@@ -37,17 +38,25 @@ process.on('unhandledRejection', (reason) => {
  */
 const emailWorker = createEmailWorker();
 const notificationWorker = createNotificationWorker();
+const taskReminderWorker = createTaskReminderWorker();
 
 emailWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'Email job completed'));
 emailWorker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'Email job failed'));
 notificationWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'Notification delivery job completed'));
 notificationWorker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'Notification delivery job failed'));
+taskReminderWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'Task reminder scan completed'));
+taskReminderWorker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'Task reminder scan failed'));
 
-logger.info('Worker process started — listening on "email" and "notification" queues');
+logger.info('Worker process started — listening on "email", "notification", and "task-reminder" queues');
+
+// Idempotent (see scheduleTaskReminderJob's own comment) — safe to call on every boot.
+scheduleTaskReminderJob().catch((err: unknown) => {
+  logger.error({ err }, 'Failed to schedule task reminder job');
+});
 
 async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, 'Worker process shutting down');
-  await Promise.all([emailWorker.close(), notificationWorker.close()]);
+  await Promise.all([emailWorker.close(), notificationWorker.close(), taskReminderWorker.close()]);
   process.exit(0);
 }
 

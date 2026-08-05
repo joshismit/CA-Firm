@@ -27,8 +27,18 @@ export interface Business {
   incorporationDate: string | null
   financialYearStart: number
   industry: string | null
+  /** PRD §7.4 — per-business storage quota override in MB; null inherits the tenant's default. */
+  storageQuotaMb: number | null
+  /** PRD §7.4 — live usage summary. Only present on `GET /business/:id`, omitted from the list endpoint. */
+  storageUsage?: BusinessStorageUsage
   createdAt: string
   updatedAt: string
+}
+
+export interface BusinessStorageUsage {
+  usedBytes: number
+  quotaBytes: number
+  remainingBytes: number
 }
 
 export interface BusinessAddress {
@@ -74,4 +84,7 @@ export interface CreateBusinessPayload {
   industry?: string
 }
 
-export type UpdateBusinessPayload = Partial<Omit<CreateBusinessPayload, 'typeId'>>
+export type UpdateBusinessPayload = Partial<Omit<CreateBusinessPayload, 'typeId'>> & {
+  /** PRD §7.4 — set to override, or `null` to revert to the tenant's default quota. */
+  storageQuotaMb?: number | null
+}

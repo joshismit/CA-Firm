@@ -10,6 +10,7 @@ export {
   NotFoundError,
   ConflictError,
   GoneError,
+  UnsupportedMediaTypeError,
   ValidationError,
   TooManyRequestsError,
   NotImplementedError,

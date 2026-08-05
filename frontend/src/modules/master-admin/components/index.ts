@@ -2,3 +2,4 @@
 export * from './TenantStatusBadge'
 export * from './TenantTableColumns'
 export * from './TenantStatsCards'
+export * from './MasterAdminAuditTableColumns'

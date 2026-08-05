@@ -19,15 +19,34 @@ export interface DocumentFile {
   id: string
   businessId: string | null
   contactId: string | null
+  folderId: string | null
   category: DocumentCategory
   /** Original filename shown for download - never the storage key (see PRD 7.3: internal storage uses unique IDs). */
   fileName: string
   storageKey: string
   mimeType: string
   sizeBytes: number
+  /** This row's own position in its version chain (1 for the first upload, 2+ for each confirmed replacement). */
   version: number
+  /** True only for the newest row in the chain - the one every other view of the document resolves to. */
+  isLatestVersion: boolean
+  /** Null on the first (v1) version, which is the root; every later version points at it. */
+  rootDocumentId: string | null
+  /** The version this one replaced, if any - null on v1. */
+  previousVersionId: string | null
   uploadedById: string
   createdAt: string
+}
+
+/**
+ * PRD §7.2 rule 6 - the `details` payload of the 409 a duplicate upload throws
+ * (same Business + Contact + Folder + Category + filename as an existing document,
+ * uploaded without `createVersion: true`). See `services/api-error.ts`'s `ApiError.details`.
+ */
+export interface DocumentConflict {
+  message: string
+  currentVersion: DocumentFile
+  nextVersion: number
 }
 
 export interface DocumentListFilters {
@@ -38,20 +57,57 @@ export interface DocumentListFilters {
   search?: string
   category?: DocumentCategory
   businessId?: string
+  folderId?: string
+  /** Bounds on the upload date (createdAt) - matches backend's `uploadedFrom`/`uploadedTo`. */
+  uploadedFrom?: string
+  uploadedTo?: string
 }
 
 export interface UploadDocumentPayload {
   businessId?: string
   contactId?: string
+  folderId?: string
   category: DocumentCategory
   file: File
+  /** PRD §7.2 rule 7 - confirms a replace after a prior attempt 409'd with a `DocumentConflict`. */
+  createVersion?: boolean
 }
 
 /** Metadata-only update - matches backend's updateDocumentSchema (no file replacement). */
 export interface UpdateDocumentPayload {
   businessId?: string | null
   contactId?: string | null
+  folderId?: string | null
   category?: DocumentCategory
+}
+
+// ─── Folders (PRD §7.1 rule 3 - Business → category → Folder → Subfolder → Documents) ─────────
+
+export interface DocumentFolder {
+  id: string
+  businessId: string
+  category: DocumentCategory
+  parentFolderId: string | null
+  name: string
+  createdById: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DocumentFolderListFilters {
+  category?: DocumentCategory
+  parentFolderId?: string
+}
+
+export interface CreateFolderPayload {
+  category: DocumentCategory
+  parentFolderId?: string
+  name: string
+}
+
+/** Rename only - category/business/parent are immutable after creation (matches backend). */
+export interface UpdateFolderPayload {
+  name: string
 }
 
 export interface DocumentDownloadUrl {

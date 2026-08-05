@@ -299,6 +299,80 @@ describe('TaskRepository', () => {
     });
   });
 
+  describe('findReminderCandidates()', () => {
+    it('returns open, assigned tasks across every tenant whose dueDate falls in the given range, with ignoreTenant: true', async () => {
+      const key = randomUUID().slice(0, 6);
+      const inRangeStart = new Date('2027-01-10T00:00:00.000Z');
+      const inRangeEnd = new Date('2027-01-11T00:00:00.000Z');
+
+      const taskA = await repository.create(
+        { title: `Reminder Candidate A ${key}`, status: TaskStatus.TODO, assigneeId: userAId, dueDate: inRangeStart },
+        { tenantId: tenantAId },
+      );
+      const taskB = await repository.create(
+        { title: `Reminder Candidate B ${key}`, status: TaskStatus.TODO, assigneeId: userBId, dueDate: inRangeStart },
+        { tenantId: tenantBId },
+      );
+      const outOfRangeTask = await repository.create(
+        { title: `Reminder Out Of Range ${key}`, status: TaskStatus.TODO, assigneeId: userAId, dueDate: new Date('2027-02-01T00:00:00.000Z') },
+        { tenantId: tenantAId },
+      );
+
+      const candidates = await repository.findReminderCandidates({ gte: inRangeStart, lt: inRangeEnd }, { ignoreTenant: true });
+      const candidateIds = candidates.map((t) => t.id);
+
+      // Cross-tenant: both tenant A's and tenant B's in-range tasks are returned by one unscoped call.
+      expect(candidateIds).toContain(taskA.id);
+      expect(candidateIds).toContain(taskB.id);
+      expect(candidateIds).not.toContain(outOfRangeTask.id);
+    });
+
+    it('excludes terminal-status (COMPLETED/CANCELLED) tasks even when the due date is in range', async () => {
+      const key = randomUUID().slice(0, 6);
+      const dueDate = new Date('2027-01-20T00:00:00.000Z');
+
+      const completedTask = await repository.create(
+        { title: `Reminder Completed ${key}`, status: TaskStatus.COMPLETED, assigneeId: userAId, dueDate, completedAt: new Date() },
+        { tenantId: tenantAId },
+      );
+      const cancelledTask = await repository.create(
+        { title: `Reminder Cancelled ${key}`, status: TaskStatus.CANCELLED, assigneeId: userAId, dueDate },
+        { tenantId: tenantAId },
+      );
+      const openTask = await repository.create(
+        { title: `Reminder Open ${key}`, status: TaskStatus.TODO, assigneeId: userAId, dueDate },
+        { tenantId: tenantAId },
+      );
+
+      const candidates = await repository.findReminderCandidates(
+        { gte: dueDate, lt: new Date('2027-01-21T00:00:00.000Z') },
+        { ignoreTenant: true },
+      );
+      const candidateIds = candidates.map((t) => t.id);
+
+      expect(candidateIds).not.toContain(completedTask.id);
+      expect(candidateIds).not.toContain(cancelledTask.id);
+      expect(candidateIds).toContain(openTask.id);
+    });
+
+    it('excludes tasks with no assignee', async () => {
+      const key = randomUUID().slice(0, 6);
+      const dueDate = new Date('2027-01-25T00:00:00.000Z');
+
+      const unassignedTask = await repository.create(
+        { title: `Reminder Unassigned ${key}`, status: TaskStatus.TODO, dueDate },
+        { tenantId: tenantAId },
+      );
+
+      const candidates = await repository.findReminderCandidates(
+        { gte: dueDate, lt: new Date('2027-01-26T00:00:00.000Z') },
+        { ignoreTenant: true },
+      );
+
+      expect(candidates.map((t) => t.id)).not.toContain(unassignedTask.id);
+    });
+  });
+
   describe('search() with filters, pagination, and sorting', () => {
     it('should filter by search term, status, project, assignee, and paginate', async () => {
       const searchKey = randomUUID().slice(0, 6);

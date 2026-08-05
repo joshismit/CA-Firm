@@ -11,6 +11,15 @@ export interface RecordAuditEventParams {
   targetType?: string;
   targetId?: string;
   ipAddress?: string | null;
+  /**
+   * Skips the `User` lookup below and uses this name directly. For every
+   * request-driven caller, omit this and get the existing looked-up-name
+   * behavior. The one caller that sets it is `TaskReminderService`, whose
+   * `actorId` is `AUDIT.SYSTEM_ACTOR_ID` — a sentinel with no matching `User`
+   * row, which would otherwise resolve to the misleading `'Unknown'` fallback
+   * instead of `AUDIT.SYSTEM_ACTOR_NAME` ('System').
+   */
+  actorName?: string;
 }
 
 /**
@@ -52,11 +61,7 @@ export class AuditLogRecorder {
 
   async record(params: RecordAuditEventParams): Promise<void> {
     try {
-      const actor = await prisma.user.findFirst({
-        where: { id: params.actorId, tenantId: params.tenantId },
-        select: { firstName: true, lastName: true },
-      });
-      const actorName = actor ? `${actor.firstName} ${actor.lastName}`.trim() : 'Unknown';
+      const actorName = params.actorName ?? (await this.resolveActorName(params.actorId, params.tenantId));
 
       await this.repository.record(
         {
@@ -73,5 +78,13 @@ export class AuditLogRecorder {
     } catch (err) {
       logger.warn({ err, eventType: params.eventType, tenantId: params.tenantId }, 'Failed to record audit log entry');
     }
+  }
+
+  private async resolveActorName(actorId: string, tenantId: string): Promise<string> {
+    const actor = await prisma.user.findFirst({
+      where: { id: actorId, tenantId },
+      select: { firstName: true, lastName: true },
+    });
+    return actor ? `${actor.firstName} ${actor.lastName}`.trim() : 'Unknown';
   }
 }

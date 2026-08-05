@@ -40,3 +40,19 @@ export interface IntegrationConnection {
   isConnected: boolean
   connectedAt: string | null
 }
+
+/**
+ * PRD §7.4 — Upload Rules. Unlike `FirmSettings` above, this hits a REAL backend endpoint
+ * (`GET/PATCH /settings/storage`, backend/src/modules/tenant/routes/storage-settings.routes.ts).
+ * `maxUploadSizeMb` is read-only here — it's plan-derived (`Tenant.maxUploadSizeMb`), changed only
+ * by a master admin via the Master Admin panel, never through this endpoint.
+ */
+export interface StorageSettings {
+  maxUploadSizeMb: number
+  /** Firm-admin-editable default quota (MB) applied to businesses with no quota override of their own. Null = using the platform default (500 MB). */
+  defaultBusinessStorageQuotaMb: number | null
+}
+
+export interface UpdateStorageSettingsPayload {
+  defaultBusinessStorageQuotaMb: number | null
+}

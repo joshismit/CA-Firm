@@ -10,6 +10,8 @@ export interface CreatePlanData {
   maxClients?: number | null;
   maxStorageGb?: number | null;
   maxDocuments?: number | null;
+  /** PRD §7.4 — per-file upload size ceiling in MB for tenants on this plan. */
+  maxUploadSizeMb?: number | null;
   displayOrder?: number;
 }
 

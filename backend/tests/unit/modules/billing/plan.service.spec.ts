@@ -48,6 +48,7 @@ function createMockPlan(overrides: Partial<Plan> = {}): Plan {
     maxClients: 500,
     maxStorageGb: 50,
     maxDocuments: 10_000,
+    maxUploadSizeMb: 250,
     isActive: true,
     displayOrder: 2,
     createdAt: now,
@@ -132,6 +133,7 @@ describe('PlanService', () => {
         maxClients: null,
         maxStorageGb: null,
         maxDocuments: null,
+        maxUploadSizeMb: null,
         displayOrder: 0,
       });
     });

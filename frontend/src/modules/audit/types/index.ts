@@ -15,6 +15,9 @@ export type AuditEventType =
   | 'PERMISSION_CHANGE'
   | 'PASSWORD_RESET'
   | 'INVITATION_ACCEPTED'
+  | 'TASK_REMINDER_SENT'
+  | 'SETTINGS_UPDATE'
+  | 'UPLOAD_REJECTED'
 
 export interface AuditLogEntry {
   id: string

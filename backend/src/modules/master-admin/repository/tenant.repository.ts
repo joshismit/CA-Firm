@@ -18,6 +18,8 @@ export interface UpdateTenantLimitsData {
   maxClients?: number | null;
   maxStorageGb?: number | null;
   maxDocuments?: number | null;
+  /** PRD §7.4 — per-file upload size ceiling in MB. */
+  maxUploadSizeMb?: number | null;
 }
 
 /**
@@ -81,6 +83,24 @@ export class TenantRepository {
 
   async findById(id: string): Promise<Tenant | null> {
     return this.prisma.tenant.findFirst({ where: { id, deletedAt: null } });
+  }
+
+  /**
+   * Batch name lookup for a set of tenant IDs — backs the "tenant name on
+   * every audit row" requirement in `MasterAdminAuditService`, which only
+   * has raw `tenantId` columns to work with (`AuditLog` has no Prisma
+   * relation back to `Tenant`, same as `Business`/`Client`/`Document` — see
+   * this class's own header comment). One query for the whole page of
+   * results rather than N+1. Deliberately does NOT filter `deletedAt: null`
+   * — a soft-deleted tenant's historical audit rows should still resolve to
+   * its name rather than silently falling back to "Unknown".
+   */
+  async findNamesByIds(ids: string[]): Promise<Pick<Tenant, 'id' | 'name'>[]> {
+    if (ids.length === 0) return [];
+    return this.prisma.tenant.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    });
   }
 
   async create(data: Prisma.TenantUncheckedCreateInput, tx?: Prisma.TransactionClient): Promise<Tenant> {

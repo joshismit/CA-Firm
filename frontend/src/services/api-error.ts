@@ -10,6 +10,8 @@ export interface ApiError {
   code: string
   message: string
   fieldErrors?: Record<string, string>
+  /** Raw `error.details` from the response envelope when it isn't the field-errors array shape above (e.g. a 409's structured conflict payload). */
+  details?: unknown
 }
 
 function isApiErrorShape(error: unknown): error is ApiError {
@@ -40,6 +42,7 @@ export function normalizeApiError(error: unknown): ApiError {
       code: envelope?.error?.code ?? (error.code === 'ECONNABORTED' ? 'TIMEOUT' : 'NETWORK_ERROR'),
       message: envelope?.message ?? error.message ?? 'Something went wrong. Please try again.',
       fieldErrors,
+      details,
     }
   }
 

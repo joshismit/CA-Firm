@@ -9,7 +9,7 @@ import type { TaskListFilters } from '@/modules/tasks/types'
 import type { BusinessListFilters } from '@/modules/business/types'
 import type { ContactListFilters } from '@/modules/contacts/types'
 import type { LeadListFilters } from '@/modules/crm/types'
-import type { DocumentListFilters, DocumentTemplateListFilters } from '@/modules/documents/types'
+import type { DocumentListFilters, DocumentTemplateListFilters, DocumentFolderListFilters } from '@/modules/documents/types'
 import type { InvoiceListFilters } from '@/modules/billing/types'
 import type { NotificationListFilters } from '@/modules/notifications/types'
 import type { ReportFilters, ReportType } from '@/modules/reports/types'
@@ -22,7 +22,7 @@ import type {
   InvoiceListFilters as ClientInvoiceListFilters,
   PaymentListFilters,
 } from '@/modules/client-billing/types'
-import type { TenantListFilters } from '@/modules/master-admin/types'
+import type { TenantListFilters, MasterAdminAuditLogFilters } from '@/modules/master-admin/types'
 import type { SharedDocumentListFilters } from '@/modules/client-portal/types'
 import type { AnalyticsFilters } from '@/modules/dashboard/types'
 
@@ -84,8 +84,13 @@ export const queryKeys = {
     details: () => [...queryKeys.documents.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.documents.details(), id] as const,
     downloadUrl: (id: string) => [...queryKeys.documents.all, 'download-url', id] as const,
+    versions: (id: string) => [...queryKeys.documents.all, 'versions', id] as const,
     templates: ['documents', 'templates'] as const,
     templatesList: (filters: DocumentTemplateListFilters) => [...queryKeys.documents.templates, filters] as const,
+    folders: (businessId: string) => [...queryKeys.documents.all, 'folders', businessId] as const,
+    foldersList: (businessId: string, filters: DocumentFolderListFilters) =>
+      [...queryKeys.documents.folders(businessId), filters] as const,
+    folderDetail: (id: string) => [...queryKeys.documents.all, 'folders', 'detail', id] as const,
   },
   billing: {
     subscription: ['billing', 'subscription'] as const,
@@ -139,6 +144,7 @@ export const queryKeys = {
     firm: ['settings', 'firm'] as const,
     team: ['settings', 'team'] as const,
     integrations: ['settings', 'integrations'] as const,
+    storage: ['settings', 'storage'] as const,
   },
   compliance: {
     all: (moduleKey: ComplianceModuleKey) => ['compliance', moduleKey] as const,
@@ -175,7 +181,11 @@ export const queryKeys = {
     tenants: ['master-admin', 'tenants'] as const,
     tenantsList: (filters: TenantListFilters) => [...queryKeys.masterAdmin.tenants, filters] as const,
     tenantDetail: (id: string) => [...queryKeys.masterAdmin.tenants, 'detail', id] as const,
+    tenantUsers: (tenantId: string) => [...queryKeys.masterAdmin.tenants, 'users', tenantId] as const,
     plans: ['master-admin', 'plans'] as const,
+    auditLogs: ['master-admin', 'audit-logs'] as const,
+    auditLogsList: (filters: MasterAdminAuditLogFilters) => [...queryKeys.masterAdmin.auditLogs, filters] as const,
+    auditLogDetail: (id: string) => [...queryKeys.masterAdmin.auditLogs, 'detail', id] as const,
   },
   clientPortal: {
     summary: ['client-portal', 'summary'] as const,

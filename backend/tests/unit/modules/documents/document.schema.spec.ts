@@ -45,12 +45,51 @@ describe('createDocumentSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it.each(['businessId', 'contactId'])('rejects an invalid UUID for %s', (field) => {
+  it.each(['businessId', 'contactId', 'folderId'])('rejects an invalid UUID for %s', (field) => {
     const result = createDocumentSchema.safeParse({
       category: DocumentCategory.PAN,
       [field]: 'not-a-uuid',
     });
     expect(result.success).toBe(false);
+  });
+
+  it('accepts an optional folderId', () => {
+    const result = createDocumentSchema.safeParse({ category: DocumentCategory.PAN, folderId: VALID_UUID_1 });
+    expect(result.success).toBe(true);
+  });
+
+  describe('createVersion (PRD §7.2 rule 7)', () => {
+    it('is undefined (falsy) when omitted', () => {
+      const result = createDocumentSchema.safeParse({ category: DocumentCategory.PAN });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.createVersion).toBeUndefined();
+      }
+    });
+
+    it("coerces the multipart string 'true' to boolean true", () => {
+      const result = createDocumentSchema.safeParse({ category: DocumentCategory.PAN, createVersion: 'true' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.createVersion).toBe(true);
+      }
+    });
+
+    it("coerces the multipart string 'false' to undefined (falsy)", () => {
+      const result = createDocumentSchema.safeParse({ category: DocumentCategory.PAN, createVersion: 'false' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.createVersion).toBeUndefined();
+      }
+    });
+
+    it('accepts a real boolean true', () => {
+      const result = createDocumentSchema.safeParse({ category: DocumentCategory.PAN, createVersion: true });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.createVersion).toBe(true);
+      }
+    });
   });
 });
 
@@ -60,7 +99,7 @@ describe('updateDocumentSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it.each(['businessId', 'contactId'])('accepts explicit null for nullable field %s (clears it)', (field) => {
+  it.each(['businessId', 'contactId', 'folderId'])('accepts explicit null for nullable field %s (clears it)', (field) => {
     const result = updateDocumentSchema.safeParse({ [field]: null });
     expect(result.success).toBe(true);
   });
@@ -132,5 +171,26 @@ describe('listDocumentsQuerySchema', () => {
   it('rejects a limit above 100', () => {
     const result = listDocumentsQuerySchema.safeParse({ limit: 101 });
     expect(result.success).toBe(false);
+  });
+
+  it('accepts a folderId filter', () => {
+    expect(listDocumentsQuerySchema.safeParse({ folderId: VALID_UUID_1 }).success).toBe(true);
+  });
+
+  it('rejects an invalid folderId', () => {
+    expect(listDocumentsQuerySchema.safeParse({ folderId: 'not-a-uuid' }).success).toBe(false);
+  });
+
+  it('accepts uploadedFrom/uploadedTo date bounds', () => {
+    const result = listDocumentsQuerySchema.safeParse({ uploadedFrom: '2026-01-01', uploadedTo: '2026-01-31' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.uploadedFrom).toBeInstanceOf(Date);
+      expect(result.data.uploadedTo).toBeInstanceOf(Date);
+    }
+  });
+
+  it('rejects an invalid uploadedFrom', () => {
+    expect(listDocumentsQuerySchema.safeParse({ uploadedFrom: 'not-a-date' }).success).toBe(false);
   });
 });

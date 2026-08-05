@@ -5,6 +5,7 @@
 // filename) - a real GET /documents/:id/download now exists (see useDownloadDocumentMutation), but
 // this phase intentionally added no new download button anywhere in the UI (see the module's
 // integration notes); storageKey itself was never meant to be a clickable link regardless.
+import { Link } from 'react-router-dom'
 import { Card, CardHeader } from '@/components/shared/Card/Card'
 import type { DocumentFile } from '../types'
 
@@ -24,6 +25,21 @@ export function DocumentMetadataCard({ document }: DocumentMetadataCardProps) {
         <div>
           <dt className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)]">Contact ID</dt>
           <dd className="mt-0.5 text-[var(--color-text-body)] font-mono text-[12px]">{document.contactId ?? '—'}</dd>
+        </div>
+        <div>
+          <dt className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)]">Folder</dt>
+          <dd className="mt-0.5 text-[var(--color-text-body)] font-mono text-[12px]">
+            {document.folderId && document.businessId ? (
+              <Link
+                to={`/documents/folders/${document.businessId}?category=${document.category}&folderId=${document.folderId}`}
+                className="text-[var(--color-primary-600)] hover:text-[var(--color-primary-700)]"
+              >
+                {document.folderId}
+              </Link>
+            ) : (
+              '—'
+            )}
+          </dd>
         </div>
         <div>
           <dt className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)]">Uploaded By</dt>

@@ -3,3 +3,4 @@
  */
 export * from './async-handler';
 export * from './crypto.utils';
+export * from './file-validation.util';

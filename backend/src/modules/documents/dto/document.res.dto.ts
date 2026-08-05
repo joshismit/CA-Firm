@@ -12,14 +12,25 @@ export interface DocumentResponseDto {
   id: string;
   businessId: string | null;
   contactId: string | null;
+  folderId: string | null;
   category: DocumentCategory;
   fileName: string;
   storageKey: string;
   mimeType: string;
   sizeBytes: number;
   version: number;
+  isLatestVersion: boolean;
+  rootDocumentId: string | null;
+  previousVersionId: string | null;
   uploadedById: string;
   createdAt: string;
+}
+
+/** PRD §7.2 rule 6 — returned as the `details` payload of the 409 thrown by `uploadDocument()` on a name conflict. */
+export interface DocumentConflictDto {
+  message: string;
+  currentVersion: DocumentResponseDto;
+  nextVersion: number;
 }
 
 /** Response DTO for a time-limited presigned download URL. */

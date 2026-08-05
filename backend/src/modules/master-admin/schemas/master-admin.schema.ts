@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TenantStatus, SubscriptionStatus } from '@prisma/client';
+import { TenantStatus, SubscriptionStatus, AuditEventType } from '@prisma/client';
 import { searchPaginationSchema } from '@shared/validators';
 
 /**
@@ -53,9 +53,31 @@ export const updateTenantLimitsSchema = z.object({
   maxClients: z.coerce.number().int().min(0).nullable().optional(),
   maxStorageGb: z.coerce.number().int().min(0).nullable().optional(),
   maxDocuments: z.coerce.number().int().min(0).nullable().optional(),
+  // PRD §7.4 — per-file upload size ceiling in MB, master-admin overridable independent of plan.
+  maxUploadSizeMb: z.coerce.number().int().min(0).nullable().optional(),
 });
 
 // ─── Create tenant (+ owner bootstrap invite) ──────────────────────────────────
+
+// ─── System-level audit monitoring (PRD §4.1) ──────────────────────────────────
+// Deliberately a separate schema from `modules/audit/schemas/audit.schema.ts`'s
+// `listAuditLogsQuerySchema` rather than importing it — that module intentionally
+// doesn't export its schemas (internal to the tenant-scoped audit feature), and
+// the one real difference (an extra optional `tenantId`) isn't worth a shared
+// base type for two fields. Every other filter is identical on purpose, since
+// `MasterAdminAuditService` forwards them straight through to the same
+// `AuditLogRepository.search()` the tenant-scoped service already uses.
+
+export const listMasterAdminAuditLogsQuerySchema = searchPaginationSchema.extend({
+  tenantId: uuid.optional(),
+  eventType: z.nativeEnum(AuditEventType).optional(),
+  actorId: uuid.optional(),
+  targetType: z.string().max(50).optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+});
+
+export const auditLogIdParamSchema = z.object({ id: uuid });
 
 export const createTenantSchema = z.object({
   name: z.string().trim().min(1, 'Firm name is required').max(255, 'Firm name cannot exceed 255 characters'),

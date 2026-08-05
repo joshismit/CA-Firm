@@ -28,6 +28,7 @@ export const DOCUMENT_PERMISSIONS = {
   MANAGE: `${RESOURCE}:${PermissionAction.MANAGE}`,
   EXPORT: `${RESOURCE}:${PermissionAction.EXPORT}`,
   APPROVE: `${RESOURCE}:${PermissionAction.APPROVE}`,
+  SHARE: `${RESOURCE}:${PermissionAction.SHARE}`,
 } as const;
 
 export type DocumentPermission = (typeof DOCUMENT_PERMISSIONS)[keyof typeof DOCUMENT_PERMISSIONS];
