@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, Task, TaskStatus } from '@prisma/client';
+import { PrismaClient, Prisma, Task, TaskStatus, TaskType, TaskPriority } from '@prisma/client';
 import { BaseRepository, RepositoryOptions } from '@shared/base/base.repository';
 import { PaginationQuery, PaginationMeta } from '@shared/types';
 
@@ -17,16 +17,25 @@ import { PaginationQuery, PaginationMeta } from '@shared/types';
  */
 export interface TaskSearchFilters {
   status?: TaskStatus;
+  /** PRD §10.5 — dashboard "Pending Works"/"Due Dates" widgets filter by several open statuses at once. Takes precedence over `status` when both are given. */
+  statusIn?: TaskStatus[];
   projectId?: string;
+  leadId?: string;
   assigneeId?: string;
+  /** PRD §9 */
+  type?: TaskType;
+  priority?: TaskPriority;
   dueBefore?: Date;
   dueAfter?: Date;
   /** Matches against `title` or `description` (case-insensitive). */
   search?: string;
 }
 
-/** Statuses that no longer count as "open"/overdue-eligible work. */
-const TERMINAL_STATUSES: TaskStatus[] = [TaskStatus.COMPLETED, TaskStatus.CANCELLED];
+/** Statuses that no longer count as "open"/overdue-eligible work. Exported for `TaskService.searchForDashboard()` (PRD §10.5) so the dashboard's "open task" definition never drifts from this repository's own. */
+export const TERMINAL_STATUSES: TaskStatus[] = [TaskStatus.COMPLETED, TaskStatus.CANCELLED];
+
+/** PRD §9 — awaiting a reviewer's decision (approval workflow only). */
+const PENDING_REVIEW_STATUSES: TaskStatus[] = [TaskStatus.SUBMITTED, TaskStatus.UNDER_REVIEW];
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -63,6 +72,14 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
    */
   async findByProject(projectId: string, options: RepositoryOptions = {}): Promise<Task[]> {
     return this.findMany({ projectId }, options, undefined, { createdAt: 'desc' });
+  }
+
+  /**
+   * Finds all follow-up tasks linked to a given CRM Lead, newest first.
+   * PRD §8.7 — the "reuse Tasks instead of another reminder system" mechanism.
+   */
+  async findByLead(leadId: string, options: RepositoryOptions = {}): Promise<Task[]> {
+    return this.findMany({ leadId }, options, undefined, { createdAt: 'desc' });
   }
 
   /**
@@ -110,6 +127,19 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
   }
 
   /**
+   * Tasks awaiting a reviewer's decision (SUBMITTED or UNDER_REVIEW) — PRD §9.
+   * Mirrors `findOverdue()`'s shape, ordered oldest-due first.
+   */
+  async findPendingReview(options: RepositoryOptions = {}): Promise<Task[]> {
+    return this.findMany(
+      { status: { in: PENDING_REVIEW_STATUSES } },
+      options,
+      undefined,
+      { dueDate: 'asc' },
+    );
+  }
+
+  /**
    * Paginated search combining the standard list filters. Builds the Prisma
    * `where` clause internally so callers only ever deal with
    * `TaskSearchFilters`.
@@ -121,9 +151,13 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
   ): Promise<{ data: Task[]; meta: PaginationMeta }> {
     const where: Prisma.TaskWhereInput = {};
 
-    if (filters.status) where.status = filters.status;
+    if (filters.statusIn) where.status = { in: filters.statusIn };
+    else if (filters.status) where.status = filters.status;
     if (filters.projectId) where.projectId = filters.projectId;
+    if (filters.leadId) where.leadId = filters.leadId;
     if (filters.assigneeId) where.assigneeId = filters.assigneeId;
+    if (filters.type) where.type = filters.type;
+    if (filters.priority) where.priority = filters.priority;
 
     if (filters.dueBefore || filters.dueAfter) {
       where.dueDate = {
@@ -154,5 +188,21 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
    */
   async countByProject(projectId: string, options: RepositoryOptions = {}): Promise<number> {
     return this.count({ projectId }, options);
+  }
+
+  /**
+   * Counts open (non-terminal) CRM follow-up tasks (`leadId` set) due within
+   * `dueDateRange` — the "Upcoming Follow-ups" CRM dashboard stat (PRD §8.10).
+   * Reuses the same terminal-status exclusion as `findOverdue`/`findReminderCandidates`.
+   */
+  async countUpcomingLeadFollowUps(dueDateRange: { gte: Date; lte: Date }, options: RepositoryOptions = {}): Promise<number> {
+    return this.count(
+      {
+        leadId: { not: null },
+        dueDate: dueDateRange,
+        status: { notIn: TERMINAL_STATUSES },
+      },
+      options,
+    );
   }
 }

@@ -3,10 +3,20 @@ import { BaseRepository, RepositoryOptions } from '@shared/base/base.repository'
 import { PaginationQuery, PaginationMeta } from '@shared/types';
 
 export interface ComplianceFilingSearchFilters {
-  category: ComplianceCategory;
+  /**
+   * Required for every existing (per-category route) caller. Optional only for the
+   * PRD §10.6/§10.5 dashboard's cross-category "Compliance Deadlines"/Calendar
+   * reads (`ComplianceDashboardReader`, the first caller that spans all four
+   * areas at once) — omitted means "every category."
+   */
+  category?: ComplianceCategory;
   /** Matches against reference or period (case-insensitive). */
   search?: string;
   status?: ComplianceFilingStatus;
+  /** PRD §10.5 — dashboard widgets filter by several non-terminal statuses at once. Takes precedence over `status` when both are given. */
+  statusIn?: ComplianceFilingStatus[];
+  dueBefore?: Date;
+  dueAfter?: Date;
 }
 
 /**
@@ -38,16 +48,22 @@ export class ComplianceFilingRepository extends BaseRepository<Prisma.Compliance
     pagination: PaginationQuery,
     options: RepositoryOptions = {},
   ): Promise<{ data: ComplianceFiling[]; meta: PaginationMeta }> {
-    const where: Prisma.ComplianceFilingWhereInput = { category: filters.category };
+    const where: Prisma.ComplianceFilingWhereInput = {};
 
-    if (filters.status) {
-      where.status = filters.status;
-    }
+    if (filters.category) where.category = filters.category;
+    if (filters.statusIn) where.status = { in: filters.statusIn };
+    else if (filters.status) where.status = filters.status;
     if (filters.search) {
       where.OR = [
         { reference: { contains: filters.search, mode: 'insensitive' } },
         { period: { contains: filters.search, mode: 'insensitive' } },
       ];
+    }
+    if (filters.dueBefore || filters.dueAfter) {
+      where.dueDate = {
+        ...(filters.dueBefore && { lte: filters.dueBefore }),
+        ...(filters.dueAfter && { gte: filters.dueAfter }),
+      };
     }
 
     return this.paginate(pagination, where, options);
@@ -59,6 +75,22 @@ export class ComplianceFilingRepository extends BaseRepository<Prisma.Compliance
     options: RepositoryOptions = {},
   ): Promise<ComplianceFiling | null> {
     return this.findFirst({ id, category }, options);
+  }
+
+  /**
+   * PRD §11.12 — candidates for `ComplianceReminderService`'s scan. Excludes the terminal
+   * `FILED` status and requires a non-null `businessId` — see `ComplianceFiling.businessId`'s
+   * own schema comment for why a filing with no business link is skipped, not defaulted.
+   */
+  async findReminderCandidates(dueDateRange: { gte?: Date; lt?: Date }, options: RepositoryOptions = {}): Promise<ComplianceFiling[]> {
+    return this.findMany(
+      {
+        dueDate: dueDateRange,
+        status: { not: ComplianceFilingStatus.FILED },
+        businessId: { not: null },
+      },
+      options,
+    );
   }
 
   /**

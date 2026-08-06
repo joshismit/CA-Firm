@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Task, TaskStatus, NotificationChannel } from '@prisma/client';
+import { Task, TaskStatus, TaskType, NotificationChannel } from '@prisma/client';
 
 /**
  * `TaskService`'s constructor defaults to `new TaskRepository(prisma)` (the
@@ -15,10 +15,12 @@ import { Task, TaskStatus, NotificationChannel } from '@prisma/client';
  */
 jest.mock('@config/database', () => ({ prisma: {} }));
 
+import { AuditEventType } from '@prisma/client';
 import { UserRole } from '@shared/enums';
 import { ConflictError, NotFoundError, ValidationError } from '@shared/errors';
 import { TaskService } from '@modules/tasks/service/task.service';
 import { TaskRepository } from '@modules/tasks/repository/task.repository';
+import type { AuditLogRecorder } from '@modules/audit';
 import type { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import {
   CreateTaskDto,
@@ -49,11 +51,14 @@ type MockedTaskRepository = {
     | 'restore'
     | 'findByStatus'
     | 'findByProject'
+    | 'findByLead'
     | 'findByAssignee'
     | 'findOverdue'
+    | 'findPendingReview'
     | 'search'
     | 'countByStatus'
-    | 'countByProject']: jest.Mock;
+    | 'countByProject'
+    | 'countUpcomingLeadFollowUps']: jest.Mock;
 };
 
 function createMockRepository(): MockedTaskRepository {
@@ -65,11 +70,14 @@ function createMockRepository(): MockedTaskRepository {
     restore: jest.fn(),
     findByStatus: jest.fn(),
     findByProject: jest.fn(),
+    findByLead: jest.fn(),
     findByAssignee: jest.fn(),
     findOverdue: jest.fn(),
+    findPendingReview: jest.fn(),
     search: jest.fn(),
     countByStatus: jest.fn(),
     countByProject: jest.fn(),
+    countUpcomingLeadFollowUps: jest.fn(),
   };
 }
 
@@ -87,13 +95,24 @@ function createMockTask(overrides: Partial<Task> = {}): Task {
     id: 'task-33333333-3333-3333-3333-333333333333',
     tenantId: TENANT_ID,
     projectId: null,
+    leadId: null,
     assigneeId: null,
     title: 'Prepare draft financials',
     description: null,
     status: TaskStatus.TODO,
+    type: null,
+    priority: null,
+    businessId: null,
+    contactId: null,
+    clientId: null,
+    documentId: null,
+    folderId: null,
     startDate: null,
     dueDate: null,
     completedAt: null,
+    completedBy: null,
+    approvedBy: null,
+    rejectedBy: null,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -107,14 +126,19 @@ function createMockNotificationDispatchService(): { send: jest.Mock } {
   return { send: jest.fn().mockResolvedValue([]) };
 }
 
+function createMockAuditLogRecorder(): { record: jest.Mock } {
+  return { record: jest.fn().mockResolvedValue(undefined) };
+}
+
 function createService(
   repository: MockedTaskRepository,
   notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
+  auditLogRecorder: { record: jest.Mock } = createMockAuditLogRecorder(),
 ): TaskService {
   return new TaskService(
     createFakeRequest(),
     repository as unknown as TaskRepository,
-    undefined,
+    auditLogRecorder as unknown as AuditLogRecorder,
     notificationDispatchService as unknown as NotificationDispatchService,
   );
 }
@@ -181,6 +205,19 @@ describe('TaskService', () => {
         message: expect.stringContaining(dto.title),
         channels: [NotificationChannel.IN_APP],
       });
+    });
+
+    it('passes through leadId when provided (PRD §8.7 — links a follow-up task to a CRM Lead)', async () => {
+      const repo = createMockRepository();
+      repo.create.mockResolvedValue(createMockTask({ leadId: 'lead-1' }));
+
+      const service = createService(repo);
+      await service.createTask({ ...dto, leadId: 'lead-1' });
+
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ leadId: 'lead-1' }),
+        { tenantId: TENANT_ID },
+      );
     });
 
     it('does NOT notify when the task has no assignee', async () => {
@@ -294,6 +331,32 @@ describe('TaskService', () => {
       await service.updateTask('task-1', { title: 'Renamed' });
 
       expect(notificationDispatchService.send).not.toHaveBeenCalled();
+    });
+
+    it('records TASK_ASSIGNED on a genuine reassignment (PRD §9)', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ assigneeId: 'old-assignee' }));
+      repo.update.mockResolvedValue(createMockTask({ assigneeId: 'new-assignee' }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockNotificationDispatchService(), auditLogRecorder);
+      await service.updateTask('task-1', { assigneeId: 'new-assignee' });
+
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.TASK_ASSIGNED }),
+      );
+    });
+
+    it('does NOT record TASK_ASSIGNED when assigneeId is not part of the update', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ assigneeId: 'existing-assignee' }));
+      repo.update.mockResolvedValue(createMockTask({ assigneeId: 'existing-assignee', title: 'Renamed' }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockNotificationDispatchService(), auditLogRecorder);
+      await service.updateTask('task-1', { title: 'Renamed' });
+
+      expect(auditLogRecorder.record).not.toHaveBeenCalled();
     });
 
     it('throws ValidationError when only dueDate is patched and it precedes the existing startDate (validation failure)', async () => {
@@ -445,6 +508,51 @@ describe('TaskService', () => {
       );
     });
 
+    // ────────────────────────────────────────────────────────────────────
+    // PRD §8.7/§8.11 — completing a Lead-linked follow-up task
+    // ────────────────────────────────────────────────────────────────────
+    it('records FOLLOWUP_COMPLETED when a Lead-linked task is moved to COMPLETED', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.REVIEW, leadId: 'lead-1', title: 'Follow up next week' }));
+      repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.COMPLETED, leadId: 'lead-1' }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockNotificationDispatchService(), auditLogRecorder);
+      await service.updateTaskStatus('task-1', { status: TaskStatus.COMPLETED });
+
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.FOLLOWUP_COMPLETED, targetType: 'Lead', targetId: 'lead-1' }),
+      );
+    });
+
+    it('does NOT record FOLLOWUP_COMPLETED for a plain (non-Lead-linked) task', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.REVIEW, leadId: null }));
+      repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.COMPLETED, leadId: null }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockNotificationDispatchService(), auditLogRecorder);
+      await service.updateTaskStatus('task-1', { status: TaskStatus.COMPLETED });
+
+      expect(auditLogRecorder.record).not.toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.FOLLOWUP_COMPLETED }),
+      );
+    });
+
+    it('does NOT record FOLLOWUP_COMPLETED when a Lead-linked task moves to a non-COMPLETED status', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.TODO, leadId: 'lead-1' }));
+      repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.IN_PROGRESS, leadId: 'lead-1' }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockNotificationDispatchService(), auditLogRecorder);
+      await service.updateTaskStatus('task-1', { status: TaskStatus.IN_PROGRESS });
+
+      expect(auditLogRecorder.record).not.toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.FOLLOWUP_COMPLETED }),
+      );
+    });
+
     it('clears completedAt when reopening (COMPLETED → IN_PROGRESS)', async () => {
       const repo = createMockRepository();
       repo.findById.mockResolvedValue(
@@ -457,7 +565,7 @@ describe('TaskService', () => {
 
       expect(repo.update).toHaveBeenCalledWith(
         'task-1',
-        { status: TaskStatus.IN_PROGRESS, completedAt: null },
+        { status: TaskStatus.IN_PROGRESS, completedAt: null, completedBy: null },
         { tenantId: TENANT_ID },
       );
     });
@@ -471,6 +579,281 @@ describe('TaskService', () => {
       await expect(
         service.updateTaskStatus('missing-id', { status: TaskStatus.IN_PROGRESS }),
       ).rejects.toThrow(NotFoundError);
+    });
+
+    // ────────────────────────────────────────────────────────────────────
+    // PRD §9 — approval workflow transitions
+    // ────────────────────────────────────────────────────────────────────
+    describe('approval workflow (PRD §9)', () => {
+      it.each([
+        [TaskStatus.REQUESTED, TaskStatus.SUBMITTED],
+        [TaskStatus.SUBMITTED, TaskStatus.UNDER_REVIEW],
+        [TaskStatus.SUBMITTED, TaskStatus.APPROVED],
+        [TaskStatus.SUBMITTED, TaskStatus.REJECTED],
+        [TaskStatus.UNDER_REVIEW, TaskStatus.APPROVED],
+        [TaskStatus.UNDER_REVIEW, TaskStatus.REJECTED],
+        [TaskStatus.APPROVED, TaskStatus.COMPLETED],
+        [TaskStatus.REJECTED, TaskStatus.REQUESTED],
+      ])('allows %s → %s', async (from, to) => {
+        const repo = createMockRepository();
+        repo.findById.mockResolvedValue(createMockTask({ status: from, type: TaskType.APPROVAL }));
+        repo.update.mockResolvedValue(createMockTask({ status: to, type: TaskType.APPROVAL }));
+
+        const service = createService(repo);
+        const reason = to === TaskStatus.REJECTED ? 'Missing signature' : undefined;
+
+        await expect(
+          service.updateTaskStatus('task-1', { status: to, reason }),
+        ).resolves.toBeDefined();
+      });
+
+      // The PRD's explicit invalid-transition examples.
+      it.each([
+        [TaskStatus.COMPLETED, TaskStatus.REQUESTED],
+        [TaskStatus.REJECTED, TaskStatus.APPROVED],
+        [TaskStatus.APPROVED, TaskStatus.SUBMITTED],
+      ])('blocks %s → %s (PRD invalid-transition example)', async (from, to) => {
+        const repo = createMockRepository();
+        repo.findById.mockResolvedValue(createMockTask({ status: from, type: TaskType.APPROVAL }));
+
+        const service = createService(repo);
+
+        await expect(service.updateTaskStatus('task-1', { status: to })).rejects.toThrow(
+          ConflictError,
+        );
+        expect(repo.update).not.toHaveBeenCalled();
+      });
+
+      it('throws ValidationError when moving to REJECTED without a reason', async () => {
+        const repo = createMockRepository();
+        repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.SUBMITTED, type: TaskType.APPROVAL }));
+
+        const service = createService(repo);
+
+        await expect(
+          service.updateTaskStatus('task-1', { status: TaskStatus.REJECTED }),
+        ).rejects.toThrow(ValidationError);
+        expect(repo.update).not.toHaveBeenCalled();
+      });
+
+      it('stamps approvedBy when moving to APPROVED', async () => {
+        const repo = createMockRepository();
+        repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.SUBMITTED, type: TaskType.APPROVAL }));
+        repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.APPROVED, type: TaskType.APPROVAL }));
+
+        const service = createService(repo);
+        await service.updateTaskStatus('task-1', { status: TaskStatus.APPROVED });
+
+        expect(repo.update).toHaveBeenCalledWith(
+          'task-1',
+          { status: TaskStatus.APPROVED, approvedBy: USER_ID },
+          { tenantId: TENANT_ID },
+        );
+      });
+
+      it('stamps rejectedBy when moving to REJECTED', async () => {
+        const repo = createMockRepository();
+        repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.SUBMITTED, type: TaskType.APPROVAL }));
+        repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.REJECTED, type: TaskType.APPROVAL }));
+
+        const service = createService(repo);
+        await service.updateTaskStatus('task-1', { status: TaskStatus.REJECTED, reason: 'Incomplete data' });
+
+        expect(repo.update).toHaveBeenCalledWith(
+          'task-1',
+          { status: TaskStatus.REJECTED, rejectedBy: USER_ID },
+          { tenantId: TENANT_ID },
+        );
+      });
+
+      it('stamps completedBy in addition to completedAt when moving to COMPLETED', async () => {
+        const repo = createMockRepository();
+        repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.APPROVED, type: TaskType.APPROVAL }));
+        repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.COMPLETED, type: TaskType.APPROVAL }));
+
+        const service = createService(repo);
+        await service.updateTaskStatus('task-1', { status: TaskStatus.COMPLETED });
+
+        expect(repo.update).toHaveBeenCalledWith(
+          'task-1',
+          expect.objectContaining({ status: TaskStatus.COMPLETED, completedAt: expect.any(Date), completedBy: USER_ID }),
+          { tenantId: TENANT_ID },
+        );
+      });
+
+      it.each([
+        [AuditEventType.TASK_SUBMITTED, TaskStatus.REQUESTED, TaskStatus.SUBMITTED],
+        [AuditEventType.TASK_APPROVED, TaskStatus.SUBMITTED, TaskStatus.APPROVED],
+        [AuditEventType.TASK_REJECTED, TaskStatus.SUBMITTED, TaskStatus.REJECTED],
+        [AuditEventType.TASK_COMPLETED, TaskStatus.APPROVED, TaskStatus.COMPLETED],
+        [AuditEventType.TASK_REOPENED, TaskStatus.REJECTED, TaskStatus.REQUESTED],
+        [AuditEventType.TASK_REOPENED, TaskStatus.COMPLETED, TaskStatus.IN_PROGRESS],
+      ])('records %s for the %s → %s transition', async (eventType, from, to) => {
+        const repo = createMockRepository();
+        repo.findById.mockResolvedValue(createMockTask({ status: from, type: TaskType.APPROVAL }));
+        repo.update.mockResolvedValue(createMockTask({ status: to, type: TaskType.APPROVAL }));
+        const auditLogRecorder = createMockAuditLogRecorder();
+
+        const service = createService(repo, createMockNotificationDispatchService(), auditLogRecorder);
+        const reason = to === TaskStatus.REJECTED ? 'Needs rework' : undefined;
+        await service.updateTaskStatus('task-1', { status: to, reason });
+
+        expect(auditLogRecorder.record).toHaveBeenCalledWith(
+          expect.objectContaining({ eventType }),
+        );
+      });
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Lifecycle action wrappers (PRD §9)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('lifecycle action wrappers', () => {
+    it('assignTask delegates to updateTask with the new assigneeId', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ assigneeId: 'old-assignee' }));
+      repo.update.mockResolvedValue(createMockTask({ assigneeId: 'new-assignee' }));
+
+      const service = createService(repo);
+      await service.assignTask('task-1', 'new-assignee');
+
+      expect(repo.update).toHaveBeenCalledWith(
+        'task-1',
+        { assigneeId: 'new-assignee' },
+        { tenantId: TENANT_ID },
+      );
+    });
+
+    it('submitTask moves REQUESTED → SUBMITTED', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.REQUESTED, type: TaskType.APPROVAL }));
+      repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.SUBMITTED, type: TaskType.APPROVAL }));
+
+      const service = createService(repo);
+      await service.submitTask('task-1');
+
+      expect(repo.update).toHaveBeenCalledWith(
+        'task-1',
+        { status: TaskStatus.SUBMITTED },
+        { tenantId: TENANT_ID },
+      );
+    });
+
+    it('completeTask moves APPROVED → COMPLETED', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.APPROVED, type: TaskType.APPROVAL }));
+      repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.COMPLETED, type: TaskType.APPROVAL }));
+
+      const service = createService(repo);
+      await service.completeTask('task-1');
+
+      expect(repo.update).toHaveBeenCalledWith(
+        'task-1',
+        expect.objectContaining({ status: TaskStatus.COMPLETED }),
+        { tenantId: TENANT_ID },
+      );
+    });
+
+    describe('reopenTask', () => {
+      it('reopens a COMPLETED task to IN_PROGRESS', async () => {
+        const repo = createMockRepository();
+        repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.COMPLETED }));
+        repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.IN_PROGRESS }));
+
+        const service = createService(repo);
+        await service.reopenTask('task-1');
+
+        expect(repo.update).toHaveBeenCalledWith(
+          'task-1',
+          { status: TaskStatus.IN_PROGRESS, completedAt: null, completedBy: null },
+          { tenantId: TENANT_ID },
+        );
+      });
+
+      it('reopens a REJECTED task to REQUESTED', async () => {
+        const repo = createMockRepository();
+        repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.REJECTED, type: TaskType.APPROVAL }));
+        repo.update.mockResolvedValue(createMockTask({ status: TaskStatus.REQUESTED, type: TaskType.APPROVAL }));
+
+        const service = createService(repo);
+        await service.reopenTask('task-1');
+
+        expect(repo.update).toHaveBeenCalledWith(
+          'task-1',
+          { status: TaskStatus.REQUESTED },
+          { tenantId: TENANT_ID },
+        );
+      });
+
+      it('throws ConflictError when the task is not in a reopenable status', async () => {
+        const repo = createMockRepository();
+        repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.TODO }));
+
+        const service = createService(repo);
+
+        await expect(service.reopenTask('task-1')).rejects.toThrow(ConflictError);
+        expect(repo.update).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // createTask — approval workflow initial status (PRD §9)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('createTask — approval workflow', () => {
+    it('starts REQUESTED when a type is provided', async () => {
+      const repo = createMockRepository();
+      repo.create.mockResolvedValue(createMockTask({ type: TaskType.APPROVAL, status: TaskStatus.REQUESTED }));
+
+      const service = createService(repo);
+      await service.createTask({ title: 'Approve payroll run', type: TaskType.APPROVAL });
+
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: TaskType.APPROVAL, status: TaskStatus.REQUESTED }),
+        { tenantId: TENANT_ID },
+      );
+    });
+
+    it('starts TODO when no type is provided (backward-compatible simple flow)', async () => {
+      const repo = createMockRepository();
+      repo.create.mockResolvedValue(createMockTask({ status: TaskStatus.TODO }));
+
+      const service = createService(repo);
+      await service.createTask({ title: 'Plain task, no type' });
+
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: null, status: TaskStatus.TODO }),
+        { tenantId: TENANT_ID },
+      );
+    });
+
+    it('records TASK_CREATED on every creation', async () => {
+      const repo = createMockRepository();
+      repo.create.mockResolvedValue(createMockTask());
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockNotificationDispatchService(), auditLogRecorder);
+      await service.createTask({ title: 'Plain task' });
+
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.TASK_CREATED }),
+      );
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // deleteTask — REQUESTED is also deletable now (PRD §9)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('deleteTask — REQUESTED status (PRD §9)', () => {
+    it('soft-deletes a task in REQUESTED status', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockTask({ status: TaskStatus.REQUESTED, type: TaskType.APPROVAL }));
+      repo.delete.mockResolvedValue(true);
+
+      const service = createService(repo);
+      await service.deleteTask('task-1');
+
+      expect(repo.delete).toHaveBeenCalledWith('task-1', { tenantId: TENANT_ID, userId: USER_ID });
     });
   });
 
@@ -617,6 +1000,8 @@ describe('TaskService', () => {
           status: TaskStatus.IN_PROGRESS,
           projectId: 'project-1',
           assigneeId: undefined,
+          type: undefined,
+          priority: undefined,
           dueBefore: undefined,
           dueAfter: undefined,
           search: 'financials',
@@ -641,6 +1026,20 @@ describe('TaskService', () => {
       const result = await service.getTasksByProject('project-1');
 
       expect(repo.findByProject).toHaveBeenCalledWith('project-1', { tenantId: TENANT_ID });
+      expect(result).toBe(tasks);
+    });
+  });
+
+  describe('getTasksByLead', () => {
+    it('delegates to repository.findByLead scoped to the tenant (PRD §8.7 follow-up tasks)', async () => {
+      const repo = createMockRepository();
+      const tasks = [createMockTask({ leadId: 'lead-1' })];
+      repo.findByLead.mockResolvedValue(tasks);
+
+      const service = createService(repo);
+      const result = await service.getTasksByLead('lead-1');
+
+      expect(repo.findByLead).toHaveBeenCalledWith('lead-1', { tenantId: TENANT_ID });
       expect(result).toBe(tasks);
     });
   });
@@ -679,6 +1078,25 @@ describe('TaskService', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
+  // getPendingReviewTasks (PRD §9)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('getPendingReviewTasks', () => {
+    it('delegates to repository.findPendingReview scoped to the tenant', async () => {
+      const repo = createMockRepository();
+      const pending = [
+        createMockTask({ status: TaskStatus.SUBMITTED, type: TaskType.APPROVAL }),
+      ];
+      repo.findPendingReview.mockResolvedValue(pending);
+
+      const service = createService(repo);
+      const result = await service.getPendingReviewTasks();
+
+      expect(repo.findPendingReview).toHaveBeenCalledWith({ tenantId: TENANT_ID });
+      expect(result).toBe(pending);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
   // countByStatus / countByProject
   // ────────────────────────────────────────────────────────────────────────
   describe('countByStatus', () => {
@@ -704,6 +1122,27 @@ describe('TaskService', () => {
 
       expect(repo.countByProject).toHaveBeenCalledWith('project-1', { tenantId: TENANT_ID });
       expect(result).toBe(3);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // countUpcomingLeadFollowUps (PRD §8.10 — CRM dashboard "Upcoming Follow-ups")
+  // ────────────────────────────────────────────────────────────────────────
+  describe('countUpcomingLeadFollowUps', () => {
+    it('delegates to repository.countUpcomingLeadFollowUps with a [now, +30 days] range, scoped to the tenant', async () => {
+      const repo = createMockRepository();
+      repo.countUpcomingLeadFollowUps.mockResolvedValue(7);
+
+      const service = createService(repo);
+      const result = await service.countUpcomingLeadFollowUps();
+
+      expect(repo.countUpcomingLeadFollowUps).toHaveBeenCalledWith(
+        { gte: expect.any(Date), lte: expect.any(Date) },
+        { tenantId: TENANT_ID },
+      );
+      const [{ gte, lte }] = repo.countUpcomingLeadFollowUps.mock.calls[0];
+      expect(lte.getTime() - gte.getTime()).toBe(30 * 24 * 60 * 60 * 1000);
+      expect(result).toBe(7);
     });
   });
 });

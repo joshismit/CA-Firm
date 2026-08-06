@@ -26,11 +26,22 @@ export class DashboardPreferenceRepository {
   }
 
   /** Creates the row on first write, updates it on every write after — a user never has more than one. */
-  async upsert(tenantId: string, userId: string, widgets: Prisma.InputJsonValue): Promise<DashboardPreference> {
+  async upsert(
+    tenantId: string,
+    userId: string,
+    widgets: Prisma.InputJsonValue,
+    refreshIntervalSeconds?: number | null,
+  ): Promise<DashboardPreference> {
     return this.prisma.dashboardPreference.upsert({
       where: { userId },
-      create: { tenantId, userId, widgets },
-      update: { widgets },
+      create: { tenantId, userId, widgets, refreshIntervalSeconds },
+      update: { widgets, refreshIntervalSeconds },
     });
+  }
+
+  /** PRD §10.4 "Restore Defaults" — deletes the caller's personal row so `getPreferences()` falls back to the tenant/role default (or the registry default if neither exists). Not a soft delete — same singleton reasoning as the rest of this repository. */
+  async deleteByUserId(userId: string): Promise<boolean> {
+    const result = await this.prisma.dashboardPreference.deleteMany({ where: { userId } });
+    return result.count > 0;
   }
 }

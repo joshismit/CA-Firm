@@ -8,6 +8,8 @@ import {
   CreateTaskDto,
   UpdateTaskDto,
   UpdateTaskStatusDto,
+  AssignTaskDto,
+  RejectTaskDto,
   ListTasksQueryDto,
 } from '../dto/task.req.dto';
 
@@ -52,6 +54,73 @@ export class TaskController {
       .json(ApiResponseHelper.updated(req, TaskMapper.toResponseDto(task)));
   });
 
+  static assign = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TaskService(req);
+    const { assigneeId } = req.body as AssignTaskDto;
+    const task = await service.assignTask(req.params.id, assigneeId);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.updated(req, TaskMapper.toResponseDto(task)));
+  });
+
+  static submit = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TaskService(req);
+    const task = await service.submitTask(req.params.id);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.updated(req, TaskMapper.toResponseDto(task)));
+  });
+
+  static approve = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TaskService(req);
+    const task = await service.approveTask(req.params.id);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.updated(req, TaskMapper.toResponseDto(task)));
+  });
+
+  static reject = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TaskService(req);
+    const { reason } = req.body as RejectTaskDto;
+    const task = await service.rejectTask(req.params.id, reason);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.updated(req, TaskMapper.toResponseDto(task)));
+  });
+
+  static complete = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TaskService(req);
+    const task = await service.completeTask(req.params.id);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.updated(req, TaskMapper.toResponseDto(task)));
+  });
+
+  static reopen = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TaskService(req);
+    const task = await service.reopenTask(req.params.id);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.updated(req, TaskMapper.toResponseDto(task)));
+  });
+
+  static getPendingReview = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TaskService(req);
+    const tasks = await service.getPendingReviewTasks();
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(
+        ApiResponseHelper.success(req, TaskMapper.toResponseDtoList(tasks), MESSAGES.FETCHED),
+      );
+  });
+
   static delete = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const service = new TaskService(req);
     await service.deleteTask(req.params.id);
@@ -89,6 +158,17 @@ export class TaskController {
   static getByProject = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const service = new TaskService(req);
     const tasks = await service.getTasksByProject(req.params.projectId);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(
+        ApiResponseHelper.success(req, TaskMapper.toResponseDtoList(tasks), MESSAGES.FETCHED),
+      );
+  });
+
+  static getByLead = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TaskService(req);
+    const tasks = await service.getTasksByLead(req.params.leadId);
 
     res
       .status(HTTP_STATUS.OK)

@@ -26,8 +26,29 @@ export interface NotificationSendResult {
   error?: string;
 }
 
+/** PRD §11.2 — every provider's fixed, non-network-dependent shape; does not vary by tenant/env. */
+export interface NotificationProviderCapabilities {
+  supportsRichText: boolean;
+  supportsAttachments: boolean;
+  /** `null` = no practical limit enforced by this provider. */
+  maxMessageLength: number | null;
+}
+
+/** PRD §11.16 — backs `GET /notification-providers/health`. */
+export interface NotificationProviderHealth {
+  status: 'up' | 'down' | 'unconfigured';
+  checkedAt: string;
+  latencyMs?: number;
+  detail?: string;
+}
+
 export interface NotificationProvider {
   /** False when the required credentials for this channel aren't set — `send()` short-circuits rather than attempting a network call. */
   readonly isConfigured: boolean;
   send(payload: NotificationSendPayload): Promise<NotificationSendResult>;
+  /** Configuration-only check — never makes a network call. `reason` is set only when `valid` is false. */
+  validate(): Promise<{ valid: boolean; reason?: string }>;
+  /** May make a network call for providers where a genuine one exists (e.g. Email's SMTP `verify()`) — see each implementation's own comment. */
+  health(): Promise<NotificationProviderHealth>;
+  getCapabilities(): NotificationProviderCapabilities;
 }

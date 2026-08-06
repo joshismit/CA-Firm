@@ -1,5 +1,5 @@
 jest.mock('@config/mail', () => ({
-  mailTransport: { sendMail: jest.fn() },
+  mailTransport: { sendMail: jest.fn(), verify: jest.fn() },
   mailConfig: { from: '"CA Firm ERP" <noreply@cafirm.com>', defaults: { replyTo: 'noreply@cafirm.com' } },
 }));
 
@@ -46,5 +46,43 @@ describe('EmailProvider', () => {
     const result = await provider.send({ to: 'staff@acme.test', subject: 'Hello', message: 'Body text' });
 
     expect(result).toEqual({ success: false, error: 'SMTP connection refused' });
+  });
+
+  describe('validate/health/getCapabilities', () => {
+    const verifyMock = mailTransport.verify as jest.Mock;
+
+    beforeEach(() => {
+      verifyMock.mockReset();
+    });
+
+    it('validate() is always valid — there is no "not configured" state for Email', async () => {
+      await expect(new EmailProvider().validate()).resolves.toEqual({ valid: true });
+    });
+
+    it('health() reports "up" when mailTransport.verify() succeeds', async () => {
+      verifyMock.mockResolvedValue(true);
+
+      const health = await new EmailProvider().health();
+
+      expect(health.status).toBe('up');
+      expect(typeof health.latencyMs).toBe('number');
+    });
+
+    it('health() reports "down" (never throws) when mailTransport.verify() fails', async () => {
+      verifyMock.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const health = await new EmailProvider().health();
+
+      expect(health.status).toBe('down');
+      expect(health.detail).toBe('ECONNREFUSED');
+    });
+
+    it('getCapabilities() reflects that Email supports rich text but not attachments', () => {
+      expect(new EmailProvider().getCapabilities()).toEqual({
+        supportsRichText: true,
+        supportsAttachments: false,
+        maxMessageLength: null,
+      });
+    });
   });
 });

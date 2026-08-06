@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { DashboardPreferenceRepository } from '../repository/dashboard-preference.repository';
+import { DashboardTenantDefaultRepository } from '../repository/dashboard-tenant-default.repository';
 import { DashboardPreferenceMapper } from '../mapper/dashboard-preference.mapper';
 import { DashboardPreferenceResponseDto } from '../dto/dashboard-preference.res.dto';
 import { UpdateDashboardPreferencesDto } from '../dto/dashboard-preference.req.dto';
@@ -35,13 +36,29 @@ export class DashboardPreferenceService extends BaseService {
   constructor(
     req: Request,
     private readonly repository: DashboardPreferenceRepository = new DashboardPreferenceRepository(prisma),
+    private readonly tenantDefaultRepository: DashboardTenantDefaultRepository = new DashboardTenantDefaultRepository(prisma),
   ) {
     super(req);
   }
 
+  /**
+   * Fallback chain (PRD §10.3): the caller's own saved row, then their tenant's
+   * configured default for their coarse role, then the empty/registry-default shape
+   * this always returned before tenant defaults existed. A brand-new user with no
+   * personal layout yet transparently inherits whatever their tenant admin configured
+   * for their role — never a hardcoded "everything visible" default once one exists.
+   */
   async getPreferences(): Promise<DashboardPreferenceResponseDto> {
     const preference = await this.repository.findByUserId(this.userId as string);
-    return DashboardPreferenceMapper.toResponseDto(preference);
+    if (preference) return DashboardPreferenceMapper.toResponseDto(preference);
+
+    const role = this.req.user?.role;
+    if (role) {
+      const tenantDefault = await this.tenantDefaultRepository.findByTenantAndRole(this.tenantId as string, role);
+      if (tenantDefault) return DashboardPreferenceMapper.fromTenantDefault(tenantDefault);
+    }
+
+    return DashboardPreferenceMapper.toResponseDto(null);
   }
 
   async updatePreferences(dto: UpdateDashboardPreferencesDto): Promise<DashboardPreferenceResponseDto> {
@@ -51,7 +68,15 @@ export class DashboardPreferenceService extends BaseService {
       this.tenantId as string,
       this.userId as string,
       dto.widgets as unknown as Prisma.InputJsonValue,
+      dto.refreshIntervalSeconds,
     );
     return DashboardPreferenceMapper.toResponseDto(preference);
+  }
+
+  /** PRD §10.4 "Restore Defaults" — deletes the caller's personal layout so `getPreferences()` falls back to the tenant/role default (or the registry default). */
+  async resetPreferences(): Promise<DashboardPreferenceResponseDto> {
+    await this.repository.deleteByUserId(this.userId as string);
+    this.logger.info('Reset dashboard preferences to default');
+    return this.getPreferences();
   }
 }

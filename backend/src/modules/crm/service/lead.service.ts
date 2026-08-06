@@ -1,16 +1,30 @@
 import { Request } from 'express';
-import { ClientStatus, ContactRoleType, Lead, LeadStage } from '@prisma/client';
+import { AuditEventType, ClientStatus, ContactRoleType, Lead, LeadStage, LeadNote, LeadAssignment, Client } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
-import { ConflictError, UnauthorizedError } from '@shared/errors';
-import { PaginationMeta } from '@shared/types';
+import { ConflictError, NotFoundError, UnauthorizedError } from '@shared/errors';
+import { PaginationMeta, PaginationQuery } from '@shared/types';
+import { AuditLogRecorder, AuditTimelineReader, AuditLogResponseDto } from '@modules/audit';
 import { BusinessService } from '@modules/business';
 import { ContactRoleRepository } from '@modules/contacts';
+import { TaskService } from '@modules/tasks';
 import { LeadRepository } from '../repository/lead.repository';
 import { LeadStageRepository } from '../repository/lead-stage.repository';
 import { LeadConversionRepository } from '../repository/lead-conversion.repository';
+import { LeadNoteRepository } from '../repository/lead-note.repository';
+import { LeadAssignmentRepository } from '../repository/lead-assignment.repository';
 import { ClientRepository } from '../repository/client.repository';
-import { CreateLeadDto, UpdateLeadDto, ListLeadsQueryDto, ConvertLeadDto } from '../dto/lead.req.dto';
+import {
+  CreateLeadDto,
+  UpdateLeadDto,
+  ListLeadsQueryDto,
+  ConvertLeadDto,
+  CreateLeadNoteDto,
+  AssignLeadDto,
+  SendProposalDto,
+  RespondProposalDto,
+} from '../dto/lead.req.dto';
+import { LeadDashboardResponseDto } from '../dto/lead.res.dto';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -29,6 +43,12 @@ import { CreateLeadDto, UpdateLeadDto, ListLeadsQueryDto, ConvertLeadDto } from 
  * conversion must commit or roll back as one unit).
  * ─────────────────────────────────────────────────────────────────────────────
  */
+
+/** `Client` with its `business` relation eager-loaded — the shape `listAssignedClients()` always returns (it always requests that include). */
+export interface ClientWithBusiness extends Client {
+  business: { id: string; name: string } | null;
+}
+
 export class LeadService extends BaseService {
   constructor(
     req: Request,
@@ -38,6 +58,15 @@ export class LeadService extends BaseService {
     private readonly clientRepository: ClientRepository = new ClientRepository(prisma),
     private readonly contactRoleRepository: ContactRoleRepository = new ContactRoleRepository(prisma),
     private readonly businessService: BusinessService = new BusinessService(req),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
+    // Appended after the original dependency list (rather than interleaved) so
+    // existing positional-mock test call sites don't shift — see this
+    // codebase's convention for adding deps to an already-tested constructor.
+    private readonly leadNoteRepository: LeadNoteRepository = new LeadNoteRepository(prisma),
+    private readonly leadAssignmentRepository: LeadAssignmentRepository = new LeadAssignmentRepository(prisma),
+    // PRD §8.2/§8.10/§8.11 additions — same "append, don't interleave" rule.
+    private readonly auditTimelineReader: AuditTimelineReader = new AuditTimelineReader(),
+    private readonly taskService: TaskService = new TaskService(req),
   ) {
     super(req);
   }
@@ -52,19 +81,35 @@ export class LeadService extends BaseService {
     // An invalid businessId/contactId/sourceId/stageId surfaces as a 409
     // (P2003 foreign key violation), handled centrally by errorMiddleware —
     // no pre-check needed here.
-    return this.leadRepository.create(
+    const lead = await this.leadRepository.create(
       {
         businessId: dto.businessId ?? null,
         contactId: dto.contactId ?? null,
         title: dto.title,
         sourceId: dto.sourceId,
         stageId: dto.stageId,
+        priority: dto.priority ?? null,
         expectedRevenue: dto.expectedRevenue ?? null,
         probability: dto.probability ?? null,
         expectedCloseDate: dto.expectedCloseDate ?? null,
+        interestedServices: dto.interestedServices ?? [],
       },
       { tenantId: this.tenantId },
     );
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.LEAD_CREATED,
+        description: `Created lead "${lead.title}"`,
+        targetType: 'Lead',
+        targetId: lead.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    return lead;
   }
 
   async updateLead(id: string, dto: UpdateLeadDto): Promise<Lead> {
@@ -73,7 +118,23 @@ export class LeadService extends BaseService {
 
     this.logger.info({ leadId: id }, 'Updating lead');
 
-    return this.leadRepository.update(id, dto, { tenantId: this.tenantId });
+    const updated = await this.leadRepository.update(id, dto, { tenantId: this.tenantId });
+
+    // "Status Changed" (PRD §8.11) — only fires when stageId is actually part of
+    // this diff and genuinely differs, so a no-op PATCH doesn't audit-spam.
+    if (dto.stageId !== undefined && dto.stageId !== existing.stageId && this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.LEAD_STAGE_CHANGED,
+        description: `Changed lead "${updated.title}" stage`,
+        targetType: 'Lead',
+        targetId: updated.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    return updated;
   }
 
   async deleteLead(id: string): Promise<void> {
@@ -83,6 +144,114 @@ export class LeadService extends BaseService {
     this.logger.info({ leadId: id }, 'Deleting lead');
 
     await this.leadRepository.delete(id, { tenantId: this.tenantId, userId: this.userId });
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Proposal (PRD §8.2) — dedicated actions rather than a raw PATCH, so the
+  // three timestamps can never be set out of order by a client.
+  // ────────────────────────────────────────────────────────────────────────────
+
+  async sendProposal(id: string, dto: SendProposalDto): Promise<Lead> {
+    const existing = await this.leadRepository.findById(id, { tenantId: this.tenantId });
+    this.validateExists(existing, 'Lead');
+
+    this.logger.info({ leadId: id }, 'Sending proposal');
+
+    const updated = await this.leadRepository.update(
+      id,
+      {
+        proposalSentAt: new Date(),
+        proposalAcceptedAt: null,
+        proposalRejectedAt: null,
+        proposalValue: dto.proposalValue ?? existing.proposalValue,
+        proposalRemarks: dto.proposalRemarks ?? existing.proposalRemarks,
+      },
+      { tenantId: this.tenantId },
+    );
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.PROPOSAL_SENT,
+        description: `Sent a proposal for lead "${updated.title}"`,
+        targetType: 'Lead',
+        targetId: updated.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    return updated;
+  }
+
+  async acceptProposal(id: string, dto: RespondProposalDto): Promise<Lead> {
+    const existing = await this.leadRepository.findById(id, { tenantId: this.tenantId });
+    this.validateExists(existing, 'Lead');
+
+    if (!existing.proposalSentAt) {
+      throw new ConflictError('No proposal has been sent for this lead yet.');
+    }
+
+    this.logger.info({ leadId: id }, 'Accepting proposal');
+
+    const updated = await this.leadRepository.update(
+      id,
+      {
+        proposalAcceptedAt: new Date(),
+        proposalRejectedAt: null,
+        proposalRemarks: dto.proposalRemarks ?? existing.proposalRemarks,
+      },
+      { tenantId: this.tenantId },
+    );
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.PROPOSAL_ACCEPTED,
+        description: `Accepted the proposal for lead "${updated.title}"`,
+        targetType: 'Lead',
+        targetId: updated.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    return updated;
+  }
+
+  async rejectProposal(id: string, dto: RespondProposalDto): Promise<Lead> {
+    const existing = await this.leadRepository.findById(id, { tenantId: this.tenantId });
+    this.validateExists(existing, 'Lead');
+
+    if (!existing.proposalSentAt) {
+      throw new ConflictError('No proposal has been sent for this lead yet.');
+    }
+
+    this.logger.info({ leadId: id }, 'Rejecting proposal');
+
+    const updated = await this.leadRepository.update(
+      id,
+      {
+        proposalRejectedAt: new Date(),
+        proposalAcceptedAt: null,
+        proposalRemarks: dto.proposalRemarks ?? existing.proposalRemarks,
+      },
+      { tenantId: this.tenantId },
+    );
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.PROPOSAL_REJECTED,
+        description: `Rejected the proposal for lead "${updated.title}"`,
+        targetType: 'Lead',
+        targetId: updated.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    return updated;
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -97,7 +266,7 @@ export class LeadService extends BaseService {
 
   async listLeads(query: ListLeadsQueryDto): Promise<{ data: Lead[]; meta: PaginationMeta }> {
     return this.leadRepository.search(
-      { stageId: query.stageId, sourceId: query.sourceId, search: query.search },
+      { stageId: query.stageId, sourceId: query.sourceId, priority: query.priority, search: query.search },
       {
         page: query.page,
         limit: query.limit,
@@ -111,6 +280,77 @@ export class LeadService extends BaseService {
   /** Reference data for the frontend's Stage picker/filter — tenant-scoped, ordered for pipeline display. */
   async listStages(): Promise<LeadStage[]> {
     return this.leadStageRepository.listAll({ tenantId: this.tenantId });
+  }
+
+  /**
+   * PRD §8.11 — this lead's timeline, reading back every `AuditLog` entry
+   * written for it (`LEAD_CREATED`, `LEAD_STAGE_CHANGED`, `PROPOSAL_SENT`,
+   * etc.) rather than a second history table.
+   */
+  async getLeadTimeline(
+    id: string,
+    pagination: PaginationQuery,
+  ): Promise<{ data: AuditLogResponseDto[]; meta: PaginationMeta }> {
+    const lead = await this.leadRepository.findById(id, { tenantId: this.tenantId });
+    this.validateExists(lead, 'Lead');
+
+    return this.auditTimelineReader.getTimeline('Lead', id, this.tenantId as string, pagination);
+  }
+
+  /** PRD §8.10 — CRM dashboard counts (`GET /crm/dashboard`). */
+  async getDashboardStats(): Promise<LeadDashboardResponseDto> {
+    const tenantId = this.tenantId as string;
+
+    const [leadStats, convertedClients, archivedClients, upcomingFollowUps] = await Promise.all([
+      this.leadRepository.getDashboardStats({ tenantId }),
+      this.clientRepository.countByStatus(
+        [ClientStatus.ACTIVE, ClientStatus.INACTIVE, ClientStatus.SUSPENDED],
+        { tenantId },
+      ),
+      this.clientRepository.countByStatus([ClientStatus.FORMER], { tenantId }),
+      this.taskService.countUpcomingLeadFollowUps(),
+    ]);
+
+    const conversionRate =
+      leadStats.totalLeads > 0 ? Math.round((convertedClients / leadStats.totalLeads) * 1000) / 10 : 0;
+
+    return {
+      totalLeads: leadStats.totalLeads,
+      activeProposals: leadStats.activeProposals,
+      convertedClients,
+      archivedClients,
+      conversionRate,
+      leadsBySource: leadStats.leadsBySource,
+      upcomingFollowUps,
+    };
+  }
+
+  /**
+   * PRD §10.5/§10.11 — the Dashboard's "Assigned Clients" widget: resolves the
+   * Clients belonging to a given set of Businesses (a staff member's assigned
+   * Businesses, from `BusinessAssignmentRepository.findBusinessIdsForUser()` —
+   * `DashboardAggregationService` resolves that part; this method only owns the
+   * businessIds → Clients lookup, since `ClientRepository` is `crm`-module-internal).
+   * An empty `businessIds` array (unassigned staff) returns `[]`, never every
+   * tenant Client — see `ClientRepository.findByBusinessIds()`'s own guard.
+   */
+  async listAssignedClients(businessIds: string[]): Promise<ClientWithBusiness[]> {
+    const clients = await this.clientRepository.findByBusinessIds(
+      businessIds,
+      { tenantId: this.tenantId },
+      { business: { select: { id: true, name: true } } },
+    );
+    return clients as unknown as ClientWithBusiness[];
+  }
+
+  /** PRD §10.5 — unrestricted-role count for the "Assigned Clients" widget (every tenant Client, not just the caller's assigned ones). */
+  async countAllClients(): Promise<number> {
+    const tenantId = this.tenantId as string;
+    const [converted, archived] = await Promise.all([
+      this.clientRepository.countByStatus([ClientStatus.ACTIVE, ClientStatus.INACTIVE, ClientStatus.SUSPENDED], { tenantId }),
+      this.clientRepository.countByStatus([ClientStatus.FORMER], { tenantId }),
+    ]);
+    return converted + archived;
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -210,6 +450,141 @@ export class LeadService extends BaseService {
       );
     });
 
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId as string,
+      actorId: userId,
+      eventType: AuditEventType.LEAD_CONVERTED,
+      description: `Converted lead "${lead.title}" into a client`,
+      targetType: 'Lead',
+      targetId: lead.id,
+      ipAddress: this.req.ip ?? null,
+    });
+
     return lead;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Notes (PRD §8.6) — chronological CRM notes, never stored inside Business.
+  // ────────────────────────────────────────────────────────────────────────────
+
+  async listLeadNotes(leadId: string): Promise<LeadNote[]> {
+    const lead = await this.leadRepository.findById(leadId, { tenantId: this.tenantId });
+    this.validateExists(lead, 'Lead');
+
+    return this.leadNoteRepository.findByLead(leadId, { tenantId: this.tenantId });
+  }
+
+  async addLeadNote(leadId: string, dto: CreateLeadNoteDto): Promise<LeadNote> {
+    const lead = await this.leadRepository.findById(leadId, { tenantId: this.tenantId });
+    this.validateExists(lead, 'Lead');
+
+    if (!this.userId) {
+      throw new UnauthorizedError();
+    }
+
+    this.logger.info({ leadId }, 'Adding lead note');
+
+    // An invalid documentId surfaces as a 409 (P2003 foreign key violation),
+    // handled centrally by errorMiddleware — no pre-check needed here.
+    const note = await this.leadNoteRepository.create(
+      {
+        leadId,
+        authorId: this.userId,
+        content: dto.content,
+        documentId: dto.documentId ?? null,
+      },
+      { tenantId: this.tenantId },
+    );
+
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId as string,
+      actorId: this.userId,
+      eventType: AuditEventType.LEAD_NOTE_ADDED,
+      description: `Added a note to lead "${lead.title}"`,
+      targetType: 'Lead',
+      targetId: leadId,
+      ipAddress: this.req.ip ?? null,
+    });
+
+    return note;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Staff Assignment (PRD §8.5) — multiple staff per pre-conversion Lead. Once a
+  // lead has a linked Business, BusinessAssignment (modules/business) is the
+  // equivalent mechanism for post-conversion staff assignment.
+  // ────────────────────────────────────────────────────────────────────────────
+
+  async listLeadAssignments(leadId: string): Promise<LeadAssignment[]> {
+    const lead = await this.leadRepository.findById(leadId, { tenantId: this.tenantId });
+    this.validateExists(lead, 'Lead');
+
+    return this.leadAssignmentRepository.findByLead(leadId, { tenantId: this.tenantId });
+  }
+
+  async assignLeadUser(leadId: string, dto: AssignLeadDto): Promise<LeadAssignment> {
+    const lead = await this.leadRepository.findById(leadId, { tenantId: this.tenantId });
+    this.validateExists(lead, 'Lead');
+
+    const existing = await this.leadAssignmentRepository.findExisting(leadId, dto.userId, { tenantId: this.tenantId });
+    if (existing) {
+      throw new ConflictError('This user is already assigned to this lead.');
+    }
+
+    this.logger.info({ leadId, userId: dto.userId, isPrimary: dto.isPrimary }, 'Assigning user to lead');
+
+    // "Lead owner" (PRD §8.4) — at most one primary assignment per lead, so any
+    // existing primary is cleared first, mirroring `convertLead()`'s identical
+    // `clearPrimaryForBusiness()` call for `ContactRole.isPrimary`.
+    if (dto.isPrimary) {
+      await this.leadAssignmentRepository.clearPrimaryForLead(leadId, { tenantId: this.tenantId });
+    }
+
+    // An invalid userId surfaces as a 409 (P2003 foreign key violation),
+    // handled centrally by errorMiddleware — no pre-check needed here.
+    const assignment = await this.leadAssignmentRepository.create(
+      { leadId, userId: dto.userId, isPrimary: dto.isPrimary ?? false },
+      { tenantId: this.tenantId },
+    );
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.LEAD_ASSIGNMENT_CHANGED,
+        description: `Assigned a staff member to lead "${lead.title}"`,
+        targetType: 'Lead',
+        targetId: leadId,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    return assignment;
+  }
+
+  async unassignLeadUser(leadId: string, userId: string): Promise<void> {
+    const lead = await this.leadRepository.findById(leadId, { tenantId: this.tenantId });
+    this.validateExists(lead, 'Lead');
+
+    const existing = await this.leadAssignmentRepository.findExisting(leadId, userId, { tenantId: this.tenantId });
+    if (!existing) {
+      throw new NotFoundError('Lead assignment');
+    }
+
+    this.logger.info({ leadId, userId }, 'Unassigning user from lead');
+
+    await this.leadAssignmentRepository.forceDelete(existing.id, { tenantId: this.tenantId });
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.LEAD_ASSIGNMENT_CHANGED,
+        description: `Removed a staff assignment from lead "${lead.title}"`,
+        targetType: 'Lead',
+        targetId: leadId,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
   }
 }

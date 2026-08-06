@@ -54,6 +54,7 @@ function createMockFiling(overrides: Partial<ComplianceFiling> = {}): Compliance
     dueDate: null,
     filedDate: null,
     notes: null,
+    businessId: null,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,

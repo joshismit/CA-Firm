@@ -11,5 +11,10 @@
 export { default as businessRoutes } from './routes/business.routes';
 export { BusinessService } from './service/business.service';
 export { BUSINESS_PERMISSIONS } from './constants/business.permissions';
-export type { BusinessResponseDto, BusinessTypeResponseDto } from './dto/business.res.dto';
-export type { CreateBusinessDto, UpdateBusinessDto, ListBusinessesQueryDto } from './dto/business.req.dto';
+export type { BusinessResponseDto, BusinessTypeResponseDto, BusinessAssignmentResponseDto } from './dto/business.res.dto';
+export type {
+  CreateBusinessDto,
+  UpdateBusinessDto,
+  ListBusinessesQueryDto,
+  AssignBusinessDto,
+} from './dto/business.req.dto';

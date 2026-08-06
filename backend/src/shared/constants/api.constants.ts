@@ -219,6 +219,25 @@ export const TASK_REMINDER = {
   JOB_NAME: 'scan',
 } as const;
 
+// ─── Billing/Compliance/Document Reminders (PRD §11.12) ───────────────────────
+// Staggered 5 minutes apart from `TASK_REMINDER` and each other so four full-tenant scans never
+// run at the exact same instant — same daily cadence reasoning as `TASK_REMINDER` above.
+
+export const BILLING_REMINDER = {
+  CRON_SCHEDULE: '5 8 * * *',
+  JOB_NAME: 'scan',
+} as const;
+
+export const COMPLIANCE_REMINDER = {
+  CRON_SCHEDULE: '10 8 * * *',
+  JOB_NAME: 'scan',
+} as const;
+
+export const DOCUMENT_REMINDER = {
+  CRON_SCHEDULE: '15 8 * * *',
+  JOB_NAME: 'scan',
+} as const;
+
 // ─── White-Label (PRD §4.3) ───────────────────────────────────────────────────
 
 export const WHITE_LABEL = {

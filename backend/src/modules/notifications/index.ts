@@ -9,7 +9,13 @@
 // needs to compose with those. Mirrors `modules/contacts/index.ts`.
 
 export { default as notificationRoutes } from './routes/notification.routes';
+export { default as notificationTemplateRoutes } from './routes/notification-template.routes';
+export { default as notificationPreferenceRoutes } from './routes/notification-preference.routes';
+export { default as notificationProviderRoutes } from './routes/notification-provider.routes';
 export type { NotificationResponseDto } from './dto/notification.res.dto';
 export type { ListNotificationsQueryDto } from './dto/notification.req.dto';
 export { NotificationDispatchService } from './service/notification-dispatch.service';
 export type { SendNotificationInput } from './service/notification-dispatch.service';
+export { NotificationTemplateRenderer } from './service/notification-template-renderer';
+export { NotificationDashboardReader } from './service/notification-dashboard.reader';
+export type { NotificationDashboardWidgets } from './service/notification-dashboard.reader';

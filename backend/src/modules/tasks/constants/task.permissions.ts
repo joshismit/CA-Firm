@@ -11,10 +11,13 @@ import { PermissionAction, PermissionResource } from '@shared/enums';
  * `shared/enums/permission.enum.ts`. Mirrors
  * `modules/projects/constants/project.permissions.ts`.
  *
- * `EXPORT` and `APPROVE` are registered ahead of the routes that will use them
- * (task export, review/approval sign-off) so the RBAC surface for this
- * module is complete from day one — roles can be granted these permissions
- * before the corresponding endpoints exist.
+ * `EXPORT` is registered ahead of the route that will use it (task export) so
+ * the RBAC surface for this module is complete from day one — roles can be
+ * granted it before the corresponding endpoint exists.
+ *
+ * `APPROVE`/`ASSIGN`/`REVIEW`/`COMPLETE` gate the PRD §9 approval-workflow
+ * actions (`POST /tasks/:id/approve|assign|reject|complete`) — see
+ * `routes/task.routes.ts`.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 const RESOURCE = PermissionResource.TASKS;
@@ -27,6 +30,9 @@ export const TASK_PERMISSIONS = {
   MANAGE: `${RESOURCE}:${PermissionAction.MANAGE}`,
   EXPORT: `${RESOURCE}:${PermissionAction.EXPORT}`,
   APPROVE: `${RESOURCE}:${PermissionAction.APPROVE}`,
+  ASSIGN: `${RESOURCE}:${PermissionAction.ASSIGN}`,
+  REVIEW: `${RESOURCE}:${PermissionAction.REVIEW}`,
+  COMPLETE: `${RESOURCE}:${PermissionAction.COMPLETE}`,
 } as const;
 
 export type TaskPermission = (typeof TASK_PERMISSIONS)[keyof typeof TASK_PERMISSIONS];

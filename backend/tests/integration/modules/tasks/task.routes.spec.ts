@@ -220,6 +220,299 @@ describe('Tasks API — integration', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
+  // Approval workflow (PRD §9)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('approval workflow (PRD §9)', () => {
+    async function createApprovalTask(): Promise<string> {
+      const res = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${tokenForTenantA()}`)
+        .send({ title: 'Approve Q1 payroll run', type: 'APPROVAL' });
+      return res.body.data.id;
+    }
+
+    it('POST /tasks with a type starts the task in REQUESTED (not TODO)', async () => {
+      const res = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${tokenForTenantA()}`)
+        .send({ title: 'Approve Q1 payroll run', type: 'APPROVAL' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data).toMatchObject({ status: TaskStatus.REQUESTED, type: 'APPROVAL' });
+    });
+
+    it('walks a task through the full approval lifecycle: submit → approve → complete', async () => {
+      const taskId = await createApprovalTask();
+      const token = tokenForTenantA();
+
+      const submitRes = await request(app)
+        .post(`/api/v1/tasks/${taskId}/submit`)
+        .set('Authorization', `Bearer ${token}`);
+      expect(submitRes.status).toBe(200);
+      expect(submitRes.body.data.status).toBe(TaskStatus.SUBMITTED);
+
+      const approveRes = await request(app)
+        .post(`/api/v1/tasks/${taskId}/approve`)
+        .set('Authorization', `Bearer ${token}`);
+      expect(approveRes.status).toBe(200);
+      expect(approveRes.body.data.status).toBe(TaskStatus.APPROVED);
+      expect(approveRes.body.data.approvedBy).toBe(fixtures.tenantA.userId);
+
+      const completeRes = await request(app)
+        .post(`/api/v1/tasks/${taskId}/complete`)
+        .set('Authorization', `Bearer ${token}`);
+      expect(completeRes.status).toBe(200);
+      expect(completeRes.body.data.status).toBe(TaskStatus.COMPLETED);
+      expect(completeRes.body.data.completedBy).toBe(fixtures.tenantA.userId);
+    });
+
+    it('rejecting a submitted task requires a reason and stamps rejectedBy', async () => {
+      const taskId = await createApprovalTask();
+      const token = tokenForTenantA();
+      await request(app).post(`/api/v1/tasks/${taskId}/submit`).set('Authorization', `Bearer ${token}`);
+
+      const missingReasonRes = await request(app)
+        .post(`/api/v1/tasks/${taskId}/reject`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+      expect(missingReasonRes.status).toBe(422);
+
+      const rejectRes = await request(app)
+        .post(`/api/v1/tasks/${taskId}/reject`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ reason: 'Missing supporting documents' });
+      expect(rejectRes.status).toBe(200);
+      expect(rejectRes.body.data.status).toBe(TaskStatus.REJECTED);
+      expect(rejectRes.body.data.rejectedBy).toBe(fixtures.tenantA.userId);
+    });
+
+    it('POST /tasks/:id/reopen moves a REJECTED task back to REQUESTED', async () => {
+      const taskId = await createApprovalTask();
+      const token = tokenForTenantA();
+      await request(app).post(`/api/v1/tasks/${taskId}/submit`).set('Authorization', `Bearer ${token}`);
+      await request(app)
+        .post(`/api/v1/tasks/${taskId}/reject`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ reason: 'Needs rework' });
+
+      const res = await request(app)
+        .post(`/api/v1/tasks/${taskId}/reopen`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe(TaskStatus.REQUESTED);
+    });
+
+    it('rejects the PRD\'s explicit invalid-transition example: APPROVED → SUBMITTED', async () => {
+      const taskId = await createApprovalTask();
+      const token = tokenForTenantA();
+      await request(app).post(`/api/v1/tasks/${taskId}/submit`).set('Authorization', `Bearer ${token}`);
+      await request(app).post(`/api/v1/tasks/${taskId}/approve`).set('Authorization', `Bearer ${token}`);
+
+      const res = await request(app)
+        .patch(`/api/v1/tasks/${taskId}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: TaskStatus.SUBMITTED });
+
+      expect(res.status).toBe(409);
+    });
+
+    it('POST /tasks/:id/assign reassigns the task and requires tasks:assign', async () => {
+      const taskId = await createApprovalTask();
+
+      const forbiddenRes = await request(app)
+        .post(`/api/v1/tasks/${taskId}/assign`)
+        .set('Authorization', `Bearer ${tokenForTenantA(allPermissions.filter((p) => p !== TASK_PERMISSIONS.ASSIGN))}`)
+        .send({ assigneeId: fixtures.tenantA.userId });
+      expect(forbiddenRes.status).toBe(403);
+
+      const res = await request(app)
+        .post(`/api/v1/tasks/${taskId}/assign`)
+        .set('Authorization', `Bearer ${tokenForTenantA()}`)
+        .send({ assigneeId: fixtures.tenantA.userId });
+      expect(res.status).toBe(200);
+      expect(res.body.data.assigneeId).toBe(fixtures.tenantA.userId);
+    });
+
+    it('POST /tasks/:id/approve returns 403 without tasks:approve', async () => {
+      const taskId = await createApprovalTask();
+      const token = tokenForTenantA();
+      await request(app).post(`/api/v1/tasks/${taskId}/submit`).set('Authorization', `Bearer ${token}`);
+
+      const res = await request(app)
+        .post(`/api/v1/tasks/${taskId}/approve`)
+        .set('Authorization', `Bearer ${tokenForTenantA(allPermissions.filter((p) => p !== TASK_PERMISSIONS.APPROVE))}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('POST /tasks/:id/complete returns 403 without tasks:complete', async () => {
+      const taskId = await createApprovalTask();
+      const token = tokenForTenantA();
+      await request(app).post(`/api/v1/tasks/${taskId}/submit`).set('Authorization', `Bearer ${token}`);
+      await request(app).post(`/api/v1/tasks/${taskId}/approve`).set('Authorization', `Bearer ${token}`);
+
+      const res = await request(app)
+        .post(`/api/v1/tasks/${taskId}/complete`)
+        .set('Authorization', `Bearer ${tokenForTenantA(allPermissions.filter((p) => p !== TASK_PERMISSIONS.COMPLETE))}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('GET /tasks/pending-review returns SUBMITTED/UNDER_REVIEW tasks and requires tasks:review', async () => {
+      const taskId = await createApprovalTask();
+      const token = tokenForTenantA();
+      await request(app).post(`/api/v1/tasks/${taskId}/submit`).set('Authorization', `Bearer ${token}`);
+
+      const forbiddenRes = await request(app)
+        .get('/api/v1/tasks/pending-review')
+        .set('Authorization', `Bearer ${tokenForTenantA(allPermissions.filter((p) => p !== TASK_PERMISSIONS.REVIEW))}`);
+      expect(forbiddenRes.status).toBe(403);
+
+      const res = await request(app)
+        .get('/api/v1/tasks/pending-review')
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      const ids = res.body.data.map((t: { id: string }) => t.id);
+      expect(ids).toContain(taskId);
+    });
+
+    it('GET /tasks/overdue includes an overdue REQUESTED task (behavior widens with the new statuses)', async () => {
+      const token = tokenForTenantA();
+      const createRes = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ title: 'Overdue approval task', type: 'APPROVAL', dueDate: '2020-01-01' });
+      const overdueTaskId = createRes.body.data.id;
+
+      const res = await request(app).get('/api/v1/tasks/overdue').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      const ids = res.body.data.map((t: { id: string }) => t.id);
+      expect(ids).toContain(overdueTaskId);
+    });
+
+    it('audit-logs TASK_CREATED, TASK_SUBMITTED, and TASK_APPROVED across the lifecycle', async () => {
+      const taskId = await createApprovalTask();
+      const token = tokenForTenantA();
+      await request(app).post(`/api/v1/tasks/${taskId}/submit`).set('Authorization', `Bearer ${token}`);
+      await request(app).post(`/api/v1/tasks/${taskId}/approve`).set('Authorization', `Bearer ${token}`);
+
+      const events = await prisma.auditLog.findMany({
+        where: { tenantId: fixtures.tenantA.tenantId, targetType: 'Task', targetId: taskId },
+        select: { eventType: true },
+      });
+      const eventTypes = events.map((e) => e.eventType);
+      expect(eventTypes).toContain('TASK_CREATED');
+      expect(eventTypes).toContain('TASK_SUBMITTED');
+      expect(eventTypes).toContain('TASK_APPROVED');
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // CRM Lead linkage (PRD §8.7) — a follow-up Task reusable for a pre-conversion Lead.
+  // ────────────────────────────────────────────────────────────────────────
+  describe('CRM Lead linkage', () => {
+    let leadAId: string;
+    let leadSourceAId: string;
+    let leadStageAId: string;
+
+    beforeAll(async () => {
+      const source = await prisma.leadSource.create({
+        data: { tenantId: fixtures.tenantA.tenantId, name: `Referral-${randomUUID().slice(0, 8)}` },
+      });
+      leadSourceAId = source.id;
+      const stage = await prisma.leadStage.create({
+        data: { tenantId: fixtures.tenantA.tenantId, name: `New-${randomUUID().slice(0, 8)}`, order: 1 },
+      });
+      leadStageAId = stage.id;
+      const lead = await prisma.lead.create({
+        data: {
+          tenantId: fixtures.tenantA.tenantId,
+          title: 'Fixture Lead For Task Tests',
+          sourceId: source.id,
+          stageId: stage.id,
+        },
+      });
+      leadAId = lead.id;
+    });
+
+    afterAll(async () => {
+      // Task.leadId is `onDelete: SetNull`, so deleting the Lead is safe even
+      // with tasks still referencing it — mirrors how business.routes.spec.ts
+      // cleans up its own directly-seeded BusinessType.
+      await prisma.lead.delete({ where: { id: leadAId } });
+      await prisma.leadStage.delete({ where: { id: leadStageAId } });
+      await prisma.leadSource.delete({ where: { id: leadSourceAId } });
+    });
+
+    it('POST /tasks creates a follow-up task linked to a Lead (no Project required)', async () => {
+      const token = tokenForTenantA();
+      const res = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ leadId: leadAId, title: 'Call back next week' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data).toMatchObject({ leadId: leadAId, projectId: null });
+    });
+
+    it('GET /tasks/lead/:leadId returns 200 with the follow-up task', async () => {
+      const token = tokenForTenantA();
+      const res = await request(app)
+        .get(`/api/v1/tasks/lead/${leadAId}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+      expect(res.body.data.every((t: { leadId: string }) => t.leadId === leadAId)).toBe(true);
+    });
+
+    it('GET /tasks/lead/:leadId returns 403 when the caller lacks tasks:read', async () => {
+      const token = tokenForTenantA([]);
+      const res = await request(app)
+        .get(`/api/v1/tasks/lead/${leadAId}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('completing a Lead-linked task audit-logs FOLLOWUP_COMPLETED', async () => {
+      const token = tokenForTenantA();
+      const createRes = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ leadId: leadAId, title: 'Send proposal follow-up' });
+      const followUpTaskId = createRes.body.data.id;
+
+      await request(app)
+        .patch(`/api/v1/tasks/${followUpTaskId}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: TaskStatus.IN_PROGRESS });
+      await request(app)
+        .patch(`/api/v1/tasks/${followUpTaskId}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: TaskStatus.REVIEW });
+      const res = await request(app)
+        .patch(`/api/v1/tasks/${followUpTaskId}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: TaskStatus.COMPLETED });
+
+      expect(res.status).toBe(200);
+
+      const auditEntry = await prisma.auditLog.findFirst({
+        where: {
+          tenantId: fixtures.tenantA.tenantId,
+          eventType: 'FOLLOWUP_COMPLETED',
+          targetType: 'Lead',
+          targetId: leadAId,
+        },
+      });
+      expect(auditEntry).not.toBeNull();
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
   // Tenant isolation
   // ────────────────────────────────────────────────────────────────────────
   describe('tenant isolation', () => {

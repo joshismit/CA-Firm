@@ -15,19 +15,24 @@ import { env } from '@config/environment';
 import { swaggerSpec } from '@config/swagger';
 import { authRoutes } from '@modules/auth';
 import { projectRoutes } from '@modules/projects';
-import { taskRoutes } from '@modules/tasks';
+import { taskRoutes, taskTemplateRoutes } from '@modules/tasks';
 import { businessRoutes } from '@modules/business';
 import { contactRoutes } from '@modules/contacts';
 import { crmRoutes } from '@modules/crm';
-import { documentRoutes, documentFolderRoutes } from '@modules/documents';
+import { documentRoutes, documentFolderRoutes, documentRequestRoutes } from '@modules/documents';
 import { userRoutes } from '@modules/users';
 import { roleRoutes } from '@modules/roles';
 import { permissionRoutes } from '@modules/permissions';
 import { createComplianceFilingRoutes } from '@modules/compliance';
 import { ComplianceCategory } from '@prisma/client';
 import { invoiceRoutes, expenseRoutes, paymentRoutes } from '@modules/client-billing';
-import { notificationRoutes } from '@modules/notifications';
-import { dashboardPreferenceRoutes } from '@modules/dashboard';
+import {
+  notificationRoutes,
+  notificationTemplateRoutes,
+  notificationPreferenceRoutes,
+  notificationProviderRoutes,
+} from '@modules/notifications';
+import { dashboardPreferenceRoutes, dashboardTenantDefaultRoutes, dashboardRoutes } from '@modules/dashboard';
 import { reportRoutes } from '@modules/reports';
 import { masterAdminRoutes } from '@modules/master-admin';
 import { billingRoutes } from '@modules/billing';
@@ -128,11 +133,13 @@ if (env.ENABLE_SWAGGER) {
 app.use(`${API.PREFIX}/auth`, authRoutes);
 app.use(`${API.PREFIX}/projects`, projectRoutes);
 app.use(`${API.PREFIX}/tasks`, taskRoutes);
+app.use(`${API.PREFIX}/task-templates`, taskTemplateRoutes);
 app.use(`${API.PREFIX}/business`, businessRoutes);
 app.use(`${API.PREFIX}/contacts`, contactRoutes);
 app.use(`${API.PREFIX}/crm`, crmRoutes);
 app.use(`${API.PREFIX}/documents`, documentRoutes);
 app.use(`${API.PREFIX}/documents`, documentFolderRoutes);
+app.use(`${API.PREFIX}/document-requests`, documentRequestRoutes);
 app.use(`${API.PREFIX}/users`, userRoutes);
 app.use(`${API.PREFIX}/roles`, roleRoutes);
 app.use(`${API.PREFIX}/permissions`, permissionRoutes);
@@ -156,7 +163,16 @@ app.use(`${API.PREFIX}/billing/invoices`, invoiceRoutes);
 app.use(`${API.PREFIX}/billing/expenses`, expenseRoutes);
 app.use(`${API.PREFIX}/billing/payments`, paymentRoutes);
 app.use(`${API.PREFIX}/notifications`, notificationRoutes);
+app.use(`${API.PREFIX}/notification-templates`, notificationTemplateRoutes);
+app.use(`${API.PREFIX}/notification-settings`, notificationPreferenceRoutes);
+app.use(`${API.PREFIX}/notification-providers`, notificationProviderRoutes);
+// More specific `/dashboard/*` prefixes mounted before the bare `/dashboard` aggregation
+// router below — Express matches mounted routers by prefix in registration order, so the
+// bare router (which also owns `/dashboard/widgets`, `/dashboard/calendar`, etc.) must never
+// be registered first or it would shadow these two.
 app.use(`${API.PREFIX}/dashboard/preferences`, dashboardPreferenceRoutes);
+app.use(`${API.PREFIX}/dashboard/tenant-defaults`, dashboardTenantDefaultRoutes);
+app.use(`${API.PREFIX}/dashboard`, dashboardRoutes);
 app.use(`${API.PREFIX}/reports`, reportRoutes);
 
 // Platform-level admin panel (PRD §4.1 "Master Login") — cross-tenant, gated by

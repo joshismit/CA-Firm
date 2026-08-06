@@ -7,6 +7,7 @@ export interface AuditLogSearchFilters {
   eventType?: AuditEventType;
   actorId?: string;
   targetType?: string;
+  targetId?: string;
   from?: Date;
   to?: Date;
   /**
@@ -66,6 +67,9 @@ export class AuditLogRepository extends BaseRepository<Prisma.AuditLogDelegate, 
     }
     if (filters.targetType) {
       where.targetType = filters.targetType;
+    }
+    if (filters.targetId) {
+      where.targetId = filters.targetId;
     }
     if (filters.from || filters.to) {
       where.createdAt = { gte: filters.from, lte: filters.to };

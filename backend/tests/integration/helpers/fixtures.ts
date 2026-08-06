@@ -95,5 +95,13 @@ export async function cleanupFixtures(prisma: PrismaClient, fixtures: TestFixtur
   await prisma.businessType.deleteMany({ where: { id: { in: businesses.map((b) => b.typeId) } } });
 
   await prisma.user.deleteMany({ where: { tenantId: { in: tenantIds } } });
+
+  // Settings/branding/domain rows aren't seeded here — tests create them as a
+  // side effect of exercising the settings APIs — but all three are
+  // `onDelete: Restrict` against Tenant, so they must go before it.
+  await prisma.tenantSettings.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  await prisma.tenantBranding.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  await prisma.tenantDomain.deleteMany({ where: { tenantId: { in: tenantIds } } });
+
   await prisma.tenant.deleteMany({ where: { id: { in: tenantIds } } });
 }

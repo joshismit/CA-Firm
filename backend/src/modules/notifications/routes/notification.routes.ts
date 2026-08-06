@@ -1,33 +1,47 @@
 import { Router } from 'express';
 import { authMiddleware } from '@middlewares/auth.middleware';
 import { tenantMiddleware } from '@middlewares/tenant.middleware';
+import { requirePermission } from '@middlewares/permission.middleware';
 import { validate } from '@middlewares/validation.middleware';
 import { NotificationController } from '../controller/notification.controller';
-import { listNotificationsQuerySchema, notificationIdParamSchema } from '../schemas/notification.schema';
+import { NOTIFICATION_PERMISSIONS } from '../constants/notification.permissions';
+import {
+  listNotificationsQuerySchema,
+  notificationIdParamSchema,
+  listNotificationsHistoryQuerySchema,
+  sendNotificationSchema,
+  scheduleNotificationSchema,
+  testNotificationSchema,
+} from '../schemas/notification.schema';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
  * Notification Routes
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Every route runs: authMiddleware → tenantMiddleware → validate →
- * controller. Deliberately has NO `requirePermission()` call anywhere —
- * this is a self-service personal inbox (a user's own notifications), and
- * the frontend's own `NotificationListPage.tsx` explicitly does not wrap
+ * Every route runs: authMiddleware → tenantMiddleware → [requirePermission]
+ * → validate → controller. The ORIGINAL personal-inbox routes below (list/
+ * getById/delete/mark-as-read/read-all) still have NO `requirePermission()`
+ * call — this is a self-service personal inbox (a user's own notifications),
+ * and the frontend's own `NotificationListPage.tsx` explicitly does not wrap
  * mark-as-read/delete in `<Can>`, "matches how auth's own change-password/
- * sessions actions aren't permission-gated either." `PermissionResource
- * .NOTIFICATIONS`/`PERMISSIONS.NOTIFICATIONS_READ`/`MANAGE` already exist in
- * both registries but are used elsewhere, not by this module — never
- * invented, never applied where the frontend doesn't apply them.
+ * sessions actions aren't permission-gated either."
+ *
+ * PRD §11.11/§11.16/§11.10 added the tenant-wide ADMIN routes below that
+ * (dashboard/history/send/schedule/test/cancel) — these ARE gated by
+ * `NOTIFICATION_PERMISSIONS`, since they're not the caller's own inbox
+ * (send/schedule act on an arbitrary `userId`; history/dashboard/cancel see
+ * or affect notifications tenant-wide, not just the caller's own).
  *
  * Ownership (not just tenant membership) is enforced entirely in
- * `NotificationService`/`NotificationRepository` — every query is scoped to
- * `req.user.id`, so this middleware chain alone would not be sufficient;
- * see those files' header comments.
+ * `NotificationService`/`NotificationRepository` for the personal-inbox
+ * routes — every query there is scoped to `req.user.id`, so this middleware
+ * chain alone would not be sufficient; see those files' header comments.
  *
- * `/read-all` (POST) is registered before `/:id` — Express matches routes
- * in registration order, and `/:id` would otherwise swallow `/read-all` as
- * an `:id` value of `"read-all"`.
+ * Every non-`/:id` path (`/read-all`, `/dashboard`, `/history`, `/send`,
+ * `/schedule`, `/test`) is registered before `/:id` — Express matches routes
+ * in registration order, and `/:id` would otherwise swallow them as an `:id`
+ * value of that literal string.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 const router = Router();
@@ -126,6 +140,113 @@ router.post('/read-all', authMiddleware, tenantMiddleware, NotificationControlle
 
 /**
  * @swagger
+ * /notifications/dashboard:
+ *   get:
+ *     tags: [Notifications]
+ *     summary: Dashboard widgets (unread count, today's/upcoming reminders, failed notifications, recent activity)
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: notifications:read
+ *     responses:
+ *       200: { description: Widget data. }
+ *       401: { description: Missing or invalid access token. }
+ *       403: { description: Caller lacks the `notifications:read` permission. }
+ */
+router.get('/dashboard', authMiddleware, tenantMiddleware, requirePermission(NOTIFICATION_PERMISSIONS.READ), NotificationController.dashboard);
+
+/**
+ * @swagger
+ * /notifications/history:
+ *   get:
+ *     tags: [Notifications]
+ *     summary: Tenant-wide notification delivery history (admin)
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: notifications:read
+ *     responses:
+ *       200: { description: Paginated notification history. }
+ *       401: { description: Missing or invalid access token. }
+ *       403: { description: Caller lacks the `notifications:read` permission. }
+ *       422: { description: Invalid query parameters. }
+ */
+router.get(
+  '/history',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(NOTIFICATION_PERMISSIONS.READ),
+  validate({ query: listNotificationsHistoryQuerySchema }),
+  NotificationController.history,
+);
+
+/**
+ * @swagger
+ * /notifications/send:
+ *   post:
+ *     tags: [Notifications]
+ *     summary: Send an ad-hoc notification to a user
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: notifications:create
+ *     responses:
+ *       201: { description: Notification(s) created/queued. }
+ *       401: { description: Missing or invalid access token. }
+ *       403: { description: Caller lacks the `notifications:create` permission. }
+ *       422: { description: Validation failed. }
+ */
+router.post(
+  '/send',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(NOTIFICATION_PERMISSIONS.CREATE),
+  validate({ body: sendNotificationSchema }),
+  NotificationController.send,
+);
+
+/**
+ * @swagger
+ * /notifications/schedule:
+ *   post:
+ *     tags: [Notifications]
+ *     summary: Schedule a future notification delivery
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: notifications:create
+ *     responses:
+ *       201: { description: Notification(s) created/scheduled. }
+ *       401: { description: Missing or invalid access token. }
+ *       403: { description: Caller lacks the `notifications:create` permission. }
+ *       422: { description: Validation failed. }
+ */
+router.post(
+  '/schedule',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(NOTIFICATION_PERMISSIONS.CREATE),
+  validate({ body: scheduleNotificationSchema }),
+  NotificationController.schedule,
+);
+
+/**
+ * @swagger
+ * /notifications/test:
+ *   post:
+ *     tags: [Notifications]
+ *     summary: Send a test notification to the calling admin on the given channel
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: notifications:manage
+ *     responses:
+ *       201: { description: Test notification created/queued. }
+ *       401: { description: Missing or invalid access token. }
+ *       403: { description: Caller lacks the `notifications:manage` permission. }
+ *       422: { description: Validation failed. }
+ */
+router.post(
+  '/test',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(NOTIFICATION_PERMISSIONS.MANAGE),
+  validate({ body: testNotificationSchema }),
+  NotificationController.test,
+);
+
+/**
+ * @swagger
  * /notifications/{id}:
  *   get:
  *     tags: [Notifications]
@@ -184,6 +305,30 @@ router.patch(
   tenantMiddleware,
   validate({ params: notificationIdParamSchema }),
   NotificationController.markAsRead,
+);
+
+/**
+ * @swagger
+ * /notifications/{id}/cancel:
+ *   post:
+ *     tags: [Notifications]
+ *     summary: Cancel a pending notification before it's delivered (admin)
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: notifications:manage
+ *     parameters: [{ $ref: '#/components/parameters/NotificationIdParam' }]
+ *     responses:
+ *       200: { description: Notification cancelled. }
+ *       401: { description: Missing or invalid access token. }
+ *       403: { description: Caller lacks the `notifications:manage` permission. }
+ *       409: { description: Not found, or no longer pending/cancellable. }
+ */
+router.post(
+  '/:id/cancel',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(NOTIFICATION_PERMISSIONS.MANAGE),
+  validate({ params: notificationIdParamSchema }),
+  NotificationController.cancel,
 );
 
 export default router;

@@ -25,9 +25,16 @@ function buildLead(overrides: Partial<Lead> = {}): Lead {
     title: 'Acme Corp — GST Advisory',
     sourceId: 'source-1',
     stageId: 'stage-1',
+    priority: null,
     expectedRevenue: new Prisma.Decimal(125000.5),
     probability: 60,
     expectedCloseDate: new Date('2026-03-15'),
+    interestedServices: ['GST Advisory', 'Bookkeeping'],
+    proposalSentAt: new Date('2026-01-05T09:00:00.000Z'),
+    proposalAcceptedAt: null,
+    proposalRejectedAt: null,
+    proposalValue: new Prisma.Decimal(75000),
+    proposalRemarks: 'Discount applied for annual retainer.',
     createdAt: new Date('2026-01-01T10:00:00.000Z'),
     updatedAt: new Date('2026-01-02T11:30:00.000Z'),
     deletedAt: null,
@@ -50,12 +57,31 @@ describe('LeadMapper', () => {
         title: 'Acme Corp — GST Advisory',
         sourceId: 'source-1',
         stageId: 'stage-1',
+        priority: null,
         expectedRevenue: 125000.5,
         probability: 60,
         expectedCloseDate: new Date('2026-03-15').toISOString(),
+        interestedServices: ['GST Advisory', 'Bookkeeping'],
+        proposalSentAt: new Date('2026-01-05T09:00:00.000Z').toISOString(),
+        proposalAcceptedAt: null,
+        proposalRejectedAt: null,
+        proposalValue: 75000,
+        proposalRemarks: 'Discount applied for annual retainer.',
         createdAt: '2026-01-01T10:00:00.000Z',
         updatedAt: '2026-01-02T11:30:00.000Z',
       });
+    });
+
+    it('maps proposal fields to null when unset (Decimal → number, Date → ISO string, otherwise null)', () => {
+      const lead = buildLead({ proposalSentAt: null, proposalAcceptedAt: null, proposalRejectedAt: null, proposalValue: null, proposalRemarks: null });
+
+      const dto = LeadMapper.toResponseDto(lead);
+
+      expect(dto.proposalSentAt).toBeNull();
+      expect(dto.proposalAcceptedAt).toBeNull();
+      expect(dto.proposalRejectedAt).toBeNull();
+      expect(dto.proposalValue).toBeNull();
+      expect(dto.proposalRemarks).toBeNull();
     });
 
     it('never leaks internal-only fields (tenantId, deletedAt, deletedBy)', () => {

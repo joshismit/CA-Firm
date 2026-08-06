@@ -18,6 +18,7 @@ const config: Config = {
   rootDir: '.',
   roots: ['<rootDir>/tests'],
   setupFiles: ['<rootDir>/tests/setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/tests/teardown-shared-io.ts'],
   moduleNameMapper: {
     '^@config/(.*)$': '<rootDir>/src/config/$1',
     '^@modules/(.*)$': '<rootDir>/src/modules/$1',

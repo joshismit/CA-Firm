@@ -245,6 +245,7 @@ export class UserService extends BaseService {
         to: invitation.email,
         subject: `You've been invited to join ${env.APP_NAME}`,
         template: 'user-invitation',
+        tenantId: invitation.tenantId,
         context: {
           firstName: invitation.firstName,
           acceptUrl,

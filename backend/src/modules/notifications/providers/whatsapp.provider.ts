@@ -1,6 +1,12 @@
 import { env } from '@config/environment';
 import { logger } from '@config/logger';
-import { NotificationProvider, NotificationSendPayload, NotificationSendResult } from './notification-provider.interface';
+import {
+  NotificationProvider,
+  NotificationProviderCapabilities,
+  NotificationProviderHealth,
+  NotificationSendPayload,
+  NotificationSendResult,
+} from './notification-provider.interface';
 
 /**
  * WhatsApp provider (PRD §11.1). No real WhatsApp Business API account exists
@@ -47,5 +53,20 @@ export class WhatsAppProvider implements NotificationProvider {
       logger.error({ err, to: payload.to }, 'WhatsApp send failed');
       return { success: false, error: err instanceof Error ? err.message : 'Unknown WhatsApp delivery error' };
     }
+  }
+
+  async validate(): Promise<{ valid: boolean; reason?: string }> {
+    return this.isConfigured
+      ? { valid: true }
+      : { valid: false, reason: 'WHATSAPP_API_URL/WHATSAPP_API_TOKEN are not set.' };
+  }
+
+  /** Configuration-based only — same reasoning as `SmsProvider.health()`'s comment. */
+  async health(): Promise<NotificationProviderHealth> {
+    return { status: this.isConfigured ? 'up' : 'unconfigured', checkedAt: new Date().toISOString() };
+  }
+
+  getCapabilities(): NotificationProviderCapabilities {
+    return { supportsRichText: false, supportsAttachments: false, maxMessageLength: 4096 };
   }
 }

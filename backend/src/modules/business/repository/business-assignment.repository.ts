@@ -1,5 +1,5 @@
 import { PrismaClient, Prisma, BusinessAssignment } from '@prisma/client';
-import { BaseRepository } from '@shared/base/base.repository';
+import { BaseRepository, RepositoryOptions } from '@shared/base/base.repository';
 
 /**
  * Data access for the `BusinessAssignment` junction model — which staff
@@ -20,5 +20,14 @@ export class BusinessAssignmentRepository extends BaseRepository<Prisma.Business
   async findBusinessIdsForUser(userId: string, tenantId: string): Promise<string[]> {
     const assignments = await this.findMany({ userId }, { tenantId, ignoreSoftDelete: true });
     return assignments.map((assignment) => assignment.businessId);
+  }
+
+  /** PRD §8.5 — every staff member assigned to a business, most recently assigned first. */
+  async findByBusiness(businessId: string, options: RepositoryOptions = {}): Promise<BusinessAssignment[]> {
+    return this.findMany({ businessId }, { ...options, ignoreSoftDelete: true }, undefined, { assignedAt: 'desc' });
+  }
+
+  async findExisting(businessId: string, userId: string, options: RepositoryOptions = {}): Promise<BusinessAssignment | null> {
+    return this.findFirst({ businessId, userId }, { ...options, ignoreSoftDelete: true });
   }
 }

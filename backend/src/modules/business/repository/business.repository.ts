@@ -11,8 +11,10 @@ import { PaginationQuery, PaginationMeta } from '@shared/types';
 export interface BusinessSearchFilters {
   typeId?: string;
   status?: BusinessStatus;
-  /** Matches against `name`, `legalName`, `pan`, or `gstin` (case-insensitive). */
+  /** Matches against `name`, `legalName`, `pan`, `gstin`, `phone`, or `email` (case-insensitive). */
   search?: string;
+  /** PRD §8.9 — businesses with a `BusinessAssignment` for this user. */
+  assignedStaffUserId?: string;
 }
 
 /**
@@ -44,6 +46,9 @@ export class BusinessRepository extends BaseRepository<Prisma.BusinessDelegate, 
 
     if (filters.typeId) where.typeId = filters.typeId;
     if (filters.status) where.status = filters.status;
+    if (filters.assignedStaffUserId) {
+      where.assignments = { some: { userId: filters.assignedStaffUserId } };
+    }
 
     if (filters.search) {
       where.OR = [
@@ -51,6 +56,8 @@ export class BusinessRepository extends BaseRepository<Prisma.BusinessDelegate, 
         { legalName: { contains: filters.search, mode: 'insensitive' } },
         { pan: { contains: filters.search, mode: 'insensitive' } },
         { gstin: { contains: filters.search, mode: 'insensitive' } },
+        { phone: { contains: filters.search, mode: 'insensitive' } },
+        { email: { contains: filters.search, mode: 'insensitive' } },
       ];
     }
 

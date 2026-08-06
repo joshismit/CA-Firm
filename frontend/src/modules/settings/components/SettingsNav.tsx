@@ -14,6 +14,7 @@ const SETTINGS_NAV_ITEMS = [
   { to: '/settings/team', label: 'Team' },
   { to: '/settings/white-label', label: 'White Label' },
   { to: '/settings/integrations', label: 'Integrations' },
+  { to: '/settings/dashboard-defaults', label: 'Dashboard Defaults' },
 ]
 
 export function SettingsNav() {

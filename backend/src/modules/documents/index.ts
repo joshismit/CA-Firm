@@ -15,12 +15,22 @@
 
 export { default as documentRoutes } from './routes/document.routes';
 export { default as documentFolderRoutes } from './routes/document-folder.routes';
+export { default as documentRequestRoutes } from './routes/document-request.routes';
 export { DocumentService } from './service/document.service';
 export { DocumentFolderService } from './service/document-folder.service';
 export { StorageQuotaService } from './service/storage-quota.service';
 export type { StorageSummary } from './service/storage-quota.service';
+export { DocumentReminderService } from './service/document-reminder.service';
+export type { DocumentReminderRunSummary } from './service/document-reminder.service';
 export { DOCUMENT_PERMISSIONS } from './constants/document.permissions';
 export type { DocumentResponseDto, DocumentDownloadUrlResponseDto, DocumentConflictDto } from './dto/document.res.dto';
 export type { CreateDocumentDto, UpdateDocumentDto, ListDocumentsQueryDto } from './dto/document.req.dto';
 export type { DocumentFolderResponseDto } from './dto/document-folder.res.dto';
 export type { CreateFolderDto, UpdateFolderDto, ListFoldersQueryDto } from './dto/document-folder.req.dto';
+export type { DocumentRequestResponseDto } from './dto/document-request.res.dto';
+export type {
+  CreateDocumentRequestDto,
+  UpdateDocumentRequestDto,
+  FulfillDocumentRequestDto,
+  ListDocumentRequestsQueryDto,
+} from './dto/document-request.req.dto';

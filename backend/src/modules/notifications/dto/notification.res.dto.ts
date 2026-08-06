@@ -16,3 +16,19 @@ export interface NotificationResponseDto {
   isRead: boolean;
   createdAt: string;
 }
+
+/**
+ * `GET /notifications/history` (admin, tenant-wide) — the personal-inbox `NotificationResponseDto`
+ * above stays field-for-field frozen to the frontend's existing `Notification` type; this is a
+ * separate, additive shape for the new admin surface exposing the PRD §11.11 lifecycle columns.
+ */
+export interface NotificationHistoryResponseDto extends NotificationResponseDto {
+  userId: string;
+  retryCount: number;
+  providerMessageId: string | null;
+  priority: string;
+  scheduledFor: string | null;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  cancelledAt: string | null;
+}

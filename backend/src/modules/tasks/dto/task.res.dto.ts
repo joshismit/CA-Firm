@@ -1,4 +1,4 @@
-import { TaskStatus } from '@prisma/client';
+import { TaskStatus, TaskType, TaskPriority } from '@prisma/client';
 
 /**
  * Response DTO — the shape returned to API clients.
@@ -17,12 +17,24 @@ export interface TaskResponseDto {
   title: string;
   description: string | null;
   status: TaskStatus;
+  /** PRD §9 — null on tasks created without a type (simple TODO-based flow). */
+  type: TaskType | null;
+  priority: TaskPriority | null;
   projectId: string | null;
+  leadId: string | null;
   assigneeId: string | null;
+  businessId: string | null;
+  contactId: string | null;
+  clientId: string | null;
+  documentId: string | null;
+  folderId: string | null;
   startDate: string | null;
   dueDate: string | null;
   completedAt: string | null;
-  /** Computed: true if dueDate has passed and status is not COMPLETED/CANCELLED. */
+  completedBy: string | null;
+  approvedBy: string | null;
+  rejectedBy: string | null;
+  /** Computed: true if dueDate has passed and status is not a terminal status. */
   isOverdue: boolean;
   /** Computed: true if status is COMPLETED. */
   isCompleted: boolean;

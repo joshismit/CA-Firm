@@ -1,5 +1,17 @@
 import { Request } from 'express';
-import { Business, Client, ClientStatus, Contact, ContactRole, ContactRoleType, Lead, LeadConversion, LeadStage } from '@prisma/client';
+import {
+  AuditEventType,
+  Business,
+  Client,
+  ClientStatus,
+  ContactRole,
+  ContactRoleType,
+  Lead,
+  LeadAssignment,
+  LeadConversion,
+  LeadNote,
+  LeadStage,
+} from '@prisma/client';
 
 /**
  * See the identical comment in tests/unit/modules/business/business.service.spec.ts
@@ -18,13 +30,21 @@ import { LeadService } from '@modules/crm/service/lead.service';
 import { LeadRepository } from '@modules/crm/repository/lead.repository';
 import { LeadStageRepository } from '@modules/crm/repository/lead-stage.repository';
 import { LeadConversionRepository } from '@modules/crm/repository/lead-conversion.repository';
+import { LeadNoteRepository } from '@modules/crm/repository/lead-note.repository';
+import { LeadAssignmentRepository } from '@modules/crm/repository/lead-assignment.repository';
 import { ClientRepository } from '@modules/crm/repository/client.repository';
 import { ContactRoleRepository } from '@modules/contacts';
 import { BusinessService } from '@modules/business';
+import { AuditLogRecorder, AuditTimelineReader } from '@modules/audit';
+import { TaskService } from '@modules/tasks';
 import {
+  AssignLeadDto,
   ConvertLeadDto,
   CreateLeadDto,
+  CreateLeadNoteDto,
   ListLeadsQueryDto,
+  RespondProposalDto,
+  SendProposalDto,
   UpdateLeadDto,
 } from '@modules/crm/dto/lead.req.dto';
 
@@ -51,18 +71,32 @@ const STAGE_ID = 'stage-99999999-9999-9999-9999-999999999999';
 const CLIENT_ID = 'client-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 type MockedLeadRepository = {
-  [K in 'findById' | 'create' | 'update' | 'delete' | 'search']: jest.Mock;
+  [K in 'findById' | 'create' | 'update' | 'delete' | 'search' | 'getDashboardStats']: jest.Mock;
 };
 type MockedLeadStageRepository = { [K in 'listAll']: jest.Mock };
 type MockedLeadConversionRepository = { [K in 'findByLead' | 'create']: jest.Mock };
-type MockedClientRepository = { [K in 'findByBusiness' | 'create']: jest.Mock };
+type MockedClientRepository = { [K in 'findByBusiness' | 'create' | 'countByStatus']: jest.Mock };
 type MockedContactRoleRepository = {
   [K in 'findExisting' | 'clearPrimaryForBusiness' | 'create']: jest.Mock;
 };
 type MockedBusinessService = { [K in 'getBusinessById']: jest.Mock };
+type MockedAuditLogRecorder = { record: jest.Mock };
+type MockedAuditTimelineReader = { getTimeline: jest.Mock };
+type MockedTaskService = { countUpcomingLeadFollowUps: jest.Mock };
+type MockedLeadNoteRepository = { [K in 'findByLead' | 'findMostRecentByLead' | 'create']: jest.Mock };
+type MockedLeadAssignmentRepository = {
+  [K in 'findByLead' | 'findExisting' | 'create' | 'forceDelete' | 'clearPrimaryForLead']: jest.Mock;
+};
 
 function createMockLeadRepository(): MockedLeadRepository {
-  return { findById: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn(), search: jest.fn() };
+  return {
+    findById: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+    search: jest.fn(),
+    getDashboardStats: jest.fn(),
+  };
 }
 function createMockLeadStageRepository(): MockedLeadStageRepository {
   return { listAll: jest.fn() };
@@ -71,13 +105,34 @@ function createMockLeadConversionRepository(): MockedLeadConversionRepository {
   return { findByLead: jest.fn(), create: jest.fn() };
 }
 function createMockClientRepository(): MockedClientRepository {
-  return { findByBusiness: jest.fn(), create: jest.fn() };
+  return { findByBusiness: jest.fn(), create: jest.fn(), countByStatus: jest.fn() };
 }
 function createMockContactRoleRepository(): MockedContactRoleRepository {
   return { findExisting: jest.fn(), clearPrimaryForBusiness: jest.fn(), create: jest.fn() };
 }
 function createMockBusinessService(): MockedBusinessService {
   return { getBusinessById: jest.fn() };
+}
+function createMockAuditLogRecorder(): MockedAuditLogRecorder {
+  return { record: jest.fn().mockResolvedValue(undefined) };
+}
+function createMockAuditTimelineReader(): MockedAuditTimelineReader {
+  return { getTimeline: jest.fn() };
+}
+function createMockTaskService(): MockedTaskService {
+  return { countUpcomingLeadFollowUps: jest.fn() };
+}
+function createMockLeadNoteRepository(): MockedLeadNoteRepository {
+  return { findByLead: jest.fn(), findMostRecentByLead: jest.fn(), create: jest.fn() };
+}
+function createMockLeadAssignmentRepository(): MockedLeadAssignmentRepository {
+  return {
+    findByLead: jest.fn(),
+    findExisting: jest.fn(),
+    create: jest.fn(),
+    forceDelete: jest.fn(),
+    clearPrimaryForLead: jest.fn(),
+  };
 }
 
 function createFakeRequest(): Request {
@@ -106,9 +161,16 @@ function createMockLead(overrides: Partial<Lead> = {}): Lead {
     title: 'Acme Corp — GST Advisory',
     sourceId: SOURCE_ID,
     stageId: STAGE_ID,
+    priority: null,
     expectedRevenue: null,
     probability: null,
     expectedCloseDate: null,
+    interestedServices: [],
+    proposalSentAt: null,
+    proposalAcceptedAt: null,
+    proposalRejectedAt: null,
+    proposalValue: null,
+    proposalRemarks: null,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -196,6 +258,11 @@ interface ServiceMocks {
   clientRepository: MockedClientRepository;
   contactRoleRepository: MockedContactRoleRepository;
   businessService: MockedBusinessService;
+  auditLogRecorder: MockedAuditLogRecorder;
+  leadNoteRepository: MockedLeadNoteRepository;
+  leadAssignmentRepository: MockedLeadAssignmentRepository;
+  auditTimelineReader: MockedAuditTimelineReader;
+  taskService: MockedTaskService;
 }
 
 function createMocks(): ServiceMocks {
@@ -206,6 +273,11 @@ function createMocks(): ServiceMocks {
     clientRepository: createMockClientRepository(),
     contactRoleRepository: createMockContactRoleRepository(),
     businessService: createMockBusinessService(),
+    auditLogRecorder: createMockAuditLogRecorder(),
+    leadNoteRepository: createMockLeadNoteRepository(),
+    leadAssignmentRepository: createMockLeadAssignmentRepository(),
+    auditTimelineReader: createMockAuditTimelineReader(),
+    taskService: createMockTaskService(),
   };
 }
 
@@ -218,7 +290,39 @@ function createService(mocks: ServiceMocks, req: Request = createFakeRequest()):
     mocks.clientRepository as unknown as ClientRepository,
     mocks.contactRoleRepository as unknown as ContactRoleRepository,
     mocks.businessService as unknown as BusinessService,
+    mocks.auditLogRecorder as unknown as AuditLogRecorder,
+    mocks.leadNoteRepository as unknown as LeadNoteRepository,
+    mocks.leadAssignmentRepository as unknown as LeadAssignmentRepository,
+    mocks.auditTimelineReader as unknown as AuditTimelineReader,
+    mocks.taskService as unknown as TaskService,
   );
+}
+
+function createMockLeadNote(overrides: Partial<LeadNote> = {}): LeadNote {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  return {
+    id: 'note-eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+    tenantId: TENANT_ID,
+    leadId: 'lead-33333333-3333-3333-3333-333333333333',
+    content: 'Spoke with the client, following up next week.',
+    authorId: USER_ID,
+    documentId: null,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+function createMockLeadAssignment(overrides: Partial<LeadAssignment> = {}): LeadAssignment {
+  return {
+    id: 'assignment-ffffffff-ffff-ffff-ffff-ffffffffffff',
+    tenantId: TENANT_ID,
+    leadId: 'lead-33333333-3333-3333-3333-333333333333',
+    userId: USER_ID,
+    isPrimary: false,
+    assignedAt: new Date('2026-01-01T00:00:00.000Z'),
+    ...overrides,
+  };
 }
 
 describe('LeadService', () => {
@@ -247,9 +351,11 @@ describe('LeadService', () => {
           title: dto.title,
           sourceId: dto.sourceId,
           stageId: dto.stageId,
+          priority: null,
           expectedRevenue: null,
           probability: null,
           expectedCloseDate: null,
+          interestedServices: [],
         },
         { tenantId: TENANT_ID },
       );
@@ -664,6 +770,514 @@ describe('LeadService', () => {
       const service = createService(mocks);
 
       await expect(service.convertLead(lead.id, dto)).rejects.toThrow(dbError);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Audit (PRD §8.11)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('audit logging', () => {
+    it('records LEAD_CREATED on createLead', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.create.mockResolvedValue(createMockLead());
+
+      const service = createService(mocks);
+      await service.createLead({ title: 'Acme Corp — GST Advisory', sourceId: SOURCE_ID, stageId: STAGE_ID });
+
+      expect(mocks.auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.LEAD_CREATED, targetType: 'Lead' }),
+      );
+    });
+
+    it('records LEAD_STAGE_CHANGED on updateLead only when stageId actually changes', async () => {
+      const mocks = createMocks();
+      const existing = createMockLead({ stageId: STAGE_ID });
+      mocks.leadRepository.findById.mockResolvedValue(existing);
+      mocks.leadRepository.update.mockResolvedValue(createMockLead({ stageId: 'stage-changed' }));
+
+      const service = createService(mocks);
+      await service.updateLead(existing.id, { stageId: 'stage-changed' });
+
+      expect(mocks.auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.LEAD_STAGE_CHANGED }),
+      );
+    });
+
+    it('does not record LEAD_STAGE_CHANGED when updateLead leaves stageId untouched', async () => {
+      const mocks = createMocks();
+      const existing = createMockLead({ stageId: STAGE_ID });
+      mocks.leadRepository.findById.mockResolvedValue(existing);
+      mocks.leadRepository.update.mockResolvedValue(existing);
+
+      const service = createService(mocks);
+      await service.updateLead(existing.id, { title: 'Renamed only' });
+
+      expect(mocks.auditLogRecorder.record).not.toHaveBeenCalled();
+    });
+
+    it('records LEAD_CONVERTED on convertLead', async () => {
+      const mocks = createMocks();
+      const lead = createMockLead({ businessId: BUSINESS_ID, contactId: null });
+      mocks.leadRepository.findById.mockResolvedValue(lead);
+      mocks.leadConversionRepository.findByLead.mockResolvedValue(null);
+      mocks.businessService.getBusinessById.mockResolvedValue(createMockBusiness());
+      mocks.clientRepository.findByBusiness.mockResolvedValue(createMockClient());
+      mocks.leadConversionRepository.create.mockResolvedValue(createMockLeadConversion());
+
+      const service = createService(mocks);
+      await service.convertLead(lead.id, { notes: 'done' });
+
+      expect(mocks.auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.LEAD_CONVERTED, targetType: 'Lead', targetId: lead.id }),
+      );
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Notes (PRD §8.6) — chronological CRM notes, never stored inside Business.
+  // ────────────────────────────────────────────────────────────────────────
+  describe('listLeadNotes', () => {
+    it('throws NotFoundError when the lead does not exist', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(null);
+
+      const service = createService(mocks);
+
+      await expect(service.listLeadNotes('missing-id')).rejects.toThrow(NotFoundError);
+      expect(mocks.leadNoteRepository.findByLead).not.toHaveBeenCalled();
+    });
+
+    it('returns the lead notes, newest first', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(createMockLead());
+      const notes = [createMockLeadNote(), createMockLeadNote({ id: 'note-2' })];
+      mocks.leadNoteRepository.findByLead.mockResolvedValue(notes);
+
+      const service = createService(mocks);
+      const result = await service.listLeadNotes('lead-33333333-3333-3333-3333-333333333333');
+
+      expect(mocks.leadNoteRepository.findByLead).toHaveBeenCalledWith(
+        'lead-33333333-3333-3333-3333-333333333333',
+        { tenantId: TENANT_ID },
+      );
+      expect(result).toBe(notes);
+    });
+  });
+
+  describe('addLeadNote', () => {
+    const dto: CreateLeadNoteDto = { content: 'Spoke with the client.' };
+
+    it('throws NotFoundError when the lead does not exist', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(null);
+
+      const service = createService(mocks);
+
+      await expect(service.addLeadNote('missing-id', dto)).rejects.toThrow(NotFoundError);
+      expect(mocks.leadNoteRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('throws UnauthorizedError when the request has no authenticated user', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(createMockLead());
+
+      const service = createService(mocks, createFakeRequestNoUser());
+
+      await expect(service.addLeadNote('lead-1', dto)).rejects.toThrow(UnauthorizedError);
+    });
+
+    it('creates the note stamped with the authenticated user as author, and records LEAD_NOTE_ADDED', async () => {
+      const mocks = createMocks();
+      const lead = createMockLead();
+      mocks.leadRepository.findById.mockResolvedValue(lead);
+      const note = createMockLeadNote({ leadId: lead.id });
+      mocks.leadNoteRepository.create.mockResolvedValue(note);
+
+      const service = createService(mocks);
+      const result = await service.addLeadNote(lead.id, dto);
+
+      expect(mocks.leadNoteRepository.create).toHaveBeenCalledWith(
+        { leadId: lead.id, authorId: USER_ID, content: dto.content, documentId: null },
+        { tenantId: TENANT_ID },
+      );
+      expect(mocks.auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.LEAD_NOTE_ADDED, targetType: 'Lead', targetId: lead.id }),
+      );
+      expect(result).toBe(note);
+    });
+
+    it('passes through an optional documentId attachment reference', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(createMockLead());
+      mocks.leadNoteRepository.create.mockResolvedValue(createMockLeadNote());
+
+      const service = createService(mocks);
+      await service.addLeadNote('lead-1', { content: 'See attached.', documentId: 'document-1' });
+
+      expect(mocks.leadNoteRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ documentId: 'document-1' }),
+        { tenantId: TENANT_ID },
+      );
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Staff Assignment (PRD §8.5)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('listLeadAssignments', () => {
+    it('throws NotFoundError when the lead does not exist', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(null);
+
+      const service = createService(mocks);
+
+      await expect(service.listLeadAssignments('missing-id')).rejects.toThrow(NotFoundError);
+    });
+
+    it('returns the lead assignments', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(createMockLead());
+      const assignments = [createMockLeadAssignment()];
+      mocks.leadAssignmentRepository.findByLead.mockResolvedValue(assignments);
+
+      const service = createService(mocks);
+      const result = await service.listLeadAssignments('lead-33333333-3333-3333-3333-333333333333');
+
+      expect(result).toBe(assignments);
+    });
+  });
+
+  describe('assignLeadUser', () => {
+    const dto: AssignLeadDto = { userId: 'staff-user-1' };
+
+    it('throws NotFoundError when the lead does not exist', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(null);
+
+      const service = createService(mocks);
+
+      await expect(service.assignLeadUser('missing-id', dto)).rejects.toThrow(NotFoundError);
+      expect(mocks.leadAssignmentRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictError when the user is already assigned to this lead', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(createMockLead());
+      mocks.leadAssignmentRepository.findExisting.mockResolvedValue(createMockLeadAssignment());
+
+      const service = createService(mocks);
+
+      await expect(service.assignLeadUser('lead-1', dto)).rejects.toThrow(ConflictError);
+      expect(mocks.leadAssignmentRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('creates the assignment and records LEAD_ASSIGNMENT_CHANGED', async () => {
+      const mocks = createMocks();
+      const lead = createMockLead();
+      mocks.leadRepository.findById.mockResolvedValue(lead);
+      mocks.leadAssignmentRepository.findExisting.mockResolvedValue(null);
+      const assignment = createMockLeadAssignment({ leadId: lead.id, userId: dto.userId });
+      mocks.leadAssignmentRepository.create.mockResolvedValue(assignment);
+
+      const service = createService(mocks);
+      const result = await service.assignLeadUser(lead.id, dto);
+
+      expect(mocks.leadAssignmentRepository.create).toHaveBeenCalledWith(
+        { leadId: lead.id, userId: dto.userId, isPrimary: false },
+        { tenantId: TENANT_ID },
+      );
+      expect(mocks.auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.LEAD_ASSIGNMENT_CHANGED }),
+      );
+      expect(result).toBe(assignment);
+    });
+
+    it('clears any existing primary assignment first, then creates as primary, when isPrimary is true ("lead owner", PRD §8.4)', async () => {
+      const mocks = createMocks();
+      const lead = createMockLead();
+      mocks.leadRepository.findById.mockResolvedValue(lead);
+      mocks.leadAssignmentRepository.findExisting.mockResolvedValue(null);
+      const primaryDto: AssignLeadDto = { userId: 'staff-user-2', isPrimary: true };
+      const assignment = createMockLeadAssignment({ leadId: lead.id, userId: primaryDto.userId, isPrimary: true });
+      mocks.leadAssignmentRepository.create.mockResolvedValue(assignment);
+
+      const service = createService(mocks);
+      const result = await service.assignLeadUser(lead.id, primaryDto);
+
+      expect(mocks.leadAssignmentRepository.clearPrimaryForLead).toHaveBeenCalledWith(lead.id, { tenantId: TENANT_ID });
+      expect(mocks.leadAssignmentRepository.create).toHaveBeenCalledWith(
+        { leadId: lead.id, userId: primaryDto.userId, isPrimary: true },
+        { tenantId: TENANT_ID },
+      );
+      expect(result).toBe(assignment);
+    });
+
+    it('does not touch existing primaries when isPrimary is omitted', async () => {
+      const mocks = createMocks();
+      const lead = createMockLead();
+      mocks.leadRepository.findById.mockResolvedValue(lead);
+      mocks.leadAssignmentRepository.findExisting.mockResolvedValue(null);
+      mocks.leadAssignmentRepository.create.mockResolvedValue(createMockLeadAssignment());
+
+      const service = createService(mocks);
+      await service.assignLeadUser(lead.id, dto);
+
+      expect(mocks.leadAssignmentRepository.clearPrimaryForLead).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('unassignLeadUser', () => {
+    it('throws NotFoundError when the lead does not exist', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(null);
+
+      const service = createService(mocks);
+
+      await expect(service.unassignLeadUser('missing-id', 'staff-user-1')).rejects.toThrow(NotFoundError);
+    });
+
+    it('throws NotFoundError when the user is not assigned to this lead', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(createMockLead());
+      mocks.leadAssignmentRepository.findExisting.mockResolvedValue(null);
+
+      const service = createService(mocks);
+
+      await expect(service.unassignLeadUser('lead-1', 'staff-user-1')).rejects.toThrow(NotFoundError);
+      expect(mocks.leadAssignmentRepository.forceDelete).not.toHaveBeenCalled();
+    });
+
+    it('removes the assignment and records LEAD_ASSIGNMENT_CHANGED', async () => {
+      const mocks = createMocks();
+      const lead = createMockLead();
+      mocks.leadRepository.findById.mockResolvedValue(lead);
+      const assignment = createMockLeadAssignment({ leadId: lead.id, userId: 'staff-user-1' });
+      mocks.leadAssignmentRepository.findExisting.mockResolvedValue(assignment);
+
+      const service = createService(mocks);
+      await service.unassignLeadUser(lead.id, 'staff-user-1');
+
+      expect(mocks.leadAssignmentRepository.forceDelete).toHaveBeenCalledWith(assignment.id, { tenantId: TENANT_ID });
+      expect(mocks.auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.LEAD_ASSIGNMENT_CHANGED }),
+      );
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Proposal (PRD §8.2)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('sendProposal', () => {
+    const dto: SendProposalDto = { proposalValue: 50000, proposalRemarks: 'Initial proposal.' };
+
+    it('throws NotFoundError when the lead does not exist', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(null);
+
+      const service = createService(mocks);
+
+      await expect(service.sendProposal('missing-id', dto)).rejects.toThrow(NotFoundError);
+      expect(mocks.leadRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('sets proposalSentAt and clears any prior accepted/rejected timestamps, and records PROPOSAL_SENT', async () => {
+      const mocks = createMocks();
+      const existing = createMockLead();
+      mocks.leadRepository.findById.mockResolvedValue(existing);
+      const updated = createMockLead({ proposalSentAt: new Date('2026-02-01') });
+      mocks.leadRepository.update.mockResolvedValue(updated);
+
+      const service = createService(mocks);
+      const result = await service.sendProposal(existing.id, dto);
+
+      expect(mocks.leadRepository.update).toHaveBeenCalledWith(
+        existing.id,
+        expect.objectContaining({
+          proposalSentAt: expect.any(Date),
+          proposalAcceptedAt: null,
+          proposalRejectedAt: null,
+          proposalValue: dto.proposalValue,
+          proposalRemarks: dto.proposalRemarks,
+        }),
+        { tenantId: TENANT_ID },
+      );
+      expect(mocks.auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.PROPOSAL_SENT, targetType: 'Lead', targetId: updated.id }),
+      );
+      expect(result).toBe(updated);
+    });
+
+    it('falls back to the existing remarks when not provided', async () => {
+      const mocks = createMocks();
+      const existing = createMockLead({ proposalRemarks: 'Old remarks' });
+      mocks.leadRepository.findById.mockResolvedValue(existing);
+      mocks.leadRepository.update.mockResolvedValue(existing);
+
+      const service = createService(mocks);
+      await service.sendProposal(existing.id, {});
+
+      expect(mocks.leadRepository.update).toHaveBeenCalledWith(
+        existing.id,
+        expect.objectContaining({ proposalValue: existing.proposalValue, proposalRemarks: existing.proposalRemarks }),
+        { tenantId: TENANT_ID },
+      );
+    });
+  });
+
+  describe('acceptProposal', () => {
+    const dto: RespondProposalDto = { proposalRemarks: 'Client accepted.' };
+
+    it('throws NotFoundError when the lead does not exist', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(null);
+
+      const service = createService(mocks);
+
+      await expect(service.acceptProposal('missing-id', dto)).rejects.toThrow(NotFoundError);
+    });
+
+    it('throws ConflictError when no proposal has been sent yet', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(createMockLead({ proposalSentAt: null }));
+
+      const service = createService(mocks);
+
+      await expect(service.acceptProposal('lead-1', dto)).rejects.toThrow(ConflictError);
+      expect(mocks.leadRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('sets proposalAcceptedAt, clears proposalRejectedAt, and records PROPOSAL_ACCEPTED', async () => {
+      const mocks = createMocks();
+      const existing = createMockLead({ proposalSentAt: new Date('2026-02-01') });
+      mocks.leadRepository.findById.mockResolvedValue(existing);
+      const updated = createMockLead({ proposalSentAt: existing.proposalSentAt, proposalAcceptedAt: new Date('2026-02-05') });
+      mocks.leadRepository.update.mockResolvedValue(updated);
+
+      const service = createService(mocks);
+      const result = await service.acceptProposal(existing.id, dto);
+
+      expect(mocks.leadRepository.update).toHaveBeenCalledWith(
+        existing.id,
+        { proposalAcceptedAt: expect.any(Date), proposalRejectedAt: null, proposalRemarks: dto.proposalRemarks },
+        { tenantId: TENANT_ID },
+      );
+      expect(mocks.auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.PROPOSAL_ACCEPTED }),
+      );
+      expect(result).toBe(updated);
+    });
+  });
+
+  describe('rejectProposal', () => {
+    const dto: RespondProposalDto = { proposalRemarks: 'Client rejected — too expensive.' };
+
+    it('throws NotFoundError when the lead does not exist', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(null);
+
+      const service = createService(mocks);
+
+      await expect(service.rejectProposal('missing-id', dto)).rejects.toThrow(NotFoundError);
+    });
+
+    it('throws ConflictError when no proposal has been sent yet', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(createMockLead({ proposalSentAt: null }));
+
+      const service = createService(mocks);
+
+      await expect(service.rejectProposal('lead-1', dto)).rejects.toThrow(ConflictError);
+      expect(mocks.leadRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('sets proposalRejectedAt, clears proposalAcceptedAt, and records PROPOSAL_REJECTED', async () => {
+      const mocks = createMocks();
+      const existing = createMockLead({ proposalSentAt: new Date('2026-02-01') });
+      mocks.leadRepository.findById.mockResolvedValue(existing);
+      const updated = createMockLead({ proposalSentAt: existing.proposalSentAt, proposalRejectedAt: new Date('2026-02-05') });
+      mocks.leadRepository.update.mockResolvedValue(updated);
+
+      const service = createService(mocks);
+      const result = await service.rejectProposal(existing.id, dto);
+
+      expect(mocks.leadRepository.update).toHaveBeenCalledWith(
+        existing.id,
+        { proposalRejectedAt: expect.any(Date), proposalAcceptedAt: null, proposalRemarks: dto.proposalRemarks },
+        { tenantId: TENANT_ID },
+      );
+      expect(mocks.auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.PROPOSAL_REJECTED }),
+      );
+      expect(result).toBe(updated);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Timeline / Dashboard (PRD §8.10/§8.11)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('getLeadTimeline', () => {
+    it('throws NotFoundError when the lead does not exist', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.findById.mockResolvedValue(null);
+
+      const service = createService(mocks);
+
+      await expect(service.getLeadTimeline('missing-id', { page: 1, limit: 20 })).rejects.toThrow(NotFoundError);
+      expect(mocks.auditTimelineReader.getTimeline).not.toHaveBeenCalled();
+    });
+
+    it('delegates to AuditTimelineReader.getTimeline scoped to this Lead', async () => {
+      const mocks = createMocks();
+      const lead = createMockLead();
+      mocks.leadRepository.findById.mockResolvedValue(lead);
+      const timeline = { data: [], meta: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false } };
+      mocks.auditTimelineReader.getTimeline.mockResolvedValue(timeline);
+
+      const service = createService(mocks);
+      const result = await service.getLeadTimeline(lead.id, { page: 1, limit: 20 });
+
+      expect(mocks.auditTimelineReader.getTimeline).toHaveBeenCalledWith('Lead', lead.id, TENANT_ID, { page: 1, limit: 20 });
+      expect(result).toBe(timeline);
+    });
+  });
+
+  describe('getDashboardStats', () => {
+    it('composes counts from LeadRepository, ClientRepository, and TaskService, computing conversionRate', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.getDashboardStats.mockResolvedValue({
+        totalLeads: 40,
+        activeProposals: 5,
+        leadsBySource: [{ sourceId: SOURCE_ID, sourceName: 'Referral', count: 40 }],
+      });
+      mocks.clientRepository.countByStatus.mockImplementation((statuses: string[]) =>
+        Promise.resolve(statuses.includes('FORMER') ? 2 : 10),
+      );
+      mocks.taskService.countUpcomingLeadFollowUps.mockResolvedValue(7);
+
+      const service = createService(mocks);
+      const result = await service.getDashboardStats();
+
+      expect(result).toEqual({
+        totalLeads: 40,
+        activeProposals: 5,
+        convertedClients: 10,
+        archivedClients: 2,
+        conversionRate: 25,
+        leadsBySource: [{ sourceId: SOURCE_ID, sourceName: 'Referral', count: 40 }],
+        upcomingFollowUps: 7,
+      });
+    });
+
+    it('returns a conversionRate of 0 when there are no leads yet (avoids division by zero)', async () => {
+      const mocks = createMocks();
+      mocks.leadRepository.getDashboardStats.mockResolvedValue({ totalLeads: 0, activeProposals: 0, leadsBySource: [] });
+      mocks.clientRepository.countByStatus.mockResolvedValue(0);
+      mocks.taskService.countUpcomingLeadFollowUps.mockResolvedValue(0);
+
+      const service = createService(mocks);
+      const result = await service.getDashboardStats();
+
+      expect(result.conversionRate).toBe(0);
     });
   });
 });

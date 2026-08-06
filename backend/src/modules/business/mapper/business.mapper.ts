@@ -1,6 +1,11 @@
-import { Business, BusinessType } from '@prisma/client';
+import { Business, BusinessType, BusinessAssignment, BusinessNote } from '@prisma/client';
 import { StorageSummary } from '@modules/documents';
-import { BusinessResponseDto, BusinessTypeResponseDto } from '../dto/business.res.dto';
+import {
+  BusinessResponseDto,
+  BusinessTypeResponseDto,
+  BusinessAssignmentResponseDto,
+  BusinessNoteResponseDto,
+} from '../dto/business.res.dto';
 
 /**
  * Entity ⇄ DTO mapper for `Business`/`BusinessType`. Controllers/services must
@@ -21,13 +26,19 @@ export class BusinessMapper {
       typeId: business.typeId,
       name: business.name,
       legalName: business.legalName,
+      tradeName: business.tradeName,
       status: business.status,
       pan: business.pan,
       gstin: business.gstin,
       cin: business.cin,
+      din: business.din,
+      tan: business.tan,
       incorporationDate: business.incorporationDate ? business.incorporationDate.toISOString() : null,
       financialYearStart: business.financialYearStart,
       industry: business.industry,
+      website: business.website,
+      phone: business.phone,
+      email: business.email,
       storageQuotaMb: business.storageQuotaMb,
       storageUsage: usage
         ? { usedBytes: usage.usedBytes, quotaBytes: usage.quotaBytes ?? 0, remainingBytes: usage.remainingBytes ?? 0 }
@@ -53,5 +64,35 @@ export class BusinessMapper {
 
   static toTypeResponseDtoList(types: BusinessType[]): BusinessTypeResponseDto[] {
     return types.map((type) => this.toTypeResponseDto(type));
+  }
+
+  static toAssignmentResponseDto(assignment: BusinessAssignment): BusinessAssignmentResponseDto {
+    return {
+      id: assignment.id,
+      businessId: assignment.businessId,
+      userId: assignment.userId,
+      role: assignment.role,
+      assignedAt: assignment.assignedAt.toISOString(),
+    };
+  }
+
+  static toAssignmentResponseDtoList(assignments: BusinessAssignment[]): BusinessAssignmentResponseDto[] {
+    return assignments.map((assignment) => this.toAssignmentResponseDto(assignment));
+  }
+
+  static toNoteResponseDto(note: BusinessNote): BusinessNoteResponseDto {
+    return {
+      id: note.id,
+      businessId: note.businessId,
+      authorId: note.authorId,
+      content: note.content,
+      documentId: note.documentId,
+      createdAt: note.createdAt.toISOString(),
+      updatedAt: note.updatedAt.toISOString(),
+    };
+  }
+
+  static toNoteResponseDtoList(notes: BusinessNote[]): BusinessNoteResponseDto[] {
+    return notes.map((note) => this.toNoteResponseDto(note));
   }
 }

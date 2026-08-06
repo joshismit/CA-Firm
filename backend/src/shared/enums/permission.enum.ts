@@ -12,6 +12,9 @@ export enum PermissionAction {
   APPROVE = 'approve',
   SHARE = 'share',
   MANAGE = 'manage',     // Full control (admin only)
+  ASSIGN = 'assign',
+  REVIEW = 'review',
+  COMPLETE = 'complete',
 }
 
 /**
@@ -37,4 +40,5 @@ export enum PermissionResource {
   NOTIFICATIONS = 'notifications',
   BUSINESS = 'business',
   SUBSCRIPTIONS = 'subscriptions',
+  TASK_TEMPLATES = 'task_templates',
 }

@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Business, BusinessStatus, BusinessType } from '@prisma/client';
+import { Business, BusinessAssignment, BusinessNote, BusinessStatus, BusinessType } from '@prisma/client';
 
 /**
  * See the identical comment in
@@ -12,13 +12,21 @@ import { Business, BusinessStatus, BusinessType } from '@prisma/client';
 jest.mock('@config/database', () => ({ prisma: {} }));
 import { AuditEventType } from '@prisma/client';
 import { UserRole } from '@shared/enums';
-import { NotFoundError } from '@shared/errors';
+import { ConflictError, NotFoundError, UnauthorizedError } from '@shared/errors';
 import { BusinessService } from '@modules/business/service/business.service';
 import { BusinessRepository } from '@modules/business/repository/business.repository';
 import { BusinessTypeRepository } from '@modules/business/repository/business-type.repository';
+import { BusinessAssignmentRepository } from '@modules/business/repository/business-assignment.repository';
+import { BusinessNoteRepository } from '@modules/business/repository/business-note.repository';
 import { StorageQuotaService } from '@modules/documents';
-import { AuditLogRecorder } from '@modules/audit';
-import { CreateBusinessDto, ListBusinessesQueryDto, UpdateBusinessDto } from '@modules/business/dto/business.req.dto';
+import { AuditLogRecorder, AuditTimelineReader } from '@modules/audit';
+import {
+  AssignBusinessDto,
+  CreateBusinessDto,
+  CreateBusinessNoteDto,
+  ListBusinessesQueryDto,
+  UpdateBusinessDto,
+} from '@modules/business/dto/business.req.dto';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -47,6 +55,11 @@ type MockedBusinessTypeRepository = {
 
 type MockedStorageQuotaService = { [K in 'getBusinessStorageSummary']: jest.Mock };
 type MockedAuditLogRecorder = { record: jest.Mock };
+type MockedBusinessAssignmentRepository = {
+  [K in 'findBusinessIdsForUser' | 'findByBusiness' | 'findExisting' | 'create' | 'forceDelete']: jest.Mock;
+};
+type MockedBusinessNoteRepository = { [K in 'findByBusiness' | 'create']: jest.Mock };
+type MockedAuditTimelineReader = { getTimeline: jest.Mock };
 
 function createMockRepository(): MockedBusinessRepository {
   return {
@@ -72,6 +85,24 @@ function createMockAuditLogRecorder(): MockedAuditLogRecorder {
   return { record: jest.fn().mockResolvedValue(undefined) };
 }
 
+function createMockBusinessAssignmentRepository(): MockedBusinessAssignmentRepository {
+  return {
+    findBusinessIdsForUser: jest.fn(),
+    findByBusiness: jest.fn(),
+    findExisting: jest.fn(),
+    create: jest.fn(),
+    forceDelete: jest.fn(),
+  };
+}
+
+function createMockBusinessNoteRepository(): MockedBusinessNoteRepository {
+  return { findByBusiness: jest.fn(), create: jest.fn() };
+}
+
+function createMockAuditTimelineReader(): MockedAuditTimelineReader {
+  return { getTimeline: jest.fn() };
+}
+
 function createFakeRequest(): Request {
   return {
     tenant: { id: TENANT_ID, slug: 'acme', name: 'Acme & Co', planCode: 'professional', isActive: true },
@@ -88,13 +119,19 @@ function createMockBusiness(overrides: Partial<Business> = {}): Business {
     typeId: TYPE_ID,
     name: 'Acme Manufacturing Pvt Ltd',
     legalName: null,
+    tradeName: null,
     status: BusinessStatus.ACTIVE,
     pan: null,
     gstin: null,
     cin: null,
+    din: null,
+    tan: null,
     incorporationDate: null,
     financialYearStart: 4,
     industry: null,
+    website: null,
+    phone: null,
+    email: null,
     storageQuotaMb: null,
     createdAt: now,
     updatedAt: now,
@@ -122,14 +159,56 @@ function createService(
   typeRepository: MockedBusinessTypeRepository = createMockTypeRepository(),
   storageQuotaService: MockedStorageQuotaService = createMockStorageQuotaService(),
   auditLogRecorder: MockedAuditLogRecorder = createMockAuditLogRecorder(),
+  businessAssignmentRepository: MockedBusinessAssignmentRepository = createMockBusinessAssignmentRepository(),
+  businessNoteRepository: MockedBusinessNoteRepository = createMockBusinessNoteRepository(),
+  auditTimelineReader: MockedAuditTimelineReader = createMockAuditTimelineReader(),
+  req: Request = createFakeRequest(),
 ): BusinessService {
   return new BusinessService(
-    createFakeRequest(),
+    req,
     repository as unknown as BusinessRepository,
     typeRepository as unknown as BusinessTypeRepository,
     storageQuotaService as unknown as StorageQuotaService,
     auditLogRecorder as unknown as AuditLogRecorder,
+    businessAssignmentRepository as unknown as BusinessAssignmentRepository,
+    businessNoteRepository as unknown as BusinessNoteRepository,
+    auditTimelineReader as unknown as AuditTimelineReader,
   );
+}
+
+function createFakeRequestNoUser(): Request {
+  return {
+    tenant: { id: TENANT_ID, slug: 'acme', name: 'Acme & Co', planCode: 'professional', isActive: true },
+    user: undefined,
+    correlationId: 'test-correlation-id',
+  } as unknown as Request;
+}
+
+function createMockBusinessNote(overrides: Partial<BusinessNote> = {}): BusinessNote {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  return {
+    id: 'note-77777777-7777-7777-7777-777777777777',
+    tenantId: TENANT_ID,
+    businessId: 'business-33333333-3333-3333-3333-333333333333',
+    content: 'Client asked about GST filing status.',
+    authorId: USER_ID,
+    documentId: null,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+function createMockBusinessAssignment(overrides: Partial<BusinessAssignment> = {}): BusinessAssignment {
+  return {
+    id: 'assignment-11111111-2222-3333-4444-555555555555',
+    tenantId: TENANT_ID,
+    businessId: 'business-33333333-3333-3333-3333-333333333333',
+    userId: 'staff-user-1',
+    role: 'Accountant',
+    assignedAt: new Date('2026-01-01T00:00:00.000Z'),
+    ...overrides,
+  };
 }
 
 describe('BusinessService', () => {
@@ -253,7 +332,7 @@ describe('BusinessService', () => {
       );
     });
 
-    it('does not audit-log when storageQuotaMb is absent from the update payload', async () => {
+    it('does not audit-log SETTINGS_UPDATE when storageQuotaMb is absent from the update payload', async () => {
       const repo = createMockRepository();
       repo.findById.mockResolvedValue(createMockBusiness({ storageQuotaMb: null }));
       repo.update.mockResolvedValue(createMockBusiness({ name: 'Renamed only' }));
@@ -262,7 +341,11 @@ describe('BusinessService', () => {
       const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
       await service.updateBusiness('business-1', { name: 'Renamed only' });
 
-      expect(auditLogRecorder.record).not.toHaveBeenCalled();
+      // `name` did genuinely change, so BUSINESS_DETAILS_UPDATED correctly fires — this test's
+      // scope is specifically that the unrelated storageQuotaMb-only SETTINGS_UPDATE event does not.
+      expect(auditLogRecorder.record).not.toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.SETTINGS_UPDATE }),
+      );
     });
 
     it('does not audit-log a no-op re-set to the same storageQuotaMb value', async () => {
@@ -273,6 +356,89 @@ describe('BusinessService', () => {
 
       const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
       await service.updateBusiness('business-1', { storageQuotaMb: 1000 });
+
+      expect(auditLogRecorder.record).not.toHaveBeenCalled();
+    });
+
+    // ────────────────────────────────────────────────────────────────────
+    // PAN/GST/details (PRD §8.11) — audit-logged only when they actually change
+    // ────────────────────────────────────────────────────────────────────
+    it('audit-logs BUSINESS_PAN_UPDATED when pan changes', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness({ pan: null }));
+      repo.update.mockResolvedValue(createMockBusiness({ pan: 'ABCDE1234F' }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
+      await service.updateBusiness('business-1', { pan: 'ABCDE1234F' });
+
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.BUSINESS_PAN_UPDATED, targetType: 'Business' }),
+      );
+    });
+
+    it('does not audit-log a no-op re-set to the same pan value', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness({ pan: 'ABCDE1234F' }));
+      repo.update.mockResolvedValue(createMockBusiness({ pan: 'ABCDE1234F' }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
+      await service.updateBusiness('business-1', { pan: 'ABCDE1234F' });
+
+      expect(auditLogRecorder.record).not.toHaveBeenCalled();
+    });
+
+    it('audit-logs BUSINESS_GST_UPDATED when gstin changes', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness({ gstin: null }));
+      repo.update.mockResolvedValue(createMockBusiness({ gstin: '27ABCDE1234F1Z5' }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
+      await service.updateBusiness('business-1', { gstin: '27ABCDE1234F1Z5' });
+
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.BUSINESS_GST_UPDATED, targetType: 'Business' }),
+      );
+    });
+
+    it('audit-logs one BUSINESS_DETAILS_UPDATED entry when any other editable field changes', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness({ tradeName: null }));
+      repo.update.mockResolvedValue(createMockBusiness({ tradeName: 'Acme Mfg' }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
+      await service.updateBusiness('business-1', { tradeName: 'Acme Mfg' });
+
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.BUSINESS_DETAILS_UPDATED, targetType: 'Business' }),
+      );
+    });
+
+    it('does not audit-log BUSINESS_DETAILS_UPDATED for a no-op re-set to the same incorporationDate (Date instance comparison, not reference equality)', async () => {
+      const repo = createMockRepository();
+      const incorporationDate = new Date('2020-04-01');
+      repo.findById.mockResolvedValue(createMockBusiness({ incorporationDate }));
+      repo.update.mockResolvedValue(createMockBusiness({ incorporationDate }));
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
+      // A new Date instance with the same value — must not be treated as a change.
+      await service.updateBusiness('business-1', { incorporationDate: new Date('2020-04-01') });
+
+      expect(auditLogRecorder.record).not.toHaveBeenCalled();
+    });
+
+    it('does not audit-log anything when only immutable/untouched fields are present', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness());
+      repo.update.mockResolvedValue(createMockBusiness());
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder);
+      await service.updateBusiness('business-1', {});
 
       expect(auditLogRecorder.record).not.toHaveBeenCalled();
     });
@@ -411,6 +577,311 @@ describe('BusinessService', () => {
 
       expect(typeRepo.listActive).toHaveBeenCalled();
       expect(result).toBe(types);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Staff Assignment (PRD §8.5)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('listBusinessAssignments', () => {
+    it('throws NotFoundError when the business does not exist', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(null);
+      const assignmentRepo = createMockBusinessAssignmentRepository();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), createMockAuditLogRecorder(), assignmentRepo);
+
+      await expect(service.listBusinessAssignments('missing-id')).rejects.toThrow(NotFoundError);
+      expect(assignmentRepo.findByBusiness).not.toHaveBeenCalled();
+    });
+
+    it('returns the business assignments', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness());
+      const assignmentRepo = createMockBusinessAssignmentRepository();
+      const assignments = [createMockBusinessAssignment()];
+      assignmentRepo.findByBusiness.mockResolvedValue(assignments);
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), createMockAuditLogRecorder(), assignmentRepo);
+      const result = await service.listBusinessAssignments('business-33333333-3333-3333-3333-333333333333');
+
+      expect(result).toBe(assignments);
+    });
+  });
+
+  describe('assignBusinessUser', () => {
+    const dto: AssignBusinessDto = { userId: 'staff-user-1', role: 'Accountant' };
+
+    it('throws NotFoundError when the business does not exist', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(null);
+      const assignmentRepo = createMockBusinessAssignmentRepository();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), createMockAuditLogRecorder(), assignmentRepo);
+
+      await expect(service.assignBusinessUser('missing-id', dto)).rejects.toThrow(NotFoundError);
+      expect(assignmentRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictError when the user is already assigned to this business', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness());
+      const assignmentRepo = createMockBusinessAssignmentRepository();
+      assignmentRepo.findExisting.mockResolvedValue(createMockBusinessAssignment());
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), createMockAuditLogRecorder(), assignmentRepo);
+
+      await expect(service.assignBusinessUser('business-1', dto)).rejects.toThrow(ConflictError);
+      expect(assignmentRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('creates the assignment with its role and records BUSINESS_ASSIGNMENT_CHANGED', async () => {
+      const repo = createMockRepository();
+      const business = createMockBusiness();
+      repo.findById.mockResolvedValue(business);
+      const assignmentRepo = createMockBusinessAssignmentRepository();
+      assignmentRepo.findExisting.mockResolvedValue(null);
+      const assignment = createMockBusinessAssignment({ businessId: business.id, userId: dto.userId, role: dto.role });
+      assignmentRepo.create.mockResolvedValue(assignment);
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder, assignmentRepo);
+      const result = await service.assignBusinessUser(business.id, dto);
+
+      expect(assignmentRepo.create).toHaveBeenCalledWith(
+        { businessId: business.id, userId: dto.userId, role: dto.role },
+        { tenantId: TENANT_ID },
+      );
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.BUSINESS_ASSIGNMENT_CHANGED, targetType: 'Business' }),
+      );
+      expect(result).toBe(assignment);
+    });
+  });
+
+  describe('unassignBusinessUser', () => {
+    it('throws NotFoundError when the business does not exist', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(null);
+      const assignmentRepo = createMockBusinessAssignmentRepository();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), createMockAuditLogRecorder(), assignmentRepo);
+
+      await expect(service.unassignBusinessUser('missing-id', 'staff-user-1')).rejects.toThrow(NotFoundError);
+    });
+
+    it('throws NotFoundError when the user is not assigned to this business', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness());
+      const assignmentRepo = createMockBusinessAssignmentRepository();
+      assignmentRepo.findExisting.mockResolvedValue(null);
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), createMockAuditLogRecorder(), assignmentRepo);
+
+      await expect(service.unassignBusinessUser('business-1', 'staff-user-1')).rejects.toThrow(NotFoundError);
+      expect(assignmentRepo.forceDelete).not.toHaveBeenCalled();
+    });
+
+    it('removes the assignment and records BUSINESS_ASSIGNMENT_CHANGED', async () => {
+      const repo = createMockRepository();
+      const business = createMockBusiness();
+      repo.findById.mockResolvedValue(business);
+      const assignmentRepo = createMockBusinessAssignmentRepository();
+      const assignment = createMockBusinessAssignment({ businessId: business.id, userId: 'staff-user-1' });
+      assignmentRepo.findExisting.mockResolvedValue(assignment);
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(repo, createMockTypeRepository(), createMockStorageQuotaService(), auditLogRecorder, assignmentRepo);
+      await service.unassignBusinessUser(business.id, 'staff-user-1');
+
+      expect(assignmentRepo.forceDelete).toHaveBeenCalledWith(assignment.id, { tenantId: TENANT_ID });
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.BUSINESS_ASSIGNMENT_CHANGED }),
+      );
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Notes (PRD §8.6) — internal notes on a Business, never exposed to the
+  // Client portal. Mirrors LeadService's listLeadNotes/addLeadNote.
+  // ────────────────────────────────────────────────────────────────────────
+  describe('listBusinessNotes', () => {
+    it('throws NotFoundError when the business does not exist', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(null);
+      const noteRepo = createMockBusinessNoteRepository();
+
+      const service = createService(
+        repo,
+        createMockTypeRepository(),
+        createMockStorageQuotaService(),
+        createMockAuditLogRecorder(),
+        createMockBusinessAssignmentRepository(),
+        noteRepo,
+      );
+
+      await expect(service.listBusinessNotes('missing-id')).rejects.toThrow(NotFoundError);
+      expect(noteRepo.findByBusiness).not.toHaveBeenCalled();
+    });
+
+    it('returns the business notes, newest first', async () => {
+      const repo = createMockRepository();
+      const business = createMockBusiness();
+      repo.findById.mockResolvedValue(business);
+      const noteRepo = createMockBusinessNoteRepository();
+      const notes = [createMockBusinessNote(), createMockBusinessNote({ id: 'note-2' })];
+      noteRepo.findByBusiness.mockResolvedValue(notes);
+
+      const service = createService(
+        repo,
+        createMockTypeRepository(),
+        createMockStorageQuotaService(),
+        createMockAuditLogRecorder(),
+        createMockBusinessAssignmentRepository(),
+        noteRepo,
+      );
+      const result = await service.listBusinessNotes(business.id);
+
+      expect(noteRepo.findByBusiness).toHaveBeenCalledWith(business.id, { tenantId: TENANT_ID });
+      expect(result).toBe(notes);
+    });
+  });
+
+  describe('addBusinessNote', () => {
+    const dto: CreateBusinessNoteDto = { content: 'Client asked about GST filing status.' };
+
+    it('throws NotFoundError when the business does not exist', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(null);
+      const noteRepo = createMockBusinessNoteRepository();
+
+      const service = createService(
+        repo,
+        createMockTypeRepository(),
+        createMockStorageQuotaService(),
+        createMockAuditLogRecorder(),
+        createMockBusinessAssignmentRepository(),
+        noteRepo,
+      );
+
+      await expect(service.addBusinessNote('missing-id', dto)).rejects.toThrow(NotFoundError);
+      expect(noteRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('throws UnauthorizedError when the request has no authenticated user', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness());
+
+      const service = createService(
+        repo,
+        createMockTypeRepository(),
+        createMockStorageQuotaService(),
+        createMockAuditLogRecorder(),
+        createMockBusinessAssignmentRepository(),
+        createMockBusinessNoteRepository(),
+        createMockAuditTimelineReader(),
+        createFakeRequestNoUser(),
+      );
+
+      await expect(service.addBusinessNote('business-1', dto)).rejects.toThrow(UnauthorizedError);
+    });
+
+    it('creates the note stamped with the authenticated user as author, and records BUSINESS_NOTE_ADDED', async () => {
+      const repo = createMockRepository();
+      const business = createMockBusiness();
+      repo.findById.mockResolvedValue(business);
+      const noteRepo = createMockBusinessNoteRepository();
+      const note = createMockBusinessNote({ businessId: business.id });
+      noteRepo.create.mockResolvedValue(note);
+      const auditLogRecorder = createMockAuditLogRecorder();
+
+      const service = createService(
+        repo,
+        createMockTypeRepository(),
+        createMockStorageQuotaService(),
+        auditLogRecorder,
+        createMockBusinessAssignmentRepository(),
+        noteRepo,
+      );
+      const result = await service.addBusinessNote(business.id, dto);
+
+      expect(noteRepo.create).toHaveBeenCalledWith(
+        { businessId: business.id, authorId: USER_ID, content: dto.content, documentId: null },
+        { tenantId: TENANT_ID },
+      );
+      expect(auditLogRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: AuditEventType.BUSINESS_NOTE_ADDED, targetType: 'Business', targetId: business.id }),
+      );
+      expect(result).toBe(note);
+    });
+
+    it('passes through an optional documentId attachment reference', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(createMockBusiness());
+      const noteRepo = createMockBusinessNoteRepository();
+      noteRepo.create.mockResolvedValue(createMockBusinessNote());
+
+      const service = createService(
+        repo,
+        createMockTypeRepository(),
+        createMockStorageQuotaService(),
+        createMockAuditLogRecorder(),
+        createMockBusinessAssignmentRepository(),
+        noteRepo,
+      );
+      await service.addBusinessNote('business-1', { content: 'See attached.', documentId: 'document-1' });
+
+      expect(noteRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ documentId: 'document-1' }),
+        { tenantId: TENANT_ID },
+      );
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Timeline (PRD §8.11)
+  // ────────────────────────────────────────────────────────────────────────
+  describe('getBusinessTimeline', () => {
+    it('throws NotFoundError when the business does not exist', async () => {
+      const repo = createMockRepository();
+      repo.findById.mockResolvedValue(null);
+      const auditTimelineReader = createMockAuditTimelineReader();
+
+      const service = createService(
+        repo,
+        createMockTypeRepository(),
+        createMockStorageQuotaService(),
+        createMockAuditLogRecorder(),
+        createMockBusinessAssignmentRepository(),
+        createMockBusinessNoteRepository(),
+        auditTimelineReader,
+      );
+
+      await expect(service.getBusinessTimeline('missing-id', { page: 1, limit: 20 })).rejects.toThrow(NotFoundError);
+      expect(auditTimelineReader.getTimeline).not.toHaveBeenCalled();
+    });
+
+    it('delegates to AuditTimelineReader.getTimeline scoped to this Business', async () => {
+      const repo = createMockRepository();
+      const business = createMockBusiness();
+      repo.findById.mockResolvedValue(business);
+      const auditTimelineReader = createMockAuditTimelineReader();
+      const timeline = { data: [], meta: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false } };
+      auditTimelineReader.getTimeline.mockResolvedValue(timeline);
+
+      const service = createService(
+        repo,
+        createMockTypeRepository(),
+        createMockStorageQuotaService(),
+        createMockAuditLogRecorder(),
+        createMockBusinessAssignmentRepository(),
+        createMockBusinessNoteRepository(),
+        auditTimelineReader,
+      );
+      const result = await service.getBusinessTimeline(business.id, { page: 1, limit: 20 });
+
+      expect(auditTimelineReader.getTimeline).toHaveBeenCalledWith('Business', business.id, TENANT_ID, { page: 1, limit: 20 });
+      expect(result).toBe(timeline);
     });
   });
 });

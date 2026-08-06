@@ -324,6 +324,58 @@ const TASK_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     name: 'Export Tasks',
     description: 'Export task lists and reports.',
   },
+  {
+    action: PermissionAction.ASSIGN,
+    dbAction: PrismaPermissionAction.ASSIGN,
+    name: 'Assign Tasks',
+    description: 'Assign or reassign tasks to staff.',
+  },
+  {
+    action: PermissionAction.REVIEW,
+    dbAction: PrismaPermissionAction.REVIEW,
+    name: 'Review Tasks',
+    description: 'Move tasks through review and reject them back for rework.',
+  },
+  {
+    action: PermissionAction.COMPLETE,
+    dbAction: PrismaPermissionAction.COMPLETE,
+    name: 'Complete Tasks',
+    description: 'Mark tasks as completed.',
+  },
+];
+
+/**
+ * PRD §9 — reusable Task blueprints (GST Filing, IT Return, TDS Return, Audit,
+ * ROC Filing, Payroll, Document Collection, Payment Follow-up, ...). Only
+ * CRUD — instantiating a template into a real Task is gated by
+ * `TASK_PERMISSION_DEFINITIONS`'s `CREATE` instead (see
+ * `task-template.permissions.ts`'s header comment for why).
+ */
+const TASK_TEMPLATE_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.CREATE,
+    dbAction: PrismaPermissionAction.CREATE,
+    name: 'Create Task Templates',
+    description: 'Create reusable task templates.',
+  },
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Task Templates',
+    description: 'View task template details and lists.',
+  },
+  {
+    action: PermissionAction.UPDATE,
+    dbAction: PrismaPermissionAction.UPDATE,
+    name: 'Update Task Templates',
+    description: 'Edit task templates, including activating/deactivating them.',
+  },
+  {
+    action: PermissionAction.DELETE,
+    dbAction: PrismaPermissionAction.DELETE,
+    name: 'Delete Task Templates',
+    description: 'Soft-delete task templates.',
+  },
 ];
 
 /**
@@ -488,6 +540,38 @@ const REPORT_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
 ];
 
 /**
+ * Notifications (PRD §11) — only READ/CREATE/MANAGE, matching
+ * `modules/notifications/constants/notification.permissions.ts` exactly (see
+ * its header comment for why no `SETTINGS`/`TEMPLATES` actions were added).
+ * `READ` gates admin history/templates-list/firm-settings/providers views;
+ * `CREATE` gates ad-hoc/scheduled sends; `MANAGE` gates every other
+ * tenant-wide mutation (cancel, template mutation, firm settings mutation).
+ * The personal inbox and self-service preferences stay ungated — never
+ * checked against these permissions.
+ */
+const NOTIFICATION_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.READ,
+    dbAction: PrismaPermissionAction.READ,
+    name: 'View Notifications',
+    description: 'View tenant-wide notification history, templates, firm settings, and provider health.',
+  },
+  {
+    action: PermissionAction.CREATE,
+    dbAction: PrismaPermissionAction.CREATE,
+    name: 'Send Notifications',
+    description: 'Send or schedule ad-hoc notifications to users.',
+  },
+  {
+    action: PermissionAction.MANAGE,
+    dbAction: PrismaPermissionAction.MANAGE,
+    name: 'Manage Notifications',
+    description: 'Cancel notifications, manage notification templates, and manage firm-wide notification settings.',
+    isSensitive: true,
+  },
+];
+
+/**
  * Upserts every permission for a single resource, keyed on the unique `code`
  * column. Safe to run any number of times — never creates duplicates.
  */
@@ -537,6 +621,11 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
     PROJECT_PERMISSION_DEFINITIONS,
   );
   await upsertResourcePermissions(prisma, PermissionResource.TASKS, TASK_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(
+    prisma,
+    PermissionResource.TASK_TEMPLATES,
+    TASK_TEMPLATE_PERMISSION_DEFINITIONS,
+  );
   await upsertResourcePermissions(prisma, PermissionResource.BUSINESS, BUSINESS_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.CONTACTS, CONTACT_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.CRM, CRM_PERMISSION_DEFINITIONS);
@@ -548,4 +637,5 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
   await upsertResourcePermissions(prisma, PermissionResource.BILLING, BILLING_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.AUDIT_LOGS, AUDIT_LOGS_PERMISSION_DEFINITIONS);
   await upsertResourcePermissions(prisma, PermissionResource.SETTINGS, SETTINGS_PERMISSION_DEFINITIONS);
+  await upsertResourcePermissions(prisma, PermissionResource.NOTIFICATIONS, NOTIFICATION_PERMISSION_DEFINITIONS);
 }

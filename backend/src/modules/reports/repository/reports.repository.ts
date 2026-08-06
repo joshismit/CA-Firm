@@ -9,6 +9,26 @@ export interface ReportFilters {
 type ReportRow = Record<string, unknown>;
 
 /**
+ * PRD §9 — "open" task statuses across both lifecycles (simple flow's
+ * TODO/IN_PROGRESS/REVIEW plus the approval workflow's REQUESTED/SUBMITTED/
+ * UNDER_REVIEW/APPROVED). COMPLETED/CANCELLED/REJECTED are excluded — the
+ * three ways a task's work is actually done or abandoned, mirroring
+ * `TaskRepository`'s own `TERMINAL_STATUSES` distinction between "still open"
+ * and "no longer counts as open/overdue-eligible work", except REJECTED is
+ * additionally excluded here since a rejected task isn't "pending work" until
+ * it's reopened back to REQUESTED.
+ */
+const OPEN_TASK_STATUSES: TaskStatus[] = [
+  TaskStatus.TODO,
+  TaskStatus.IN_PROGRESS,
+  TaskStatus.REVIEW,
+  TaskStatus.REQUESTED,
+  TaskStatus.SUBMITTED,
+  TaskStatus.UNDER_REVIEW,
+  TaskStatus.APPROVED,
+];
+
+/**
  * ─────────────────────────────────────────────────────────────────────────────
  * Reports Repository
  * ─────────────────────────────────────────────────────────────────────────────
@@ -90,13 +110,13 @@ export class ReportsRepository {
     }));
   }
 
-  /** PENDING_TASKS — Open tasks (TODO/IN_PROGRESS/REVIEW) across all projects. `from`/`to` filter by `dueDate`; `staffId` filters by assignee. */
+  /** PENDING_TASKS — Open tasks (see `OPEN_TASK_STATUSES`) across all projects. `from`/`to` filter by `dueDate`; `staffId` filters by assignee. */
   async findPendingTasks(tenantId: string, filters: ReportFilters): Promise<ReportRow[]> {
     const tasks = await this.prisma.task.findMany({
       where: {
         tenantId,
         deletedAt: null,
-        status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.REVIEW] },
+        status: { in: OPEN_TASK_STATUSES },
         dueDate: this.dateRange(filters),
         ...(filters.staffId ? { assigneeId: filters.staffId } : {}),
       },
@@ -199,7 +219,21 @@ export class ReportsRepository {
 
     const byAssignee = new Map<
       string,
-      { staffName: string; total: number; todo: number; inProgress: number; review: number; completed: number; cancelled: number }
+      {
+        staffName: string;
+        total: number;
+        todo: number;
+        inProgress: number;
+        review: number;
+        completed: number;
+        cancelled: number;
+        /** PRD §9 — approval-workflow statuses, tallied separately from the simple-flow ones above. */
+        requested: number;
+        submitted: number;
+        underReview: number;
+        approved: number;
+        rejected: number;
+      }
     >();
 
     for (const task of tasks) {
@@ -214,6 +248,11 @@ export class ReportsRepository {
           review: 0,
           completed: 0,
           cancelled: 0,
+          requested: 0,
+          submitted: 0,
+          underReview: 0,
+          approved: 0,
+          rejected: 0,
         });
       }
 
@@ -224,6 +263,11 @@ export class ReportsRepository {
       else if (task.status === TaskStatus.REVIEW) entry.review += 1;
       else if (task.status === TaskStatus.COMPLETED) entry.completed += 1;
       else if (task.status === TaskStatus.CANCELLED) entry.cancelled += 1;
+      else if (task.status === TaskStatus.REQUESTED) entry.requested += 1;
+      else if (task.status === TaskStatus.SUBMITTED) entry.submitted += 1;
+      else if (task.status === TaskStatus.UNDER_REVIEW) entry.underReview += 1;
+      else if (task.status === TaskStatus.APPROVED) entry.approved += 1;
+      else if (task.status === TaskStatus.REJECTED) entry.rejected += 1;
     }
 
     return Array.from(byAssignee.entries()).map(([staffId, v]) => ({
@@ -235,6 +279,11 @@ export class ReportsRepository {
       review: v.review,
       completed: v.completed,
       cancelled: v.cancelled,
+      requested: v.requested,
+      submitted: v.submitted,
+      underReview: v.underReview,
+      approved: v.approved,
+      rejected: v.rejected,
     }));
   }
 
@@ -258,7 +307,7 @@ export class ReportsRepository {
         where: {
           tenantId,
           deletedAt: null,
-          status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.REVIEW] },
+          status: { in: OPEN_TASK_STATUSES },
           createdAt: this.dateRange(filters),
           ...(filters.staffId ? { assigneeId: filters.staffId } : {}),
         },

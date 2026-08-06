@@ -12,13 +12,22 @@ export interface BusinessResponseDto {
   typeId: string;
   name: string;
   legalName: string | null;
+  /** PRD §8.3 — the name the business trades/operates under, when different from `legalName`. */
+  tradeName: string | null;
   status: BusinessStatus;
   pan: string | null;
   gstin: string | null;
   cin: string | null;
+  /** PRD §8.3 — Director Identification Number. */
+  din: string | null;
+  /** PRD §8.3 — Tax Deduction and Collection Account Number. */
+  tan: string | null;
   incorporationDate: string | null;
   financialYearStart: number;
   industry: string | null;
+  website: string | null;
+  phone: string | null;
+  email: string | null;
   /** PRD §7.4 — per-business storage quota override in MB; `null` = inherit the tenant's default. */
   storageQuotaMb: number | null;
   /**
@@ -49,4 +58,24 @@ export interface BusinessTypeResponseDto {
   name: string;
   description: string | null;
   isActive: boolean;
+}
+
+/** PRD §8.5 — a staff member assigned to a Business, with a free-text role. */
+export interface BusinessAssignmentResponseDto {
+  id: string;
+  businessId: string;
+  userId: string;
+  role: string;
+  assignedAt: string;
+}
+
+/** PRD §8.6 — an internal note on a Business (author/date/content/optional attachment). Never visible to the Client portal. */
+export interface BusinessNoteResponseDto {
+  id: string;
+  businessId: string;
+  authorId: string;
+  content: string;
+  documentId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

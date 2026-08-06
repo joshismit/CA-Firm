@@ -66,4 +66,54 @@ describe('SmsProvider', () => {
 
     expect(result).toEqual({ success: false, error: 'SMS provider responded with 500' });
   });
+
+  describe('validate/health/getCapabilities', () => {
+    it('validate() reports invalid with a reason when unconfigured', async () => {
+      jest.doMock('@config/environment', () => ({ env: {} }));
+      const { SmsProvider } = await import('@modules/notifications/providers/sms.provider');
+
+      const result = await new SmsProvider().validate();
+
+      expect(result).toEqual({ valid: false, reason: 'SMS_API_URL/SMS_API_KEY are not set.' });
+    });
+
+    it('validate() reports valid once configured', async () => {
+      jest.doMock('@config/environment', () => ({ env: { SMS_API_URL: 'https://sms.example.test', SMS_API_KEY: 'key' } }));
+      const { SmsProvider } = await import('@modules/notifications/providers/sms.provider');
+
+      await expect(new SmsProvider().validate()).resolves.toEqual({ valid: true });
+    });
+
+    it('health() is configuration-based only (never makes a network call)', async () => {
+      jest.doMock('@config/environment', () => ({ env: {} }));
+      const { SmsProvider } = await import('@modules/notifications/providers/sms.provider');
+      const fetchMock = jest.fn();
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      const health = await new SmsProvider().health();
+
+      expect(health.status).toBe('unconfigured');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('health() reports "up" (optimistic, not a live probe) once configured', async () => {
+      jest.doMock('@config/environment', () => ({ env: { SMS_API_URL: 'https://sms.example.test', SMS_API_KEY: 'key' } }));
+      const { SmsProvider } = await import('@modules/notifications/providers/sms.provider');
+
+      const health = await new SmsProvider().health();
+
+      expect(health.status).toBe('up');
+    });
+
+    it('getCapabilities() reflects plain-text-only, 1600 character SMS limits', async () => {
+      jest.doMock('@config/environment', () => ({ env: {} }));
+      const { SmsProvider } = await import('@modules/notifications/providers/sms.provider');
+
+      expect(new SmsProvider().getCapabilities()).toEqual({
+        supportsRichText: false,
+        supportsAttachments: false,
+        maxMessageLength: 1600,
+      });
+    });
+  });
 });

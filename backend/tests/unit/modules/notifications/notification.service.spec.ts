@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Notification, NotificationChannel, NotificationStatus } from '@prisma/client';
+import { Notification, NotificationChannel, NotificationStatus, NotificationPriority } from '@prisma/client';
 
 /** See the identical comment in tests/unit/modules/contacts/contact.service.spec.ts for why @config/database is stubbed. */
 jest.mock('@config/database', () => ({ prisma: {} }));
@@ -57,6 +57,16 @@ function createMockNotification(overrides: Partial<Notification> = {}): Notifica
     title: 'Task assigned',
     message: 'You have been assigned a new task.',
     isRead: false,
+    retryCount: 0,
+    providerMessageId: null,
+    providerResponse: null,
+    sentAt: null,
+    deliveredAt: null,
+    readAt: null,
+    scheduledFor: null,
+    priority: NotificationPriority.NORMAL,
+    dedupeKey: null,
+    cancelledAt: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     deletedAt: null,
     ...overrides,

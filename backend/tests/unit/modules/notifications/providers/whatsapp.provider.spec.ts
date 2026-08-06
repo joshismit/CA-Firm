@@ -74,4 +74,49 @@ describe('WhatsAppProvider', () => {
 
     expect(result).toEqual({ success: false, error: 'WhatsApp provider responded with 401' });
   });
+
+  describe('validate/health/getCapabilities', () => {
+    it('validate() reports invalid with a reason when unconfigured', async () => {
+      jest.doMock('@config/environment', () => ({ env: {} }));
+      const { WhatsAppProvider } = await import('@modules/notifications/providers/whatsapp.provider');
+
+      const result = await new WhatsAppProvider().validate();
+
+      expect(result).toEqual({ valid: false, reason: 'WHATSAPP_API_URL/WHATSAPP_API_TOKEN are not set.' });
+    });
+
+    it('health() is configuration-based only (never makes a network call)', async () => {
+      jest.doMock('@config/environment', () => ({ env: {} }));
+      const { WhatsAppProvider } = await import('@modules/notifications/providers/whatsapp.provider');
+      const fetchMock = jest.fn();
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      const health = await new WhatsAppProvider().health();
+
+      expect(health.status).toBe('unconfigured');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('health() reports "up" (optimistic, not a live probe) once configured', async () => {
+      jest.doMock('@config/environment', () => ({
+        env: { WHATSAPP_API_URL: 'https://graph.example.test/v1/messages', WHATSAPP_API_TOKEN: 'test-token' },
+      }));
+      const { WhatsAppProvider } = await import('@modules/notifications/providers/whatsapp.provider');
+
+      const health = await new WhatsAppProvider().health();
+
+      expect(health.status).toBe('up');
+    });
+
+    it('getCapabilities() reflects plain-text-only, 4096 character WhatsApp limits', async () => {
+      jest.doMock('@config/environment', () => ({ env: {} }));
+      const { WhatsAppProvider } = await import('@modules/notifications/providers/whatsapp.provider');
+
+      expect(new WhatsAppProvider().getCapabilities()).toEqual({
+        supportsRichText: false,
+        supportsAttachments: false,
+        maxMessageLength: 4096,
+      });
+    });
+  });
 });

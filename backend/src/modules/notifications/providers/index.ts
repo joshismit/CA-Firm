@@ -28,3 +28,12 @@ export function resolveProvider(channel: Exclude<NotificationChannel, 'IN_APP'>)
       return smsProvider;
   }
 }
+
+/** PRD §11.16 — every dispatchable channel's provider, for `GET /notification-providers`(`/health`) to iterate. `IN_APP` is omitted — it has no provider, see `resolveProvider()`'s comment. */
+export function getAllProviders(): Record<Exclude<NotificationChannel, 'IN_APP'>, NotificationProvider> {
+  return {
+    [NotificationChannel.EMAIL]: emailProvider,
+    [NotificationChannel.WHATSAPP]: whatsAppProvider,
+    [NotificationChannel.SMS]: smsProvider,
+  };
+}

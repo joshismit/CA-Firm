@@ -73,6 +73,39 @@ export class ReportService extends BaseService {
     };
   }
 
+  /**
+   * PRD §10.7 — the Dashboard's "Performance" widget. Composes three existing
+   * `ReportsRepository` finders (never a fourth ad-hoc query) — `staffId` set
+   * (STAFF, PRD §10.11) narrows every finder to that one person's rows;
+   * unset (unrestricted roles) returns tenant-wide figures. Row counts are
+   * computed here, not on the frontend (PRD §10.7 "Never compute values on
+   * the frontend") — each finder already returns exactly the rows that count.
+   */
+  async getDashboardPerformanceSummary(
+    filters: ReportFilters,
+  ): Promise<{
+    pendingTasks: Array<Record<string, unknown>>;
+    pendingPaymentsCount: number;
+    documentsUploadedCount: number;
+    staffAssignmentSummary: Array<Record<string, unknown>>;
+  }> {
+    const tenantId = this.tenantId as string;
+
+    const [pendingTasks, pendingPayments, documentActivity, staffAssignmentSummary] = await Promise.all([
+      this.repository.findPendingTasks(tenantId, filters),
+      this.repository.findPendingPayments(tenantId, filters),
+      this.repository.findDocumentActivity(tenantId, filters),
+      this.repository.findStaffAssignmentSummary(tenantId, filters),
+    ]);
+
+    return {
+      pendingTasks,
+      pendingPaymentsCount: pendingPayments.length,
+      documentsUploadedCount: documentActivity.length,
+      staffAssignmentSummary,
+    };
+  }
+
   private async buildRows(type: ReportType, filters: ReportFilters): Promise<Array<Record<string, unknown>>> {
     const tenantId = this.tenantId as string;
 

@@ -8,14 +8,23 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/services/query-keys'
 import { usePermission } from '@/hooks/use-permission'
 import {
+  deleteDashboardTenantDefault,
   getAnalyticsSummary,
   getClientGrowthTrend,
+  getDashboardActivity,
+  getDashboardCalendar,
+  getDashboardOverview,
+  getDashboardPerformance,
   getDashboardPreferences,
+  getDashboardTenantDefaults,
+  getDashboardWidgetData,
   getRevenueTrend,
+  resetDashboardPreferences,
   updateDashboardPreferences,
+  updateDashboardTenantDefault,
 } from '../api'
 import { WIDGET_REGISTRY, type Widget } from '../constants'
-import type { AnalyticsFilters, UpdateDashboardPreferencesPayload } from '../types'
+import type { AnalyticsFilters, DashboardWidgetDataId, UpdateDashboardPreferencesPayload, WidgetPreference } from '../types'
 
 export function useAnalyticsSummaryQuery(filters: AnalyticsFilters) {
   return useQuery({
@@ -53,9 +62,70 @@ export function useUpdateDashboardPreferencesMutation() {
   })
 }
 
+/** PRD §10.4 "Restore Defaults". */
+export function useResetDashboardPreferencesMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => resetDashboardPreferences(),
+    onSuccess: (data) => qc.setQueryData(queryKeys.dashboard.preferences, data),
+  })
+}
+
+/** PRD §10.10 - the compact counts-only overview bundle (`GET /dashboard`). */
+export function useDashboardOverviewQuery() {
+  return useQuery({ queryKey: queryKeys.dashboard.overview, queryFn: getDashboardOverview })
+}
+
+/** PRD §10.10 - list-shaped data for one or more widgets in a single round trip. */
+export function useDashboardWidgetDataQuery(ids: DashboardWidgetDataId[], limit = 5) {
+  return useQuery({
+    queryKey: queryKeys.dashboard.widgetData(ids, limit),
+    queryFn: () => getDashboardWidgetData(ids, limit),
+    enabled: ids.length > 0,
+  })
+}
+
+export function useDashboardCalendarQuery(from?: string, to?: string) {
+  return useQuery({ queryKey: queryKeys.dashboard.calendar(from, to), queryFn: () => getDashboardCalendar(from, to) })
+}
+
+export function useDashboardActivityQuery(limit = 20) {
+  return useQuery({ queryKey: queryKeys.dashboard.activity(limit), queryFn: () => getDashboardActivity(limit) })
+}
+
+export function useDashboardPerformanceQuery(from?: string, to?: string) {
+  return useQuery({ queryKey: queryKeys.dashboard.performance(from, to), queryFn: () => getDashboardPerformance(from, to) })
+}
+
+// PRD §10.3 - tenant-admin-only default layout configuration. Lives here (not `modules/settings`)
+// since it operates on dashboard-owned data - `DashboardDefaultsSettingsPage` imports these.
+export function useDashboardTenantDefaultsQuery(enabled = true) {
+  return useQuery({ queryKey: queryKeys.dashboard.tenantDefaults, queryFn: getDashboardTenantDefaults, enabled })
+}
+
+export function useUpdateDashboardTenantDefaultMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ role, widgets }: { role: string; widgets: WidgetPreference[] }) => updateDashboardTenantDefault(role, widgets),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.dashboard.tenantDefaults }),
+  })
+}
+
+export function useDeleteDashboardTenantDefaultMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (role: string) => deleteDashboardTenantDefault(role),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.dashboard.tenantDefaults }),
+  })
+}
+
 export interface DashboardLayoutEntry {
   widget: Widget
   visible: boolean
+  /** PRD §10.2/§10.4 - per-widget layout overrides. `size` absent means "use the widget's registry default." */
+  size?: WidgetPreference['size']
+  collapsed: boolean
+  pinned: boolean
 }
 
 /**
@@ -89,13 +159,21 @@ export function useDashboardLayout() {
     const ordered: DashboardLayoutEntry[] = []
     for (const pref of saved) {
       const widget = permittedById.get(pref.widgetId)
-      if (widget) ordered.push({ widget, visible: pref.visible })
+      if (widget) {
+        ordered.push({ widget, visible: pref.visible, size: pref.size, collapsed: !!pref.collapsed, pinned: !!pref.pinned })
+      }
     }
     for (const widget of permittedWidgets) {
-      if (!savedIds.has(widget.id)) ordered.push({ widget, visible: true })
+      if (!savedIds.has(widget.id)) ordered.push({ widget, visible: true, collapsed: false, pinned: false })
     }
     return ordered
   }, [data, permittedWidgets])
 
-  return { entries, isLoading, isError }
+  return {
+    entries,
+    isLoading,
+    isError,
+    source: data?.source ?? 'registry',
+    refreshIntervalSeconds: data?.refreshIntervalSeconds ?? null,
+  }
 }

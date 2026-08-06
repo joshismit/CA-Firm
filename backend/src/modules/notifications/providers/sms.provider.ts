@@ -1,6 +1,12 @@
 import { env } from '@config/environment';
 import { logger } from '@config/logger';
-import { NotificationProvider, NotificationSendPayload, NotificationSendResult } from './notification-provider.interface';
+import {
+  NotificationProvider,
+  NotificationProviderCapabilities,
+  NotificationProviderHealth,
+  NotificationSendPayload,
+  NotificationSendResult,
+} from './notification-provider.interface';
 
 /**
  * SMS provider (PRD §11.3 — "configurable provider-based option, cost borne
@@ -41,5 +47,23 @@ export class SmsProvider implements NotificationProvider {
       logger.error({ err, to: payload.to }, 'SMS send failed');
       return { success: false, error: err instanceof Error ? err.message : 'Unknown SMS delivery error' };
     }
+  }
+
+  async validate(): Promise<{ valid: boolean; reason?: string }> {
+    return this.isConfigured ? { valid: true } : { valid: false, reason: 'SMS_API_URL/SMS_API_KEY are not set.' };
+  }
+
+  /**
+   * Deliberately configuration-based only — never a live network probe. The only generic
+   * operation available on an arbitrary configurable REST endpoint is the send operation
+   * itself, and probing it would mean actually sending a message. This mirrors the Phase 1
+   * scoping decision to keep this provider a vendor-agnostic shell rather than a real SDK.
+   */
+  async health(): Promise<NotificationProviderHealth> {
+    return { status: this.isConfigured ? 'up' : 'unconfigured', checkedAt: new Date().toISOString() };
+  }
+
+  getCapabilities(): NotificationProviderCapabilities {
+    return { supportsRichText: false, supportsAttachments: false, maxMessageLength: 1600 };
   }
 }

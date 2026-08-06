@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { Application } from 'express';
 import { prisma } from '@config/database';
+import { UserRole } from '@shared/enums';
 import { createDashboardPreferenceTestApp } from '../../helpers/dashboard-preference-test-app';
 import { signAccessToken } from '../../helpers/jwt';
 import { seedFixtures, cleanupFixtures, TestFixtures } from '../../helpers/fixtures';
@@ -65,7 +66,7 @@ describe('Dashboard Preferences API — integration', () => {
     it('GET returns an empty widgets array and null updatedAt — not a 404', async () => {
       const res = await request(app).get('/api/v1/dashboard/preferences').set('Authorization', `Bearer ${tokenForTenantA()}`);
       expect(res.status).toBe(200);
-      expect(res.body.data).toEqual({ widgets: [], updatedAt: null });
+      expect(res.body.data).toEqual({ widgets: [], updatedAt: null, source: 'registry', refreshIntervalSeconds: null });
     });
   });
 
@@ -162,6 +163,81 @@ describe('Dashboard Preferences API — integration', () => {
       const tenantBRow = await prisma.dashboardPreference.findUniqueOrThrow({ where: { userId: fixtures.tenantB.userId } });
       expect(tenantBRow.tenantId).toBe(fixtures.tenantB.tenantId);
       expect(tenantBRow.widgets).toEqual([{ widgetId: 'notifications-preview', visible: false }]);
+    });
+  });
+
+  describe('PATCH — extended layout fields (PRD §10.2/§10.4)', () => {
+    it('persists size/collapsed/pinned per widget and refreshIntervalSeconds, round-tripped on GET', async () => {
+      const payload = {
+        widgets: [{ widgetId: 'kpi-stats', visible: true, size: 'half', collapsed: true, pinned: true }],
+        refreshIntervalSeconds: 120,
+      };
+
+      const patchRes = await request(app).patch('/api/v1/dashboard/preferences').set('Authorization', `Bearer ${tokenForTenantA()}`).send(payload);
+      expect(patchRes.status).toBe(200);
+      expect(patchRes.body.data.widgets).toEqual(payload.widgets);
+      expect(patchRes.body.data.refreshIntervalSeconds).toBe(120);
+      expect(patchRes.body.data.source).toBe('personal');
+
+      const getRes = await request(app).get('/api/v1/dashboard/preferences').set('Authorization', `Bearer ${tokenForTenantA()}`);
+      expect(getRes.body.data.widgets).toEqual(payload.widgets);
+      expect(getRes.body.data.refreshIntervalSeconds).toBe(120);
+    });
+  });
+
+  describe('POST /reset — restore defaults (PRD §10.4) + tenant/role default fallback (PRD §10.3)', () => {
+    afterEach(async () => {
+      await prisma.dashboardTenantDefault.deleteMany({ where: { tenantId: fixtures.tenantA.tenantId } });
+    });
+
+    it('deletes the personal row; a user with no tenant default falls back to the empty registry shape', async () => {
+      await request(app)
+        .patch('/api/v1/dashboard/preferences')
+        .set('Authorization', `Bearer ${tokenForTenantA()}`)
+        .send({ widgets: [{ widgetId: 'kpi-stats', visible: true }] });
+
+      const resetRes = await request(app).post('/api/v1/dashboard/preferences/reset').set('Authorization', `Bearer ${tokenForTenantA()}`);
+      expect(resetRes.status).toBe(200);
+      expect(resetRes.body.data.source).toBe('registry');
+      expect(resetRes.body.data.widgets).toEqual([]);
+
+      const row = await prisma.dashboardPreference.findUnique({ where: { userId: fixtures.tenantA.userId } });
+      expect(row).toBeNull();
+    });
+
+    it('a user with no personal row inherits their tenant admin-configured role default', async () => {
+      await prisma.dashboardTenantDefault.create({
+        data: {
+          tenantId: fixtures.tenantA.tenantId,
+          role: UserRole.TENANT_ADMIN,
+          widgets: [{ widgetId: 'task-summary', visible: true }],
+          updatedBy: fixtures.tenantA.userId,
+        },
+      });
+
+      const res = await request(app).get('/api/v1/dashboard/preferences').set('Authorization', `Bearer ${tokenForTenantA()}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.source).toBe('tenant-default');
+      expect(res.body.data.widgets).toEqual([{ widgetId: 'task-summary', visible: true }]);
+    });
+
+    it('a saved personal row always wins over a tenant default', async () => {
+      await prisma.dashboardTenantDefault.create({
+        data: {
+          tenantId: fixtures.tenantA.tenantId,
+          role: UserRole.TENANT_ADMIN,
+          widgets: [{ widgetId: 'task-summary', visible: true }],
+          updatedBy: fixtures.tenantA.userId,
+        },
+      });
+      await request(app)
+        .patch('/api/v1/dashboard/preferences')
+        .set('Authorization', `Bearer ${tokenForTenantA()}`)
+        .send({ widgets: [{ widgetId: 'kpi-stats', visible: true }] });
+
+      const res = await request(app).get('/api/v1/dashboard/preferences').set('Authorization', `Bearer ${tokenForTenantA()}`);
+      expect(res.body.data.source).toBe('personal');
+      expect(res.body.data.widgets).toEqual([{ widgetId: 'kpi-stats', visible: true }]);
     });
   });
 });

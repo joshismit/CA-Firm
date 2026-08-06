@@ -1,13 +1,16 @@
 import { Request } from 'express';
-import { Business, BusinessType, AuditEventType } from '@prisma/client';
+import { Business, BusinessType, BusinessAssignment, BusinessNote, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
-import { PaginationMeta } from '@shared/types';
-import { AuditLogRecorder } from '@modules/audit';
+import { ConflictError, NotFoundError, UnauthorizedError } from '@shared/errors';
+import { PaginationMeta, PaginationQuery } from '@shared/types';
+import { AuditLogRecorder, AuditTimelineReader, AuditLogResponseDto } from '@modules/audit';
 import { StorageQuotaService, StorageSummary } from '@modules/documents';
 import { BusinessRepository } from '../repository/business.repository';
 import { BusinessTypeRepository } from '../repository/business-type.repository';
-import { CreateBusinessDto, UpdateBusinessDto, ListBusinessesQueryDto } from '../dto/business.req.dto';
+import { BusinessAssignmentRepository } from '../repository/business-assignment.repository';
+import { BusinessNoteRepository } from '../repository/business-note.repository';
+import { CreateBusinessDto, UpdateBusinessDto, ListBusinessesQueryDto, AssignBusinessDto, CreateBusinessNoteDto } from '../dto/business.req.dto';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -35,6 +38,12 @@ export class BusinessService extends BaseService {
     private readonly businessTypeRepository: BusinessTypeRepository = new BusinessTypeRepository(prisma),
     private readonly storageQuotaService: StorageQuotaService = new StorageQuotaService(),
     private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
+    // Appended after the original dependency list (rather than interleaved) so
+    // existing positional-mock test call sites don't shift.
+    private readonly businessAssignmentRepository: BusinessAssignmentRepository = new BusinessAssignmentRepository(prisma),
+    // PRD §8.6/§8.11 additions — same "append, don't interleave" rule.
+    private readonly businessNoteRepository: BusinessNoteRepository = new BusinessNoteRepository(prisma),
+    private readonly auditTimelineReader: AuditTimelineReader = new AuditTimelineReader(),
   ) {
     super(req);
   }
@@ -53,16 +62,44 @@ export class BusinessService extends BaseService {
         typeId: dto.typeId,
         name: dto.name,
         legalName: dto.legalName ?? null,
+        tradeName: dto.tradeName ?? null,
         pan: dto.pan ?? null,
         gstin: dto.gstin ?? null,
         cin: dto.cin ?? null,
+        din: dto.din ?? null,
+        tan: dto.tan ?? null,
         incorporationDate: dto.incorporationDate ?? null,
         financialYearStart: dto.financialYearStart ?? 4,
         industry: dto.industry ?? null,
+        website: dto.website ?? null,
+        phone: dto.phone ?? null,
+        email: dto.email ?? null,
         createdBy: this.userId ?? null,
       },
       { tenantId: this.tenantId },
     );
+  }
+
+  /**
+   * PRD §8.11 ("PAN updated"/"GST updated"/timeline) — whether `field` is both
+   * part of this update's diff (`dto[field] !== undefined`) and genuinely
+   * different from the current value, so a no-op re-set of the same value
+   * never audit-spams. Dates need `.getTime()` comparison since Zod's
+   * `z.coerce.date()` always produces a new `Date` instance, which would
+   * otherwise always compare unequal to Prisma's own `Date` via `!==`.
+   */
+  private hasBusinessFieldChanged<K extends keyof UpdateBusinessDto>(
+    dto: UpdateBusinessDto,
+    existing: Business,
+    field: K,
+  ): boolean {
+    if (dto[field] === undefined) return false;
+    const newValue = dto[field];
+    const oldValue = existing[field as unknown as keyof Business];
+    if (newValue instanceof Date || oldValue instanceof Date) {
+      return new Date(newValue as Date).getTime() !== new Date(oldValue as Date).getTime();
+    }
+    return newValue !== oldValue;
   }
 
   async updateBusiness(id: string, dto: UpdateBusinessDto): Promise<Business> {
@@ -82,6 +119,64 @@ export class BusinessService extends BaseService {
         actorId: this.userId,
         eventType: AuditEventType.SETTINGS_UPDATE,
         description: `Changed storage quota for business "${updated.name}" from ${existing.storageQuotaMb ?? 'default'} MB to ${updated.storageQuotaMb ?? 'default'} MB`,
+        targetType: 'Business',
+        targetId: updated.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    // PRD §8.11 — "PAN updated"/"GST updated" are their own timeline events, distinct from the
+    // combined "details updated" event below (matches the PRD's explicit examples list).
+    if (this.hasBusinessFieldChanged(dto, existing, 'pan') && this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.BUSINESS_PAN_UPDATED,
+        description: `Updated PAN for business "${updated.name}"`,
+        targetType: 'Business',
+        targetId: updated.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    if (this.hasBusinessFieldChanged(dto, existing, 'gstin') && this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.BUSINESS_GST_UPDATED,
+        description: `Updated GST for business "${updated.name}"`,
+        targetType: 'Business',
+        targetId: updated.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    // One combined event for every other editable field — mirrors `SETTINGS_UPDATE`'s same
+    // "don't mint an enum value per field" restraint.
+    const otherDetailFields: (keyof UpdateBusinessDto)[] = [
+      'name',
+      'legalName',
+      'tradeName',
+      'cin',
+      'din',
+      'tan',
+      'incorporationDate',
+      'financialYearStart',
+      'industry',
+      'website',
+      'phone',
+      'email',
+    ];
+    if (
+      otherDetailFields.some((field) => this.hasBusinessFieldChanged(dto, existing, field)) &&
+      this.userId &&
+      this.tenantId
+    ) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.BUSINESS_DETAILS_UPDATED,
+        description: `Updated details for business "${updated.name}"`,
         targetType: 'Business',
         targetId: updated.id,
         ipAddress: this.req.ip ?? null,
@@ -128,6 +223,7 @@ export class BusinessService extends BaseService {
         typeId: query.typeId,
         status: query.status,
         search: query.search,
+        assignedStaffUserId: query.assignedStaffUserId,
       },
       {
         page: query.page,
@@ -142,5 +238,145 @@ export class BusinessService extends BaseService {
   /** Reference data for the frontend's Business Type picker — shared across tenants, no pagination. */
   async listBusinessTypes(): Promise<BusinessType[]> {
     return this.businessTypeRepository.listActive();
+  }
+
+  /**
+   * PRD §8.11 — this business's timeline, reading back every `AuditLog` entry
+   * written for it (assignment changes, PAN/GST/details updates, notes,
+   * lead conversion, etc.) rather than a second history table.
+   */
+  async getBusinessTimeline(
+    id: string,
+    pagination: PaginationQuery,
+  ): Promise<{ data: AuditLogResponseDto[]; meta: PaginationMeta }> {
+    const business = await this.businessRepository.findById(id, { tenantId: this.tenantId });
+    this.validateExists(business, 'Business');
+
+    return this.auditTimelineReader.getTimeline('Business', id, this.tenantId as string, pagination);
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Staff Assignment (PRD §8.5) — multiple staff per Business, each with a role
+  // (e.g. Relationship Manager/Accountant/Auditor/Reviewer). Also the scoping
+  // source `DocumentAccessScopeService` reads to restrict an Accountant's
+  // document access to only their assigned Businesses.
+  // ────────────────────────────────────────────────────────────────────────────
+
+  async listBusinessAssignments(businessId: string): Promise<BusinessAssignment[]> {
+    const business = await this.businessRepository.findById(businessId, { tenantId: this.tenantId });
+    this.validateExists(business, 'Business');
+
+    return this.businessAssignmentRepository.findByBusiness(businessId, { tenantId: this.tenantId });
+  }
+
+  async assignBusinessUser(businessId: string, dto: AssignBusinessDto): Promise<BusinessAssignment> {
+    const business = await this.businessRepository.findById(businessId, { tenantId: this.tenantId });
+    this.validateExists(business, 'Business');
+
+    const existing = await this.businessAssignmentRepository.findExisting(businessId, dto.userId, {
+      tenantId: this.tenantId,
+    });
+    if (existing) {
+      throw new ConflictError('This user is already assigned to this business.');
+    }
+
+    this.logger.info({ businessId, userId: dto.userId, role: dto.role }, 'Assigning user to business');
+
+    // An invalid userId surfaces as a 409 (P2003 foreign key violation),
+    // handled centrally by errorMiddleware — no pre-check needed here.
+    const assignment = await this.businessAssignmentRepository.create(
+      { businessId, userId: dto.userId, role: dto.role },
+      { tenantId: this.tenantId },
+    );
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.BUSINESS_ASSIGNMENT_CHANGED,
+        description: `Assigned a staff member as ${dto.role} to business "${business.name}"`,
+        targetType: 'Business',
+        targetId: businessId,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+
+    return assignment;
+  }
+
+  async unassignBusinessUser(businessId: string, userId: string): Promise<void> {
+    const business = await this.businessRepository.findById(businessId, { tenantId: this.tenantId });
+    this.validateExists(business, 'Business');
+
+    const existing = await this.businessAssignmentRepository.findExisting(businessId, userId, {
+      tenantId: this.tenantId,
+    });
+    if (!existing) {
+      throw new NotFoundError('Business assignment');
+    }
+
+    this.logger.info({ businessId, userId }, 'Unassigning user from business');
+
+    await this.businessAssignmentRepository.forceDelete(existing.id, { tenantId: this.tenantId });
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.BUSINESS_ASSIGNMENT_CHANGED,
+        description: `Removed a staff assignment from business "${business.name}"`,
+        targetType: 'Business',
+        targetId: businessId,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Notes (PRD §8.6) — internal notes on a Business (post-conversion / always-
+  // was-a-client). Only firm users can read them — never exposed to the Client
+  // portal. Mirrors `LeadService`'s `listLeadNotes`/`addLeadNote` exactly.
+  // ────────────────────────────────────────────────────────────────────────────
+
+  async listBusinessNotes(businessId: string): Promise<BusinessNote[]> {
+    const business = await this.businessRepository.findById(businessId, { tenantId: this.tenantId });
+    this.validateExists(business, 'Business');
+
+    return this.businessNoteRepository.findByBusiness(businessId, { tenantId: this.tenantId });
+  }
+
+  async addBusinessNote(businessId: string, dto: CreateBusinessNoteDto): Promise<BusinessNote> {
+    const business = await this.businessRepository.findById(businessId, { tenantId: this.tenantId });
+    this.validateExists(business, 'Business');
+
+    if (!this.userId) {
+      throw new UnauthorizedError();
+    }
+
+    this.logger.info({ businessId }, 'Adding business note');
+
+    // An invalid documentId surfaces as a 409 (P2003 foreign key violation),
+    // handled centrally by errorMiddleware — no pre-check needed here.
+    const note = await this.businessNoteRepository.create(
+      {
+        businessId,
+        authorId: this.userId,
+        content: dto.content,
+        documentId: dto.documentId ?? null,
+      },
+      { tenantId: this.tenantId },
+    );
+
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId as string,
+      actorId: this.userId,
+      eventType: AuditEventType.BUSINESS_NOTE_ADDED,
+      description: `Added a note to business "${business.name}"`,
+      targetType: 'Business',
+      targetId: businessId,
+      ipAddress: this.req.ip ?? null,
+    });
+
+    return note;
   }
 }

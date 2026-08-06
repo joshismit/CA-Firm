@@ -197,5 +197,11 @@ export const queryKeys = {
     analyticsSummary: (filters: AnalyticsFilters) => ['dashboard', 'analytics-summary', filters] as const,
     revenueTrend: (filters: AnalyticsFilters) => ['dashboard', 'revenue-trend', filters] as const,
     clientGrowthTrend: (filters: AnalyticsFilters) => ['dashboard', 'client-growth-trend', filters] as const,
+    overview: ['dashboard', 'overview'] as const,
+    widgetData: (ids: string[], limit: number) => ['dashboard', 'widgets', ids, limit] as const,
+    calendar: (from?: string, to?: string) => ['dashboard', 'calendar', from, to] as const,
+    activity: (limit: number) => ['dashboard', 'activity', limit] as const,
+    performance: (from?: string, to?: string) => ['dashboard', 'performance', from, to] as const,
+    tenantDefaults: ['dashboard', 'tenant-defaults'] as const,
   },
 } as const

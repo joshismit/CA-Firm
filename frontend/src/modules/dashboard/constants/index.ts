@@ -22,7 +22,15 @@ import { TaskSummaryWidget } from '../components/TaskSummaryWidget'
 import { UpcomingDeadlinesWidget } from '../components/UpcomingDeadlinesWidget'
 import { RecentDocumentsWidget } from '../components/RecentDocumentsWidget'
 import { NotificationsPreviewWidget } from '../components/NotificationsPreviewWidget'
-import { RevenueWidget, TrendsWidget, TeamPerformanceWidget, CalendarWidget } from '../components/ComingSoonWidgets'
+import { RevenueWidget, TrendsWidget } from '../components/ComingSoonWidgets'
+import { CalendarWidget } from '../components/CalendarWidget'
+import { PerformanceWidget } from '../components/PerformanceWidget'
+import { PendingWorksWidget } from '../components/PendingWorksWidget'
+import { DueDatesWidget } from '../components/DueDatesWidget'
+import { PaymentRemindersWidget } from '../components/PaymentRemindersWidget'
+import { ComplianceDeadlinesWidget } from '../components/ComplianceDeadlinesWidget'
+import { AssignedClientsWidget } from '../components/AssignedClientsWidget'
+import { OutstandingPaymentsWidget } from '../components/OutstandingPaymentsWidget'
 
 /** Tailwind col-span size within a 12-column grid - keeps the original page's row groupings (see DashboardPage.tsx's git history) without hardcoding which widgets sit next to which. */
 export type WidgetSize = 'full' | 'two-thirds' | 'third' | 'half' | 'quarter'
@@ -125,17 +133,63 @@ export const WIDGET_REGISTRY: Widget[] = [
   },
   {
     id: 'team-performance',
-    label: 'Team Performance',
-    description: 'Per-staff workload analytics (not available yet).',
+    label: 'Performance',
+    description: 'Completed/pending/overdue tasks, documents uploaded, and pending payments.',
     size: 'half',
-    component: TeamPerformanceWidget,
+    component: PerformanceWidget,
   },
   {
     id: 'calendar',
     label: 'Calendar',
-    description: 'Shared firm calendar (not available yet).',
+    description: 'Unified feed of task due dates, compliance deadlines, and invoice due dates.',
     size: 'half',
     component: CalendarWidget,
+  },
+  // PRD §10.1 - backend-gated by role (requireRole(TENANT_ADMIN, MANAGER, STAFF), not a
+  // fine-grained permission - see backend/src/modules/dashboard/routes/dashboard.routes.ts's
+  // header comment), so these 6 deliberately carry no `permission` field, unlike every widget
+  // above. Ids must stay in manual sync with the backend's DASHBOARD_WIDGET_DATA_IDS.
+  {
+    id: 'pending-works',
+    label: 'Pending Works',
+    description: 'Your open tasks (or every open tenant task for managers/admins).',
+    size: 'third',
+    component: PendingWorksWidget,
+  },
+  {
+    id: 'due-dates',
+    label: 'Due Dates',
+    description: 'Open tasks due within the next 7 days.',
+    size: 'third',
+    component: DueDatesWidget,
+  },
+  {
+    id: 'payment-reminders',
+    label: 'Payment Reminders',
+    description: 'Sent invoices awaiting payment.',
+    size: 'third',
+    component: PaymentRemindersWidget,
+  },
+  {
+    id: 'compliance-deadlines',
+    label: 'Compliance Deadlines',
+    description: 'GST, ITR, TDS, and MCA filings not yet filed.',
+    size: 'third',
+    component: ComplianceDeadlinesWidget,
+  },
+  {
+    id: 'assigned-clients',
+    label: 'Assigned Clients',
+    description: 'Clients on your assigned businesses.',
+    size: 'third',
+    component: AssignedClientsWidget,
+  },
+  {
+    id: 'outstanding-payments',
+    label: 'Outstanding Payments',
+    description: 'Sent invoices not yet paid, with the total amount owed.',
+    size: 'third',
+    component: OutstandingPaymentsWidget,
   },
 ]
 

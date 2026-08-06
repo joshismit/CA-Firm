@@ -34,6 +34,15 @@ describe('widgetPreferenceSchema', () => {
   it('rejects a non-boolean visible field', () => {
     expect(widgetPreferenceSchema.safeParse({ widgetId: 'task-summary', visible: 'yes' }).success).toBe(false);
   });
+
+  it('accepts the PRD §10.2/§10.4 optional layout fields (size/collapsed/pinned)', () => {
+    const result = widgetPreferenceSchema.safeParse({ widgetId: 'task-summary', visible: true, size: 'half', collapsed: true, pinned: true });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an invalid size value', () => {
+    expect(widgetPreferenceSchema.safeParse({ widgetId: 'task-summary', visible: true, size: 'huge' }).success).toBe(false);
+  });
 });
 
 describe('updateDashboardPreferencesSchema', () => {

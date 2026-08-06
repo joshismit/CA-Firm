@@ -136,6 +136,109 @@ describe('CRM (Lead) API — permission middleware integration', () => {
     });
   });
 
+  describe('notes (PRD §8.6)', () => {
+    it('returns 403 for GET /crm/:id/notes when the caller lacks crm:read', async () => {
+      const token = tokenMissing(CRM_PERMISSIONS.READ);
+      const res = await request(app)
+        .get(`/api/v1/crm/${randomUUID()}/notes`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 403 for POST /crm/:id/notes when the caller lacks crm:update', async () => {
+      const token = tokenMissing(CRM_PERMISSIONS.UPDATE);
+      const res = await request(app)
+        .post(`/api/v1/crm/${randomUUID()}/notes`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ content: 'Some note' });
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('assignments (PRD §8.5)', () => {
+    it('returns 403 for GET /crm/:id/assignments when the caller lacks crm:read', async () => {
+      const token = tokenMissing(CRM_PERMISSIONS.READ);
+      const res = await request(app)
+        .get(`/api/v1/crm/${randomUUID()}/assignments`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 403 for POST /crm/:id/assignments when the caller lacks crm:manage', async () => {
+      const token = tokenMissing(CRM_PERMISSIONS.MANAGE);
+      const res = await request(app)
+        .post(`/api/v1/crm/${randomUUID()}/assignments`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ userId: randomUUID() });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 403 for DELETE /crm/:id/assignments/:userId when the caller lacks crm:manage', async () => {
+      const token = tokenMissing(CRM_PERMISSIONS.MANAGE);
+      const res = await request(app)
+        .delete(`/api/v1/crm/${randomUUID()}/assignments/${randomUUID()}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('dashboard (PRD §8.10)', () => {
+    it('returns 403 for GET /crm/dashboard when the caller lacks crm:read', async () => {
+      const token = tokenMissing(CRM_PERMISSIONS.READ);
+      const res = await request(app).get('/api/v1/crm/dashboard').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('proposal (PRD §8.2)', () => {
+    it('returns 403 for POST /crm/:id/proposal/send when the caller lacks crm:update', async () => {
+      const token = tokenMissing(CRM_PERMISSIONS.UPDATE);
+      const res = await request(app)
+        .post(`/api/v1/crm/${randomUUID()}/proposal/send`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 403 for POST /crm/:id/proposal/accept when the caller lacks crm:update', async () => {
+      const token = tokenMissing(CRM_PERMISSIONS.UPDATE);
+      const res = await request(app)
+        .post(`/api/v1/crm/${randomUUID()}/proposal/accept`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 403 for POST /crm/:id/proposal/reject when the caller lacks crm:update', async () => {
+      const token = tokenMissing(CRM_PERMISSIONS.UPDATE);
+      const res = await request(app)
+        .post(`/api/v1/crm/${randomUUID()}/proposal/reject`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('timeline (PRD §8.11)', () => {
+    it('returns 403 for GET /crm/:id/timeline when the caller lacks crm:read', async () => {
+      const token = tokenMissing(CRM_PERMISSIONS.READ);
+      const res = await request(app)
+        .get(`/api/v1/crm/${randomUUID()}/timeline`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe('authentication middleware', () => {
     it('returns 401 for every CRM route when no Authorization header is present', async () => {
       const res = await request(app).get('/api/v1/crm');

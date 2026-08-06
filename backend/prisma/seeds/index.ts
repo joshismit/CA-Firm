@@ -5,6 +5,7 @@ import { seedPermissions } from './permissions.seed';
 import { seedBusinessTypes } from './business-type.seed';
 import { seedMasterAdmin } from './master-admin.seed';
 import { seedPlans } from './plan.seed';
+import { seedNotificationTemplates } from './notification-templates.seed';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -38,6 +39,10 @@ async function main(): Promise<void> {
   console.log('Seeding plans...');
   await seedPlans(prisma);
   console.log('Plans seeded successfully.');
+
+  console.log('Seeding notification templates...');
+  await seedNotificationTemplates(prisma);
+  console.log('Notification templates seeded successfully.');
 }
 
 main()

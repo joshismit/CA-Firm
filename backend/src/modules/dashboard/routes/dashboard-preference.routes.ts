@@ -89,4 +89,18 @@ router.patch(
   DashboardPreferenceController.update,
 );
 
+/**
+ * @swagger
+ * /dashboard/preferences/reset:
+ *   post:
+ *     tags: [Dashboard]
+ *     summary: Restore the caller's dashboard to its default layout
+ *     description: Deletes the caller's personal layout row. The next GET falls back to their tenant's configured role default, or the registry default if none exists.
+ *     security: [{ BearerAuth: [] }]
+ *     responses:
+ *       200: { description: Preferences reset. }
+ *       401: { description: Missing or invalid access token. }
+ */
+router.post('/reset', authMiddleware, tenantMiddleware, DashboardPreferenceController.reset);
+
 export default router;

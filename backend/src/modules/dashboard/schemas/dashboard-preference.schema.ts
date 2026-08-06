@@ -16,11 +16,20 @@ import { z } from 'zod';
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
+/** PRD §10.4 — Tailwind col-span size a widget renders at, mirroring the frontend's own `WidgetSize` union (`frontend/src/modules/dashboard/constants/index.ts`). Opaque to the backend beyond shape validation, same as `widgetId`. */
+const widgetSizeSchema = z.enum(['full', 'two-thirds', 'third', 'half', 'quarter']);
+
 export const widgetPreferenceSchema = z.object({
   widgetId: z.string().min(1, 'widgetId is required').max(60, 'widgetId must be at most 60 characters'),
   visible: z.boolean(),
+  /** PRD §10.2/§10.4 — per-widget layout overrides. All optional: an entry that omits them keeps the registry's own default. */
+  size: widgetSizeSchema.optional(),
+  collapsed: z.boolean().optional(),
+  pinned: z.boolean().optional(),
 });
 
 export const updateDashboardPreferencesSchema = z.object({
   widgets: z.array(widgetPreferenceSchema).max(50, 'A dashboard may have at most 50 widgets'),
+  /** PRD §10.2 — whole-dashboard auto-refresh cadence in seconds. `null` clears it (falls back to the frontend's own default interval). */
+  refreshIntervalSeconds: z.number().int().min(15).max(3600).nullable().optional(),
 });

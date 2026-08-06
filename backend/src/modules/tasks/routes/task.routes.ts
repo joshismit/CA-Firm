@@ -9,9 +9,12 @@ import {
   createTaskSchema,
   updateTaskSchema,
   updateTaskStatusSchema,
+  assignTaskSchema,
+  rejectTaskSchema,
   listTasksQuerySchema,
   taskIdParamSchema,
   projectIdParamSchema,
+  leadIdParamSchema,
   assigneeIdParamSchema,
 } from '../schemas/task.schema';
 
@@ -42,11 +45,22 @@ const router = Router();
  *   schemas:
  *     TaskStatus:
  *       type: string
- *       enum: [TODO, IN_PROGRESS, REVIEW, COMPLETED, CANCELLED]
+ *       enum: [TODO, IN_PROGRESS, REVIEW, COMPLETED, CANCELLED, REQUESTED, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED]
  *       description: >
- *         Lifecycle status. Valid transitions: TODO→IN_PROGRESS→REVIEW⇄IN_PROGRESS→COMPLETED,
- *         COMPLETED→IN_PROGRESS (reopen), any non-terminal→CANCELLED (terminal).
+ *         Lifecycle status. Two independent families sharing one enum (PRD §9) — see TaskType.
+ *         Simple flow: TODO→IN_PROGRESS→REVIEW⇄IN_PROGRESS→COMPLETED, COMPLETED→IN_PROGRESS (reopen),
+ *         any non-terminal→CANCELLED (terminal).
+ *         Approval workflow: REQUESTED→SUBMITTED→(UNDER_REVIEW→)APPROVED→COMPLETED,
+ *         SUBMITTED/UNDER_REVIEW→REJECTED, REJECTED→REQUESTED (reopen/resubmit),
+ *         REQUESTED/SUBMITTED/UNDER_REVIEW→CANCELLED.
  *         There is no ARCHIVED status for tasks.
+ *     TaskType:
+ *       type: string
+ *       enum: [DOCUMENT_REQUEST, FILING, COMPLIANCE, PAYMENT_FOLLOW_UP, DOCUMENT_REVIEW, APPROVAL]
+ *       description: PRD §9 — a task created WITH a type starts REQUESTED and follows the approval workflow; omitted, it starts TODO and follows the simple flow.
+ *     TaskPriority:
+ *       type: string
+ *       enum: [LOW, MEDIUM, HIGH, URGENT]
  *     Task:
  *       type: object
  *       description: A task response as returned by the API — never the raw database row.
@@ -62,11 +76,42 @@ const router = Router();
  *           nullable: true
  *         status:
  *           $ref: '#/components/schemas/TaskStatus'
+ *         type:
+ *           allOf: [{ $ref: '#/components/schemas/TaskType' }]
+ *           nullable: true
+ *         priority:
+ *           allOf: [{ $ref: '#/components/schemas/TaskPriority' }]
+ *           nullable: true
  *         projectId:
  *           type: string
  *           format: uuid
  *           nullable: true
+ *         leadId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *           description: PRD §8.7 — links this task to a CRM Lead as a follow-up.
  *         assigneeId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         businessId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         contactId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         clientId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         documentId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         folderId:
  *           type: string
  *           format: uuid
  *           nullable: true
@@ -82,9 +127,21 @@ const router = Router();
  *           type: string
  *           format: date-time
  *           nullable: true
+ *         completedBy:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         approvedBy:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         rejectedBy:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
  *         isOverdue:
  *           type: boolean
- *           description: Computed — true if dueDate has passed and status is not COMPLETED/CANCELLED.
+ *           description: Computed — true if dueDate has passed and status is not a terminal status.
  *         isCompleted:
  *           type: boolean
  *           description: Computed — true if status is COMPLETED.
@@ -103,9 +160,32 @@ const router = Router();
  *           type: string
  *           format: uuid
  *           description: Omit to create a standalone task.
+ *         leadId:
+ *           type: string
+ *           format: uuid
+ *           description: PRD §8.7 — omit unless this task is a CRM follow-up for a Lead.
  *         assigneeId:
  *           type: string
  *           format: uuid
+ *         businessId:
+ *           type: string
+ *           format: uuid
+ *         contactId:
+ *           type: string
+ *           format: uuid
+ *         clientId:
+ *           type: string
+ *           format: uuid
+ *         documentId:
+ *           type: string
+ *           format: uuid
+ *         folderId:
+ *           type: string
+ *           format: uuid
+ *         type:
+ *           $ref: '#/components/schemas/TaskType'
+ *         priority:
+ *           $ref: '#/components/schemas/TaskPriority'
  *         title:
  *           type: string
  *           minLength: 2
@@ -128,9 +208,39 @@ const router = Router();
  *           type: string
  *           format: uuid
  *           nullable: true
+ *         leadId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
  *         assigneeId:
  *           type: string
  *           format: uuid
+ *           nullable: true
+ *         businessId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         contactId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         clientId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         documentId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         folderId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *         type:
+ *           allOf: [{ $ref: '#/components/schemas/TaskType' }]
+ *           nullable: true
+ *         priority:
+ *           allOf: [{ $ref: '#/components/schemas/TaskPriority' }]
  *           nullable: true
  *         title:
  *           type: string
@@ -158,7 +268,7 @@ const router = Router();
  *           type: string
  *           minLength: 3
  *           maxLength: 500
- *           description: Required when moving to CANCELLED.
+ *           description: Required when moving to CANCELLED or REJECTED.
  *     TaskEnvelope:
  *       type: object
  *       properties:
@@ -289,6 +399,9 @@ router.post(
  *       - name: projectId
  *         in: query
  *         schema: { type: string, format: uuid }
+ *       - name: leadId
+ *         in: query
+ *         schema: { type: string, format: uuid }
  *       - name: assigneeId
  *         in: query
  *         schema: { type: string, format: uuid }
@@ -366,6 +479,41 @@ router.get(
 
 /**
  * @swagger
+ * /tasks/pending-review:
+ *   get:
+ *     tags: [Tasks]
+ *     summary: List tasks awaiting review
+ *     description: PRD §9 — returns approval-workflow tasks in SUBMITTED or UNDER_REVIEW status, ordered by dueDate ascending.
+ *     security:
+ *       - BearerAuth: []
+ *     x-permission: tasks:review
+ *     responses:
+ *       200:
+ *         description: Tasks pending review.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/TaskArrayEnvelope' }
+ *       401:
+ *         description: Missing or invalid access token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       403:
+ *         description: Caller lacks the `tasks:review` permission.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ */
+router.get(
+  '/pending-review',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(TASK_PERMISSIONS.REVIEW),
+  TaskController.getPendingReview,
+);
+
+/**
+ * @swagger
  * /tasks/project/{projectId}:
  *   get:
  *     tags: [Tasks]
@@ -408,6 +556,55 @@ router.get(
   requirePermission(TASK_PERMISSIONS.READ),
   validate({ params: projectIdParamSchema }),
   TaskController.getByProject,
+);
+
+/**
+ * @swagger
+ * /tasks/lead/{leadId}:
+ *   get:
+ *     tags: [Tasks]
+ *     summary: List a lead's follow-up tasks
+ *     description: >
+ *       PRD §8.7 — returns every task linked to the given CRM Lead (via
+ *       Task.leadId), newest first. Returns an empty array if the lead has no
+ *       follow-up tasks.
+ *     security:
+ *       - BearerAuth: []
+ *     x-permission: tasks:read
+ *     parameters:
+ *       - name: leadId
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Lead's follow-up tasks.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/TaskArrayEnvelope' }
+ *       401:
+ *         description: Missing or invalid access token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       403:
+ *         description: Caller lacks the `tasks:read` permission.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       422:
+ *         description: leadId is not a valid UUID.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ */
+router.get(
+  '/lead/:leadId',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(TASK_PERMISSIONS.READ),
+  validate({ params: leadIdParamSchema }),
+  TaskController.getByLead,
 );
 
 /**
@@ -565,10 +762,12 @@ router.patch(
  *     tags: [Tasks]
  *     summary: Transition a task's lifecycle status
  *     description: >
- *       Moves a task along its lifecycle state machine
- *       (TODO→IN_PROGRESS→REVIEW⇄IN_PROGRESS→COMPLETED, COMPLETED→IN_PROGRESS
- *       reopen, any non-terminal→CANCELLED). `reason` is required when moving
- *       to CANCELLED. There is no ARCHIVED status for tasks.
+ *       Moves a task along its lifecycle state machine — see the TaskStatus
+ *       schema for the full simple-flow/approval-workflow transition map.
+ *       `reason` is required when moving to CANCELLED or REJECTED. Dedicated
+ *       action endpoints (POST /tasks/{id}/submit|approve|reject|complete|reopen)
+ *       are also available and preferred for the approval workflow. There is
+ *       no ARCHIVED status for tasks.
  *     security:
  *       - BearerAuth: []
  *     x-permission: tasks:update
@@ -618,6 +817,312 @@ router.patch(
   requirePermission(TASK_PERMISSIONS.UPDATE),
   validate({ params: taskIdParamSchema, body: updateTaskStatusSchema }),
   TaskController.updateStatus,
+);
+
+/**
+ * @swagger
+ * /tasks/{id}/assign:
+ *   post:
+ *     tags: [Tasks]
+ *     summary: Assign or reassign a task
+ *     description: PRD §9 — thin, narrowly-permissioned alternative to PATCH /tasks/{id} for reassignment.
+ *     security:
+ *       - BearerAuth: []
+ *     x-permission: tasks:assign
+ *     parameters:
+ *       - $ref: '#/components/parameters/TaskIdParam'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [assigneeId]
+ *             properties:
+ *               assigneeId: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Task reassigned.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/TaskEnvelope' }
+ *       401:
+ *         description: Missing or invalid access token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       403:
+ *         description: Caller lacks the `tasks:assign` permission.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       404:
+ *         description: No task with this ID exists in the tenant.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ */
+router.post(
+  '/:id/assign',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(TASK_PERMISSIONS.ASSIGN),
+  validate({ params: taskIdParamSchema, body: assignTaskSchema }),
+  TaskController.assign,
+);
+
+/**
+ * @swagger
+ * /tasks/{id}/submit:
+ *   post:
+ *     tags: [Tasks]
+ *     summary: Submit a task for review
+ *     description: PRD §9 — approval workflow REQUESTED → SUBMITTED.
+ *     security:
+ *       - BearerAuth: []
+ *     x-permission: tasks:update
+ *     parameters:
+ *       - $ref: '#/components/parameters/TaskIdParam'
+ *     responses:
+ *       200:
+ *         description: Task submitted.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/TaskEnvelope' }
+ *       401:
+ *         description: Missing or invalid access token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       403:
+ *         description: Caller lacks the `tasks:update` permission.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       404:
+ *         description: No task with this ID exists in the tenant.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       409:
+ *         description: Task is not in REQUESTED status.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ */
+router.post(
+  '/:id/submit',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(TASK_PERMISSIONS.UPDATE),
+  validate({ params: taskIdParamSchema }),
+  TaskController.submit,
+);
+
+/**
+ * @swagger
+ * /tasks/{id}/approve:
+ *   post:
+ *     tags: [Tasks]
+ *     summary: Approve a task
+ *     description: PRD §9 — approval workflow (SUBMITTED|UNDER_REVIEW) → APPROVED.
+ *     security:
+ *       - BearerAuth: []
+ *     x-permission: tasks:approve
+ *     parameters:
+ *       - $ref: '#/components/parameters/TaskIdParam'
+ *     responses:
+ *       200:
+ *         description: Task approved.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/TaskEnvelope' }
+ *       401:
+ *         description: Missing or invalid access token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       403:
+ *         description: Caller lacks the `tasks:approve` permission.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       404:
+ *         description: No task with this ID exists in the tenant.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       409:
+ *         description: Task is not in SUBMITTED or UNDER_REVIEW status.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ */
+router.post(
+  '/:id/approve',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(TASK_PERMISSIONS.APPROVE),
+  validate({ params: taskIdParamSchema }),
+  TaskController.approve,
+);
+
+/**
+ * @swagger
+ * /tasks/{id}/reject:
+ *   post:
+ *     tags: [Tasks]
+ *     summary: Reject a task
+ *     description: PRD §9 — approval workflow (SUBMITTED|UNDER_REVIEW) → REJECTED. A reason is required.
+ *     security:
+ *       - BearerAuth: []
+ *     x-permission: tasks:review
+ *     parameters:
+ *       - $ref: '#/components/parameters/TaskIdParam'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason: { type: string, minLength: 3, maxLength: 500 }
+ *     responses:
+ *       200:
+ *         description: Task rejected.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/TaskEnvelope' }
+ *       401:
+ *         description: Missing or invalid access token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       403:
+ *         description: Caller lacks the `tasks:review` permission.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       404:
+ *         description: No task with this ID exists in the tenant.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       409:
+ *         description: Task is not in SUBMITTED or UNDER_REVIEW status.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       422:
+ *         description: Missing or too-short reason.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ */
+router.post(
+  '/:id/reject',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(TASK_PERMISSIONS.REVIEW),
+  validate({ params: taskIdParamSchema, body: rejectTaskSchema }),
+  TaskController.reject,
+);
+
+/**
+ * @swagger
+ * /tasks/{id}/complete:
+ *   post:
+ *     tags: [Tasks]
+ *     summary: Complete a task
+ *     description: PRD §9 — REVIEW → COMPLETED (simple flow) or APPROVED → COMPLETED (approval workflow).
+ *     security:
+ *       - BearerAuth: []
+ *     x-permission: tasks:complete
+ *     parameters:
+ *       - $ref: '#/components/parameters/TaskIdParam'
+ *     responses:
+ *       200:
+ *         description: Task completed.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/TaskEnvelope' }
+ *       401:
+ *         description: Missing or invalid access token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       403:
+ *         description: Caller lacks the `tasks:complete` permission.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       404:
+ *         description: No task with this ID exists in the tenant.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       409:
+ *         description: Task is not in REVIEW or APPROVED status.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ */
+router.post(
+  '/:id/complete',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(TASK_PERMISSIONS.COMPLETE),
+  validate({ params: taskIdParamSchema }),
+  TaskController.complete,
+);
+
+/**
+ * @swagger
+ * /tasks/{id}/reopen:
+ *   post:
+ *     tags: [Tasks]
+ *     summary: Reopen a completed or rejected task
+ *     description: PRD §9 — COMPLETED → IN_PROGRESS or REJECTED → REQUESTED.
+ *     security:
+ *       - BearerAuth: []
+ *     x-permission: tasks:update
+ *     parameters:
+ *       - $ref: '#/components/parameters/TaskIdParam'
+ *     responses:
+ *       200:
+ *         description: Task reopened.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/TaskEnvelope' }
+ *       401:
+ *         description: Missing or invalid access token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       403:
+ *         description: Caller lacks the `tasks:update` permission.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       404:
+ *         description: No task with this ID exists in the tenant.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       409:
+ *         description: Task is not in COMPLETED or REJECTED status.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ */
+router.post(
+  '/:id/reopen',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(TASK_PERMISSIONS.UPDATE),
+  validate({ params: taskIdParamSchema }),
+  TaskController.reopen,
 );
 
 /**

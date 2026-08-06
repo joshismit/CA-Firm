@@ -10,6 +10,19 @@
 
 export { default as crmRoutes } from './routes/lead.routes';
 export { LeadService } from './service/lead.service';
+export type { ClientWithBusiness } from './service/lead.service';
 export { CRM_PERMISSIONS } from './constants/lead.permissions';
-export type { LeadResponseDto, LeadStageResponseDto } from './dto/lead.res.dto';
-export type { CreateLeadDto, UpdateLeadDto, ListLeadsQueryDto, ConvertLeadDto } from './dto/lead.req.dto';
+export type {
+  LeadResponseDto,
+  LeadStageResponseDto,
+  LeadNoteResponseDto,
+  LeadAssignmentResponseDto,
+} from './dto/lead.res.dto';
+export type {
+  CreateLeadDto,
+  UpdateLeadDto,
+  ListLeadsQueryDto,
+  ConvertLeadDto,
+  CreateLeadNoteDto,
+  AssignLeadDto,
+} from './dto/lead.req.dto';

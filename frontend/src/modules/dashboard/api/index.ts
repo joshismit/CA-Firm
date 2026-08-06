@@ -14,9 +14,17 @@ import type {
   AnalyticsFilters,
   AnalyticsSummary,
   ClientGrowthDatum,
+  DashboardActivity,
+  DashboardCalendar,
+  DashboardOverview,
+  DashboardPerformance,
   DashboardPreferences,
+  DashboardTenantDefault,
+  DashboardWidgetDataId,
+  DashboardWidgetDataResponse,
   RevenueDatum,
   UpdateDashboardPreferencesPayload,
+  WidgetPreference,
 } from '../types'
 
 // Backed by a real endpoint, unlike the analytics placeholders below - hits
@@ -29,6 +37,56 @@ export async function getDashboardPreferences(): Promise<DashboardPreferences> {
 export async function updateDashboardPreferences(payload: UpdateDashboardPreferencesPayload): Promise<DashboardPreferences> {
   const { data } = await apiClient.patch<ApiResponse<DashboardPreferences>>('/dashboard/preferences', payload)
   return data.data
+}
+
+// PRD §10.4 "Restore Defaults" - deletes the caller's personal layout row; the response reflects
+// whatever the fallback chain resolves to next (tenant/role default, or the registry default).
+export async function resetDashboardPreferences(): Promise<DashboardPreferences> {
+  const { data } = await apiClient.post<ApiResponse<DashboardPreferences>>('/dashboard/preferences/reset')
+  return data.data
+}
+
+// PRD §10.10 - real aggregation endpoints (backend/src/modules/dashboard/routes/dashboard.routes.ts).
+export async function getDashboardOverview(): Promise<DashboardOverview> {
+  const { data } = await apiClient.get<ApiResponse<DashboardOverview>>('/dashboard')
+  return data.data
+}
+
+export async function getDashboardWidgetData(ids: DashboardWidgetDataId[], limit = 5): Promise<DashboardWidgetDataResponse> {
+  const { data } = await apiClient.get<ApiResponse<DashboardWidgetDataResponse>>('/dashboard/widgets', {
+    params: { ids: ids.join(','), limit },
+  })
+  return data.data
+}
+
+export async function getDashboardCalendar(from?: string, to?: string): Promise<DashboardCalendar> {
+  const { data } = await apiClient.get<ApiResponse<DashboardCalendar>>('/dashboard/calendar', { params: { from, to } })
+  return data.data
+}
+
+export async function getDashboardActivity(limit = 20): Promise<DashboardActivity> {
+  const { data } = await apiClient.get<ApiResponse<DashboardActivity>>('/dashboard/activity', { params: { limit } })
+  return data.data
+}
+
+export async function getDashboardPerformance(from?: string, to?: string): Promise<DashboardPerformance> {
+  const { data } = await apiClient.get<ApiResponse<DashboardPerformance>>('/dashboard/performance', { params: { from, to } })
+  return data.data
+}
+
+// PRD §10.3 - tenant-admin-only default layout configuration.
+export async function getDashboardTenantDefaults(): Promise<DashboardTenantDefault[]> {
+  const { data } = await apiClient.get<ApiResponse<DashboardTenantDefault[]>>('/dashboard/tenant-defaults')
+  return data.data
+}
+
+export async function updateDashboardTenantDefault(role: string, widgets: WidgetPreference[]): Promise<DashboardTenantDefault> {
+  const { data } = await apiClient.put<ApiResponse<DashboardTenantDefault>>(`/dashboard/tenant-defaults/${role}`, { widgets })
+  return data.data
+}
+
+export async function deleteDashboardTenantDefault(role: string): Promise<void> {
+  await apiClient.delete(`/dashboard/tenant-defaults/${role}`)
 }
 
 function notImplemented(action: string): never {

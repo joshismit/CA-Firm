@@ -37,7 +37,7 @@ const router = Router();
  *   schemas:
  *     ContactRoleType:
  *       type: string
- *       enum: [OWNER, DIRECTOR, PARTNER, AUTHORIZED_SIGNATORY, ACCOUNTANT, AUDITOR, EMPLOYEE, CLIENT_REPRESENTATIVE, EMERGENCY_CONTACT, OTHER]
+ *       enum: [OWNER, DIRECTOR, PARTNER, AUTHORIZED_SIGNATORY, ACCOUNTANT, AUDITOR, EMPLOYEE, CLIENT_REPRESENTATIVE, EMERGENCY_CONTACT, DECISION_MAKER, OTHER]
  *     Contact:
  *       type: object
  *       description: A contact (person) response as returned by the API — never the raw database row.

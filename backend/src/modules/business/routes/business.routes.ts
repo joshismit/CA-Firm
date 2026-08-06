@@ -10,6 +10,10 @@ import {
   updateBusinessSchema,
   listBusinessesQuerySchema,
   businessIdParamSchema,
+  assignBusinessSchema,
+  businessAssignmentParamSchema,
+  createBusinessNoteSchema,
+  businessTimelineQuerySchema,
 } from '../schemas/business.schema';
 
 /**
@@ -46,13 +50,19 @@ const router = Router();
  *         typeId: { type: string, format: uuid }
  *         name: { type: string, example: Acme Manufacturing Pvt Ltd }
  *         legalName: { type: string, nullable: true }
+ *         tradeName: { type: string, nullable: true, description: 'PRD §8.3 — the name the business trades under, when different from legalName.' }
  *         status: { $ref: '#/components/schemas/BusinessStatus' }
  *         pan: { type: string, nullable: true, example: ABCDE1234F }
  *         gstin: { type: string, nullable: true, example: 27ABCDE1234F1Z5 }
  *         cin: { type: string, nullable: true }
+ *         din: { type: string, nullable: true, description: 'PRD §8.3 — Director Identification Number.' }
+ *         tan: { type: string, nullable: true, description: 'PRD §8.3 — Tax Deduction and Collection Account Number.' }
  *         incorporationDate: { type: string, format: date-time, nullable: true }
  *         financialYearStart: { type: integer, minimum: 1, maximum: 12, example: 4 }
  *         industry: { type: string, nullable: true }
+ *         website: { type: string, nullable: true, example: https://acme.example.com }
+ *         phone: { type: string, nullable: true }
+ *         email: { type: string, nullable: true }
  *         storageQuotaMb: { type: integer, nullable: true, description: 'PRD §7.4 — per-business storage quota override in MB. Null means the business inherits the tenant''s default quota.' }
  *         storageUsage:
  *           type: object
@@ -80,24 +90,36 @@ const router = Router();
  *         typeId: { type: string, format: uuid }
  *         name: { type: string, minLength: 2, maxLength: 255 }
  *         legalName: { type: string, maxLength: 255 }
+ *         tradeName: { type: string, maxLength: 255 }
  *         pan: { type: string, pattern: '^[A-Za-z]{5}[0-9]{4}[A-Za-z]$' }
  *         gstin: { type: string, pattern: '^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z]Z[0-9A-Za-z]$' }
  *         cin: { type: string, maxLength: 21 }
+ *         din: { type: string, maxLength: 20 }
+ *         tan: { type: string, maxLength: 10 }
  *         incorporationDate: { type: string, format: date-time }
  *         financialYearStart: { type: integer, minimum: 1, maximum: 12 }
  *         industry: { type: string, maxLength: 100 }
+ *         website: { type: string, format: uri, maxLength: 255 }
+ *         phone: { type: string, maxLength: 30 }
+ *         email: { type: string, format: email, maxLength: 255 }
  *     UpdateBusinessRequest:
  *       type: object
  *       description: Partial update. typeId is immutable after creation — reassigning a business's type is not supported by this endpoint.
  *       properties:
  *         name: { type: string, minLength: 2, maxLength: 255 }
  *         legalName: { type: string, maxLength: 255, nullable: true }
+ *         tradeName: { type: string, maxLength: 255, nullable: true }
  *         pan: { type: string, nullable: true }
  *         gstin: { type: string, nullable: true }
  *         cin: { type: string, maxLength: 21, nullable: true }
+ *         din: { type: string, maxLength: 20, nullable: true }
+ *         tan: { type: string, maxLength: 10, nullable: true }
  *         incorporationDate: { type: string, format: date-time, nullable: true }
  *         financialYearStart: { type: integer, minimum: 1, maximum: 12, nullable: true }
  *         industry: { type: string, maxLength: 100, nullable: true }
+ *         website: { type: string, format: uri, maxLength: 255, nullable: true }
+ *         phone: { type: string, maxLength: 30, nullable: true }
+ *         email: { type: string, format: email, maxLength: 255, nullable: true }
  *         storageQuotaMb: { type: integer, minimum: 1, nullable: true, description: 'PRD §7.4 — set to override this business''s storage quota, or null to revert to the tenant default.' }
  *     BusinessEnvelope:
  *       type: object
@@ -123,6 +145,95 @@ const router = Router();
  *         success: { type: boolean, example: true }
  *         message: { type: string, example: Fetched successfully }
  *         data: { type: array, items: { $ref: '#/components/schemas/BusinessType' } }
+ *         timestamp: { type: string, format: date-time }
+ *         correlationId: { type: string, format: uuid }
+ *     BusinessAssignment:
+ *       type: object
+ *       description: PRD §8.5 — a staff member assigned to a Business, with a free-text role (e.g. Relationship Manager, Accountant, Auditor, Reviewer).
+ *       properties:
+ *         id: { type: string, format: uuid }
+ *         businessId: { type: string, format: uuid }
+ *         userId: { type: string, format: uuid }
+ *         role: { type: string, example: Relationship Manager }
+ *         assignedAt: { type: string, format: date-time }
+ *       required: [id, businessId, userId, role, assignedAt]
+ *     AssignBusinessRequest:
+ *       type: object
+ *       required: [userId, role]
+ *       properties:
+ *         userId: { type: string, format: uuid }
+ *         role: { type: string, minLength: 1, maxLength: 50, example: Accountant }
+ *     BusinessAssignmentEnvelope:
+ *       type: object
+ *       properties:
+ *         success: { type: boolean, example: true }
+ *         message: { type: string, example: Created successfully }
+ *         data: { $ref: '#/components/schemas/BusinessAssignment' }
+ *         timestamp: { type: string, format: date-time }
+ *         correlationId: { type: string, format: uuid }
+ *     BusinessAssignmentListEnvelope:
+ *       type: object
+ *       properties:
+ *         success: { type: boolean, example: true }
+ *         message: { type: string, example: Fetched successfully }
+ *         data: { type: array, items: { $ref: '#/components/schemas/BusinessAssignment' } }
+ *         timestamp: { type: string, format: date-time }
+ *         correlationId: { type: string, format: uuid }
+ *     BusinessNote:
+ *       type: object
+ *       description: PRD §8.6 — an internal note on a Business (never stored inside Lead). Only firm users can read these — never exposed to the Client portal.
+ *       properties:
+ *         id: { type: string, format: uuid }
+ *         businessId: { type: string, format: uuid }
+ *         authorId: { type: string, format: uuid }
+ *         content: { type: string }
+ *         documentId: { type: string, format: uuid, nullable: true, description: Optional attachment reference to an existing Document. }
+ *         createdAt: { type: string, format: date-time }
+ *         updatedAt: { type: string, format: date-time }
+ *       required: [id, businessId, authorId, content, createdAt, updatedAt]
+ *     CreateBusinessNoteRequest:
+ *       type: object
+ *       required: [content]
+ *       properties:
+ *         content: { type: string, minLength: 1, maxLength: 5000 }
+ *         documentId: { type: string, format: uuid }
+ *     BusinessNoteEnvelope:
+ *       type: object
+ *       properties:
+ *         success: { type: boolean, example: true }
+ *         message: { type: string, example: Created successfully }
+ *         data: { $ref: '#/components/schemas/BusinessNote' }
+ *         timestamp: { type: string, format: date-time }
+ *         correlationId: { type: string, format: uuid }
+ *     BusinessNoteListEnvelope:
+ *       type: object
+ *       properties:
+ *         success: { type: boolean, example: true }
+ *         message: { type: string, example: Fetched successfully }
+ *         data: { type: array, items: { $ref: '#/components/schemas/BusinessNote' } }
+ *         timestamp: { type: string, format: date-time }
+ *         correlationId: { type: string, format: uuid }
+ *     BusinessTimelineEnvelope:
+ *       type: object
+ *       description: PRD §8.11 — reuses the `AuditLog` shape, not a bespoke timeline entry type.
+ *       properties:
+ *         success: { type: boolean, example: true }
+ *         message: { type: string, example: Fetched successfully }
+ *         data:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               id: { type: string, format: uuid }
+ *               eventType: { type: string }
+ *               actorId: { type: string, format: uuid }
+ *               actorName: { type: string }
+ *               targetType: { type: string, nullable: true }
+ *               targetId: { type: string, format: uuid, nullable: true }
+ *               description: { type: string }
+ *               ipAddress: { type: string, nullable: true }
+ *               createdAt: { type: string, format: date-time }
+ *         meta: { $ref: '#/components/schemas/PaginationMeta' }
  *         timestamp: { type: string, format: date-time }
  *         correlationId: { type: string, format: uuid }
  *   parameters:
@@ -192,7 +303,7 @@ router.post(
  *         schema: { type: string, enum: [asc, desc], default: desc }
  *       - name: search
  *         in: query
- *         description: Case-insensitive match against name, legal name, PAN, or GSTIN.
+ *         description: Case-insensitive match against name, legal name, PAN, GSTIN, phone, or email.
  *         schema: { type: string, maxLength: 100 }
  *       - name: typeId
  *         in: query
@@ -200,6 +311,10 @@ router.post(
  *       - name: status
  *         in: query
  *         schema: { $ref: '#/components/schemas/BusinessStatus' }
+ *       - name: assignedStaffUserId
+ *         in: query
+ *         description: PRD §8.9 — restrict to businesses with a BusinessAssignment for this user.
+ *         schema: { type: string, format: uuid }
  *     responses:
  *       200:
  *         description: Paginated list of businesses.
@@ -320,6 +435,177 @@ router.delete(
   requirePermission(BUSINESS_PERMISSIONS.DELETE),
   validate({ params: businessIdParamSchema }),
   BusinessController.delete,
+);
+
+/**
+ * @swagger
+ * /business/{id}/assignments:
+ *   get:
+ *     tags: [Business]
+ *     summary: List a business's staff assignments
+ *     description: PRD §8.5 — returns every staff member assigned to this business, most recently assigned first.
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: business:read
+ *     parameters: [{ $ref: '#/components/parameters/BusinessIdParam' }]
+ *     responses:
+ *       200: { description: The business's assignments., content: { application/json: { schema: { $ref: '#/components/schemas/BusinessAssignmentListEnvelope' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `business:read` permission., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No business with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.get(
+  '/:id/assignments',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(BUSINESS_PERMISSIONS.READ),
+  validate({ params: businessIdParamSchema }),
+  BusinessController.listAssignments,
+);
+
+/**
+ * @swagger
+ * /business/{id}/assignments:
+ *   post:
+ *     tags: [Business]
+ *     summary: Assign a staff member to a business
+ *     description: PRD §8.5 — a business may have multiple assigned staff, each with a role. Rejected with 409 if this user is already assigned (unassign first to change their role).
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: business:manage
+ *     parameters: [{ $ref: '#/components/parameters/BusinessIdParam' }]
+ *     requestBody:
+ *       required: true
+ *       content: { application/json: { schema: { $ref: '#/components/schemas/AssignBusinessRequest' } } }
+ *     responses:
+ *       201: { description: Staff member assigned., content: { application/json: { schema: { $ref: '#/components/schemas/BusinessAssignmentEnvelope' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `business:manage` permission., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No business with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       409: { description: This user is already assigned to this business, or userId does not exist (foreign key violation)., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post(
+  '/:id/assignments',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(BUSINESS_PERMISSIONS.MANAGE),
+  validate({ params: businessIdParamSchema, body: assignBusinessSchema }),
+  BusinessController.assign,
+);
+
+/**
+ * @swagger
+ * /business/{id}/assignments/{userId}:
+ *   delete:
+ *     tags: [Business]
+ *     summary: Remove a staff member from a business
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: business:manage
+ *     parameters:
+ *       - { $ref: '#/components/parameters/BusinessIdParam' }
+ *       - name: userId
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Assignment removed., content: { application/json: { schema: { $ref: '#/components/schemas/DeleteEnvelope' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `business:manage` permission., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No business with this ID exists in the tenant, or this user is not assigned to it., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.delete(
+  '/:id/assignments/:userId',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(BUSINESS_PERMISSIONS.MANAGE),
+  validate({ params: businessAssignmentParamSchema }),
+  BusinessController.unassign,
+);
+
+/**
+ * @swagger
+ * /business/{id}/timeline:
+ *   get:
+ *     tags: [Business]
+ *     summary: A business's timeline
+ *     description: PRD §8.11 — every `AuditLog` entry recorded for this business (assignment changes, PAN/GST/details updates, notes, etc.), newest first. Reuses AuditLog rather than a second history table.
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: business:read
+ *     parameters:
+ *       - { $ref: '#/components/parameters/BusinessIdParam' }
+ *       - name: page
+ *         in: query
+ *         schema: { type: integer, minimum: 1, default: 1 }
+ *       - name: limit
+ *         in: query
+ *         schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+ *     responses:
+ *       200: { description: The business's timeline., content: { application/json: { schema: { $ref: '#/components/schemas/BusinessTimelineEnvelope' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `business:read` permission., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No business with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.get(
+  '/:id/timeline',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(BUSINESS_PERMISSIONS.READ),
+  validate({ params: businessIdParamSchema, query: businessTimelineQuerySchema }),
+  BusinessController.timeline,
+);
+
+/**
+ * @swagger
+ * /business/{id}/notes:
+ *   get:
+ *     tags: [Business]
+ *     summary: List a business's notes
+ *     description: PRD §8.6 — returns every internal CRM note for this business, newest first. Only firm users can read them.
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: business:read
+ *     parameters: [{ $ref: '#/components/parameters/BusinessIdParam' }]
+ *     responses:
+ *       200: { description: The business's notes., content: { application/json: { schema: { $ref: '#/components/schemas/BusinessNoteListEnvelope' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `business:read` permission., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No business with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.get(
+  '/:id/notes',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(BUSINESS_PERMISSIONS.READ),
+  validate({ params: businessIdParamSchema }),
+  BusinessController.listNotes,
+);
+
+/**
+ * @swagger
+ * /business/{id}/notes:
+ *   post:
+ *     tags: [Business]
+ *     summary: Add a note to a business
+ *     description: PRD §8.6 — records an internal CRM note (author/date/content, optional attachment). Never visible to the Client portal.
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: business:update
+ *     parameters: [{ $ref: '#/components/parameters/BusinessIdParam' }]
+ *     requestBody:
+ *       required: true
+ *       content: { application/json: { schema: { $ref: '#/components/schemas/CreateBusinessNoteRequest' } } }
+ *     responses:
+ *       201: { description: Note added., content: { application/json: { schema: { $ref: '#/components/schemas/BusinessNoteEnvelope' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `business:update` permission., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No business with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       409: { description: Referenced documentId does not exist (foreign key violation)., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post(
+  '/:id/notes',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(BUSINESS_PERMISSIONS.UPDATE),
+  validate({ params: businessIdParamSchema, body: createBusinessNoteSchema }),
+  BusinessController.addNote,
 );
 
 export default router;

@@ -22,4 +22,11 @@ export class DashboardPreferenceController {
 
     res.status(HTTP_STATUS.OK).json(ApiResponseHelper.updated(req, preferences));
   });
+
+  static reset = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new DashboardPreferenceService(req);
+    const preferences = await service.resetPreferences();
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, preferences, MESSAGES.SUCCESS));
+  });
 }

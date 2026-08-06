@@ -1,11 +1,16 @@
 import { Request } from 'express';
-import { Invoice } from '@prisma/client';
+import { Invoice, InvoiceStatus } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { NotFoundError } from '@shared/errors';
-import { PaginationMeta } from '@shared/types';
-import { InvoiceRepository } from '../repository/invoice.repository';
+import { PaginationMeta, PaginationQuery } from '@shared/types';
+import { InvoiceRepository, InvoiceSearchFilters } from '../repository/invoice.repository';
 import { CreateInvoiceDto, UpdateInvoiceDto, ListInvoicesQueryDto } from '../dto/invoice.req.dto';
+
+/** `Invoice` with its `business` relation eager-loaded — the shape `searchForDashboard()` always returns (it always requests that include). */
+export interface InvoiceWithBusiness extends Invoice {
+  business: { id: string; name: string } | null;
+}
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -87,6 +92,35 @@ export class InvoiceService extends BaseService {
     this.logger.info({ invoiceId: id }, 'Deleting invoice');
 
     await this.repository.delete(id, { tenantId: this.tenantId });
+  }
+
+  /**
+   * PRD §10.5 — thin, tenant-scoped passthrough to `InvoiceRepository.search()` for the
+   * Dashboard's "Outstanding Payments"/"Payment Reminders"/Calendar widgets
+   * (`DashboardAggregationService` composes via this Service, never the repository
+   * directly — see `modules/client-billing/index.ts`'s header comment).
+   */
+  async searchForDashboard(
+    filters: InvoiceSearchFilters,
+    pagination: PaginationQuery,
+  ): Promise<{ data: InvoiceWithBusiness[]; meta: PaginationMeta }> {
+    const { data, meta } = await this.repository.search(
+      filters,
+      pagination,
+      { tenantId: this.tenantId },
+      { business: { select: { id: true, name: true } } },
+    );
+    return { data: data as unknown as InvoiceWithBusiness[], meta };
+  }
+
+  /**
+   * PRD §10.7 — "Outstanding Payments" count/total + Performance's revenue rollup.
+   * Known limitation: `InvoiceStatus.OVERDUE` is never set by any write path in this
+   * codebase today (see `DashboardAggregationService`'s header comment) — this will
+   * only ever reflect whichever of the requested statuses are actually reachable.
+   */
+  async sumOutstanding(filters: { statusIn: InvoiceStatus[]; businessIdIn?: string[] }): Promise<{ count: number; totalAmount: number }> {
+    return this.repository.sumAmountByStatus(filters, { tenantId: this.tenantId });
   }
 
   private async validateReferences(dto: CreateInvoiceDto | UpdateInvoiceDto): Promise<void> {

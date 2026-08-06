@@ -12,6 +12,18 @@ export interface NotificationSearchFilters {
   unreadOnly?: boolean;
 }
 
+/** `GET /notifications/history` — tenant-wide (admin), unlike `NotificationSearchFilters` above which is always one user's own inbox. */
+export interface NotificationHistoryFilters {
+  userId?: string;
+  channel?: NotificationChannel;
+  status?: NotificationStatus;
+  createdFrom?: Date;
+  createdTo?: Date;
+}
+
+/** How long a `dedupeKey` stays eligible to short-circuit a duplicate send — see `NotificationDispatchService.send()`. */
+export const DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 /**
  * ─────────────────────────────────────────────────────────────────────────────
  * Notification Repository
@@ -73,7 +85,7 @@ export class NotificationRepository extends BaseRepository<Prisma.NotificationDe
   async markAsRead(id: string, userId: string, options: RepositoryOptions = {}): Promise<boolean> {
     const where = this.applyFilters({ id, userId }, options);
     const client = this.getClient(options.tx);
-    const result = (await client.updateMany({ where, data: { isRead: true } })) as { count: number };
+    const result = (await client.updateMany({ where, data: { isRead: true, readAt: new Date() } })) as { count: number };
     return result.count > 0;
   }
 
@@ -81,7 +93,7 @@ export class NotificationRepository extends BaseRepository<Prisma.NotificationDe
   async markAllAsRead(userId: string, options: RepositoryOptions = {}): Promise<number> {
     const where = this.applyFilters({ userId, isRead: false }, options);
     const client = this.getClient(options.tx);
-    const result = (await client.updateMany({ where, data: { isRead: true } })) as { count: number };
+    const result = (await client.updateMany({ where, data: { isRead: true, readAt: new Date() } })) as { count: number };
     return result.count;
   }
 
@@ -91,5 +103,47 @@ export class NotificationRepository extends BaseRepository<Prisma.NotificationDe
     const client = this.getClient(options.tx);
     const result = (await client.updateMany({ where, data: { deletedAt: new Date() } })) as { count: number };
     return result.count > 0;
+  }
+
+  /** PRD §11.11 — tenant-wide admin view, unlike `search()` above which is always scoped to one user's own inbox. */
+  async searchHistory(
+    filters: NotificationHistoryFilters,
+    pagination: PaginationQuery,
+    options: RepositoryOptions = {},
+  ): Promise<{ data: Notification[]; meta: PaginationMeta }> {
+    const where: Prisma.NotificationWhereInput = {};
+
+    if (filters.userId) where.userId = filters.userId;
+    if (filters.channel) where.channel = filters.channel;
+    if (filters.status) where.status = filters.status;
+    if (filters.createdFrom || filters.createdTo) {
+      where.createdAt = {
+        ...(filters.createdFrom ? { gte: filters.createdFrom } : {}),
+        ...(filters.createdTo ? { lte: filters.createdTo } : {}),
+      };
+    }
+
+    return this.paginate(pagination, where, options);
+  }
+
+  /** PRD §11.10 "Duplicate prevention" — the most recent non-terminal (PENDING/SENT) row for this `(tenantId, userId, channel, dedupeKey)` within `DEDUPE_WINDOW_MS`, or `null` if none. */
+  async findRecentByDedupeKey(
+    userId: string,
+    channel: NotificationChannel,
+    dedupeKey: string,
+    options: RepositoryOptions = {},
+  ): Promise<Notification | null> {
+    return this.findFirst(
+      {
+        userId,
+        channel,
+        dedupeKey,
+        status: { in: [NotificationStatus.PENDING, NotificationStatus.SENT] },
+        createdAt: { gte: new Date(Date.now() - DEDUPE_WINDOW_MS) },
+      },
+      options,
+      undefined,
+      { createdAt: 'desc' },
+    );
   }
 }

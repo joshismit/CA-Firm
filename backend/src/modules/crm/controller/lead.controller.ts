@@ -4,7 +4,17 @@ import { ApiResponseHelper } from '@shared/response/api-response';
 import { asyncHandler } from '@shared/utils';
 import { LeadService } from '../service/lead.service';
 import { LeadMapper } from '../mapper/lead.mapper';
-import { CreateLeadDto, UpdateLeadDto, ListLeadsQueryDto, ConvertLeadDto } from '../dto/lead.req.dto';
+import {
+  CreateLeadDto,
+  UpdateLeadDto,
+  ListLeadsQueryDto,
+  ConvertLeadDto,
+  CreateLeadNoteDto,
+  AssignLeadDto,
+  SendProposalDto,
+  RespondProposalDto,
+  LeadTimelineQueryDto,
+} from '../dto/lead.req.dto';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -69,5 +79,82 @@ export class LeadController {
     const lead = await service.convertLead(req.params.id, req.body as ConvertLeadDto);
 
     res.status(HTTP_STATUS.OK).json(ApiResponseHelper.updated(req, LeadMapper.toResponseDto(lead)));
+  });
+
+  static sendProposal = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new LeadService(req);
+    const lead = await service.sendProposal(req.params.id, req.body as SendProposalDto);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.updated(req, LeadMapper.toResponseDto(lead)));
+  });
+
+  static acceptProposal = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new LeadService(req);
+    const lead = await service.acceptProposal(req.params.id, req.body as RespondProposalDto);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.updated(req, LeadMapper.toResponseDto(lead)));
+  });
+
+  static rejectProposal = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new LeadService(req);
+    const lead = await service.rejectProposal(req.params.id, req.body as RespondProposalDto);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.updated(req, LeadMapper.toResponseDto(lead)));
+  });
+
+  static timeline = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new LeadService(req);
+    const query = req.query as unknown as LeadTimelineQueryDto;
+    const { data, meta } = await service.getLeadTimeline(req.params.id, query);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.paginated(req, data, meta));
+  });
+
+  static dashboard = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new LeadService(req);
+    const stats = await service.getDashboardStats();
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, stats, MESSAGES.FETCHED));
+  });
+
+  static listNotes = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new LeadService(req);
+    const notes = await service.listLeadNotes(req.params.id);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.success(req, LeadMapper.toNoteResponseDtoList(notes), MESSAGES.FETCHED));
+  });
+
+  static addNote = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new LeadService(req);
+    const note = await service.addLeadNote(req.params.id, req.body as CreateLeadNoteDto);
+
+    res.status(HTTP_STATUS.CREATED).json(ApiResponseHelper.created(req, LeadMapper.toNoteResponseDto(note)));
+  });
+
+  static listAssignments = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new LeadService(req);
+    const assignments = await service.listLeadAssignments(req.params.id);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.success(req, LeadMapper.toAssignmentResponseDtoList(assignments), MESSAGES.FETCHED));
+  });
+
+  static assign = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new LeadService(req);
+    const assignment = await service.assignLeadUser(req.params.id, req.body as AssignLeadDto);
+
+    res
+      .status(HTTP_STATUS.CREATED)
+      .json(ApiResponseHelper.created(req, LeadMapper.toAssignmentResponseDto(assignment)));
+  });
+
+  static unassign = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new LeadService(req);
+    await service.unassignLeadUser(req.params.id, req.params.userId);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.deleted(req));
   });
 }

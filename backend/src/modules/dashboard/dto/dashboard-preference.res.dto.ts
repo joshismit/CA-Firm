@@ -10,4 +10,8 @@ import { WidgetPreferenceDto } from './dashboard-preference.req.dto';
 export interface DashboardPreferenceResponseDto {
   widgets: WidgetPreferenceDto[];
   updatedAt: string | null;
+  /** PRD §10.3 — where this layout came from: the caller's own saved row, the tenant/role
+   * default a tenant admin configured, or neither (frontend registry default applies client-side). */
+  source: 'personal' | 'tenant-default' | 'registry';
+  refreshIntervalSeconds: number | null;
 }

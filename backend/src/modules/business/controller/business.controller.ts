@@ -4,7 +4,14 @@ import { ApiResponseHelper } from '@shared/response/api-response';
 import { asyncHandler } from '@shared/utils';
 import { BusinessService } from '../service/business.service';
 import { BusinessMapper } from '../mapper/business.mapper';
-import { CreateBusinessDto, UpdateBusinessDto, ListBusinessesQueryDto } from '../dto/business.req.dto';
+import {
+  CreateBusinessDto,
+  UpdateBusinessDto,
+  ListBusinessesQueryDto,
+  AssignBusinessDto,
+  CreateBusinessNoteDto,
+  BusinessTimelineQueryDto,
+} from '../dto/business.req.dto';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -75,5 +82,54 @@ export class BusinessController {
       .json(
         ApiResponseHelper.success(req, BusinessMapper.toTypeResponseDtoList(types), MESSAGES.FETCHED),
       );
+  });
+
+  static listAssignments = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new BusinessService(req);
+    const assignments = await service.listBusinessAssignments(req.params.id);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.success(req, BusinessMapper.toAssignmentResponseDtoList(assignments), MESSAGES.FETCHED));
+  });
+
+  static assign = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new BusinessService(req);
+    const assignment = await service.assignBusinessUser(req.params.id, req.body as AssignBusinessDto);
+
+    res
+      .status(HTTP_STATUS.CREATED)
+      .json(ApiResponseHelper.created(req, BusinessMapper.toAssignmentResponseDto(assignment)));
+  });
+
+  static unassign = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new BusinessService(req);
+    await service.unassignBusinessUser(req.params.id, req.params.userId);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.deleted(req));
+  });
+
+  static timeline = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new BusinessService(req);
+    const query = req.query as unknown as BusinessTimelineQueryDto;
+    const { data, meta } = await service.getBusinessTimeline(req.params.id, query);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.paginated(req, data, meta));
+  });
+
+  static listNotes = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new BusinessService(req);
+    const notes = await service.listBusinessNotes(req.params.id);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.success(req, BusinessMapper.toNoteResponseDtoList(notes), MESSAGES.FETCHED));
+  });
+
+  static addNote = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new BusinessService(req);
+    const note = await service.addBusinessNote(req.params.id, req.body as CreateBusinessNoteDto);
+
+    res.status(HTTP_STATUS.CREATED).json(ApiResponseHelper.created(req, BusinessMapper.toNoteResponseDto(note)));
   });
 }

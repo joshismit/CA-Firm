@@ -17,6 +17,9 @@ export const QUEUE_NAMES = {
   AUDIT: 'audit',
   DOCUMENT_PROCESSING: 'document-processing',
   TASK_REMINDER: 'task-reminder',
+  BILLING_REMINDER: 'billing-reminder',
+  COMPLIANCE_REMINDER: 'compliance-reminder',
+  DOCUMENT_REMINDER: 'document-reminder',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -82,6 +85,37 @@ export const documentProcessingQueue = new Queue(QUEUE_NAMES.DOCUMENT_PROCESSING
  * `scheduleTaskReminderJob()` there.
  */
 export const taskReminderQueue = new Queue(QUEUE_NAMES.TASK_REMINDER, {
+  connection,
+  defaultJobOptions: {
+    attempts: 2,
+    backoff: { type: 'fixed', delay: 30000 },
+    removeOnComplete: { count: 30 },
+    removeOnFail: { count: 30 },
+  },
+});
+
+/** PRD §11.12 — same repeatable-job shape as `taskReminderQueue` above, one queue per reminder domain (Billing/Compliance/Document) so each scan's schedule/backoff/history is independent. */
+export const billingReminderQueue = new Queue(QUEUE_NAMES.BILLING_REMINDER, {
+  connection,
+  defaultJobOptions: {
+    attempts: 2,
+    backoff: { type: 'fixed', delay: 30000 },
+    removeOnComplete: { count: 30 },
+    removeOnFail: { count: 30 },
+  },
+});
+
+export const complianceReminderQueue = new Queue(QUEUE_NAMES.COMPLIANCE_REMINDER, {
+  connection,
+  defaultJobOptions: {
+    attempts: 2,
+    backoff: { type: 'fixed', delay: 30000 },
+    removeOnComplete: { count: 30 },
+    removeOnFail: { count: 30 },
+  },
+});
+
+export const documentReminderQueue = new Queue(QUEUE_NAMES.DOCUMENT_REMINDER, {
   connection,
   defaultJobOptions: {
     attempts: 2,

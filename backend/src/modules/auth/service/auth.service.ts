@@ -704,6 +704,7 @@ export class AuthService extends BaseService {
         to: user.email,
         subject: `Reset your ${env.APP_NAME} password`,
         template: 'password-reset',
+        tenantId: user.tenantId,
         context: {
           firstName: user.firstName,
           resetUrl,
