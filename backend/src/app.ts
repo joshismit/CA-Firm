@@ -46,6 +46,7 @@ import { masterAdminRoutes } from '@modules/master-admin';
 import { billingRoutes } from '@modules/billing';
 import { auditRoutes } from '@modules/audit';
 import { brandingRoutes, domainRoutes, publicBrandingRoutes, storageSettingsRoutes } from '@modules/tenant';
+import { integrationRoutes, integrationWebhookRoutes } from '@modules/integrations';
 
 const app: Application = express();
 
@@ -217,6 +218,13 @@ app.use(`${API.PREFIX}/public`, publicBrandingRoutes);
 // Firm storage settings (PRD §7.4 — Upload Rules): max upload size (read-only, plan-derived) +
 // default business storage quota (firm-admin editable).
 app.use(`${API.PREFIX}/settings/storage`, storageSettingsRoutes);
+
+// PRD §17 — Integration Framework. `/integrations/webhook` is deliberately its own public
+// router mounted BEFORE the authenticated `/integrations` router below — same "webhook path
+// separate from the authenticated settings path" shape as `/billing/payment-gateway/webhook`
+// vs `/billing/payment-gateway/settings` above. No real provider is wired up yet (framework only).
+app.use(`${API.PREFIX}/integrations/webhook`, integrationWebhookRoutes);
+app.use(`${API.PREFIX}/integrations`, integrationRoutes);
 
 // 5. Global Error Handler (Must run last)
 app.use(errorMiddleware);

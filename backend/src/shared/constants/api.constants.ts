@@ -238,6 +238,17 @@ export const DOCUMENT_REMINDER = {
   JOB_NAME: 'scan',
 } as const;
 
+// ─── Integration Framework (PRD §17) ──────────────────────────────────────────
+// Unlike the once-a-day reminder scans above, `IntegrationConnection.syncFrequencyMinutes`
+// is admin-configurable down to the minute, so this scan itself must run far more
+// often — every 5 minutes, purely enqueuing `integrationSyncQueue` jobs for any
+// connection whose `nextSyncAt` has elapsed. No provider logic runs on this cadence.
+
+export const INTEGRATION_SYNC_SCAN = {
+  CRON_SCHEDULE: '*/5 * * * *',
+  JOB_NAME: 'scan',
+} as const;
+
 // ─── White-Label (PRD §4.3) ───────────────────────────────────────────────────
 
 export const WHITE_LABEL = {

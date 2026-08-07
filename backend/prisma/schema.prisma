@@ -3029,5 +3029,360 @@ enum AuditEventType {
   /// PRD §14.7 — a `Document` pending approval was rejected (`DocumentService.reject`).
   DOCUMENT_REJECTED
 
+  /// PRD §17 — a tenant connected a new `IntegrationConnection` (`IntegrationConnectionService.connect`).
+  INTEGRATION_CONNECTED
+  /// PRD §17 — a tenant disconnected an `IntegrationConnection` (`IntegrationConnectionService.disconnect`).
+  INTEGRATION_DISCONNECTED
+  /// PRD §17 — an `IntegrationConnection`'s stored credentials/config were replaced
+  /// (`IntegrationConnectionService.connect` called again on an existing connection).
+  INTEGRATION_CREDENTIAL_UPDATED
+  /// PRD §17 — an `IntegrationSync` run was started, by any trigger (`IntegrationSyncEngine.execute`).
+  INTEGRATION_SYNC_TRIGGERED
+  /// PRD §17 — an `IntegrationSync` run finished with `SUCCESS` or `PARTIAL_SUCCESS`.
+  INTEGRATION_SYNC_COMPLETED
+  /// PRD §17 — an `IntegrationSync` run finished with `FAILED`.
+  INTEGRATION_SYNC_FAILED
+  /// PRD §17 — an `IntegrationConnection`'s OAuth access token was refreshed
+  /// (`IntegrationTokenRefreshService`, scheduled system actor — mirrors `TASK_REMINDER_SENT`).
+  INTEGRATION_TOKEN_REFRESHED
+  /// PRD §17 — an inbound `IntegrationWebhookLog` row was received and its signature verified —
+  /// written by the system actor since there is no authenticated user, mirrors `PAYMENT_COMPLETED`'s
+  /// webhook-driven audit entry.
+  INTEGRATION_WEBHOOK_RECEIVED
+
   @@map("audit_event_type")
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════
+/// PRD §17 — Integration Framework
+/// ═══════════════════════════════════════════════════════════════════════════
+///
+/// Framework-only models. NO real third-party provider (Tally/Zoho/QuickBooks/
+/// Google Drive/Gmail/DocuSign/...) is implemented against these tables yet —
+/// they exist so `modules/integrations` can provide a generic connect/sync/
+/// webhook lifecycle that future providers plug into via
+/// `IntegrationProviderRegistry.register()` (a new provider class + one
+/// registration call, in `modules/integrations` alone) without ever touching
+/// CRM/Documents/Billing/Tasks/Notifications or any other business module.
+///
+/// `providerKey` throughout is a free-form string (a registry slug, e.g.
+/// `"tally"`/`"google_drive"`), NOT a fixed Prisma enum — deliberately, so a
+/// brand new provider can be registered with zero schema migration. It has a
+/// real FK relation to `IntegrationProvider.key` below, so referential
+/// integrity is still enforced.
+/// ═══════════════════════════════════════════════════════════════════════════
+
+enum IntegrationCategory {
+  ACCOUNTING
+  STORAGE
+  COMMUNICATION
+  IDENTITY
+  DOCUMENT
+  OTHER
+
+  @@map("integration_category")
+}
+
+enum IntegrationConnectionStatus {
+  DISCONNECTED
+  PENDING
+  CONNECTED
+  ERROR
+  EXPIRED
+
+  @@map("integration_connection_status")
+}
+
+enum IntegrationSyncDirection {
+  IMPORT
+  EXPORT
+  BIDIRECTIONAL
+
+  @@map("integration_sync_direction")
+}
+
+enum IntegrationSyncTrigger {
+  MANUAL
+  SCHEDULED
+  WEBHOOK
+
+  @@map("integration_sync_trigger")
+}
+
+enum IntegrationSyncStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL_SUCCESS
+  FAILED
+  CANCELLED
+
+  @@map("integration_sync_status")
+}
+
+enum IntegrationWebhookStatus {
+  RECEIVED
+  VERIFIED
+  REJECTED
+  PROCESSED
+  FAILED
+
+  @@map("integration_webhook_status")
+}
+
+enum IntegrationJobType {
+  SYNC
+  WEBHOOK_PROCESSING
+  TOKEN_REFRESH
+  HEALTH_CHECK
+
+  @@map("integration_job_type")
+}
+
+enum IntegrationJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  RETRYING
+  DEAD_LETTER
+
+  @@map("integration_job_status")
+}
+
+/// Platform-wide catalog of registered provider keys — one row per provider
+/// registered with `IntegrationProviderRegistry`, upserted at process boot
+/// (`syncProviderCatalog()`), never hand-seeded with real vendor data. Lets
+/// `GET /integrations/providers` and the future firm-admin UI list available
+/// providers from the DB instead of a hardcoded frontend list, and gives
+/// master-admin a platform-level kill switch (`isActive`) independent of any
+/// tenant's own `IntegrationConnection.status`.
+model IntegrationProvider {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Registry slug, e.g. "tally", "google_drive" — matches
+  /// `IntegrationProvider` (TS interface)'s `key` exactly.
+  key         String              @unique @db.VarChar(100)
+  name        String              @db.VarChar(150)
+  category    IntegrationCategory
+  description String?             @db.Text
+
+  /// Platform-level kill switch (master-admin only) — independent of whether
+  /// any tenant has actually connected it. False for a key that is registered
+  /// in code but not yet rolled out.
+  isActive Boolean @default(true) @map("is_active")
+
+  /// Cached snapshot of the registered provider's `getCapabilities()`,
+  /// refreshed on every boot — read-only, never client-editable.
+  capabilities Json? @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  connections IntegrationConnection[]
+
+  @@index([category], name: "idx_integration_providers_category")
+  @@map("integration_providers")
+}
+
+/// A tenant's own connection to a provider. Multiple connections per
+/// tenant/provider are allowed (e.g. two separate Tally company files), so
+/// there is deliberately no `@@unique([tenantId, providerKey])` — `label`
+/// disambiguates them for the tenant's own admin UI.
+model IntegrationConnection {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  providerKey String  @map("provider_key") @db.VarChar(100)
+  label       String? @db.VarChar(150)
+
+  status IntegrationConnectionStatus @default(DISCONNECTED)
+
+  /// AES-256-GCM (`CryptoUtils.encryptSecret`, keyed by
+  /// `INTEGRATION_ENCRYPTION_KEY`) encrypted JSON blob holding whatever this
+  /// provider's `connect()` needs — API key/secret, OAuth access+refresh
+  /// token, basic-auth creds, a per-connection webhook secret, etc. One
+  /// generic encrypted field rather than one column per auth style, so the
+  /// schema never needs a migration to support a new provider's credential
+  /// shape (mirrors `FirmPaymentGatewaySettings.encryptedKeySecret`, widened
+  /// to an arbitrary JSON payload instead of a single string).
+  encryptedCredentials String? @map("encrypted_credentials") @db.Text
+
+  /// OAuth scopes granted, when applicable — empty for API-key-style providers.
+  scopes         String[]  @map("scopes")
+  /// Queryable expiry for the encrypted access token, so the scheduled token-refresh
+  /// scan can `WHERE tokenExpiresAt < now()` without ever decrypting a row it doesn't need to.
+  tokenExpiresAt DateTime? @map("token_expires_at") @db.Timestamptz
+
+  /// Non-secret, provider-specific settings (e.g. a selected Tally company name,
+  /// a Drive folder id) — never credentials, those always go in `encryptedCredentials`.
+  config Json @default("{}") @db.JsonB
+
+  syncDirection        IntegrationSyncDirection @default(IMPORT) @map("sync_direction")
+  autoSyncEnabled      Boolean                  @default(false) @map("auto_sync_enabled")
+  /// Null while `autoSyncEnabled` is false — required once auto-sync is turned on.
+  syncFrequencyMinutes Int?                     @map("sync_frequency_minutes")
+
+  lastSyncAt DateTime? @map("last_sync_at") @db.Timestamptz
+  /// Scanned by the scheduled-sync worker (`IntegrationSyncScanJob`); null means "never scheduled".
+  nextSyncAt DateTime? @map("next_sync_at") @db.Timestamptz
+  lastError  String?   @map("last_error") @db.Text
+
+  /// Non-secret account metadata returned by the provider's own `connect()` (e.g.
+  /// connected account email/company name) — safe to return to the frontend as-is.
+  metadata Json? @db.JsonB
+
+  createdBy String? @map("created_by") @db.Uuid
+  updatedBy String? @map("updated_by") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  provider IntegrationProvider @relation(fields: [providerKey], references: [key])
+
+  syncs       IntegrationSync[]
+  webhookLogs IntegrationWebhookLog[]
+  jobs        IntegrationJob[]
+
+  @@index([tenantId, providerKey], name: "idx_integration_connections_tenant_provider")
+  @@index([tenantId, status], name: "idx_integration_connections_tenant_status")
+  @@index([tenantId, deletedAt], name: "idx_integration_connections_soft_delete")
+  @@index([nextSyncAt], name: "idx_integration_connections_next_sync")
+  @@map("integration_connections")
+}
+
+/// One row per sync run (manual, scheduled, or webhook-triggered) — the
+/// durable history `GET /integrations/sync-history` reads from. No
+/// provider-specific fields: `resultSummary` is an opaque `Json` bag the
+/// provider's own `sync()` result populates.
+model IntegrationSync {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  connectionId String @map("connection_id") @db.Uuid
+
+  direction IntegrationSyncDirection
+  trigger   IntegrationSyncTrigger
+  status    IntegrationSyncStatus    @default(PENDING)
+
+  /// Prevents two concurrent runs for the same connection/trigger-window from
+  /// double-processing — enforced at the DB level, not just in-app.
+  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+
+  isDryRun Boolean @default(false) @map("is_dry_run")
+
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+
+  itemsProcessed Int @default(0) @map("items_processed")
+  itemsSucceeded Int @default(0) @map("items_succeeded")
+  itemsFailed    Int @default(0) @map("items_failed")
+  /// Count of records where the provider reported a conflicting local/remote change
+  /// (PRD §17 Step 6 "Conflict detection") — the framework only counts and surfaces
+  /// this; resolving a conflict is provider-specific and out of scope here.
+  conflictCount  Int @default(0) @map("conflict_count")
+
+  resultSummary Json?   @map("result_summary") @db.JsonB
+  errorMessage  String? @map("error_message") @db.Text
+
+  /// The user who triggered a MANUAL sync — plain uuid, no FK relation, deliberately
+  /// mirroring `AuditLog.actorId`'s same convention, since `SCHEDULED`/`WEBHOOK` runs
+  /// have no user at all (null) and this table doesn't need a joinable User relation.
+  triggeredBy String? @map("triggered_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  connection IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  jobs       IntegrationJob[]
+
+  @@index([tenantId, connectionId, createdAt(sort: Desc)], name: "idx_integration_syncs_tenant_connection")
+  @@index([tenantId, status], name: "idx_integration_syncs_tenant_status")
+  @@map("integration_syncs")
+}
+
+/// Every inbound webhook call to `POST /integrations/webhook/:providerKey/:connectionId`
+/// is logged here FIRST, before signature verification even runs — so a forged or
+/// malformed call is still auditable. `tenantId`/`connectionId` are nullable because a
+/// malformed `:connectionId` (or one that doesn't belong to any tenant) must still be
+/// logged as `REJECTED`, not dropped silently.
+model IntegrationWebhookLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId     String? @map("tenant_id") @db.Uuid
+  connectionId String? @map("connection_id") @db.Uuid
+  providerKey  String  @map("provider_key") @db.VarChar(100)
+
+  /// The provider's own event/delivery id, when its payload has one — paired with
+  /// `providerKey` for cross-provider idempotency (see the `@@unique` below).
+  externalEventId String? @map("external_event_id") @db.VarChar(255)
+
+  status         IntegrationWebhookStatus @default(RECEIVED)
+  signatureValid Boolean?                 @map("signature_valid")
+
+  headers Json? @db.JsonB
+  /// Parsed JSON body — the exact raw bytes are only needed transiently for HMAC
+  /// verification (done synchronously in the controller against `req.rawBody`,
+  /// never persisted), mirroring `PaymentGatewayLink.providerMetadata`'s same
+  /// "store the provider's payload as-is" convention.
+  payload Json? @db.JsonB
+
+  receivedAt   DateTime  @default(now()) @map("received_at") @db.Timestamptz
+  processedAt  DateTime? @map("processed_at") @db.Timestamptz
+  errorMessage String?   @map("error_message") @db.Text
+  retryCount   Int       @default(0) @map("retry_count")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  connection IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  jobs       IntegrationJob[]
+
+  @@unique([providerKey, externalEventId], name: "uq_integration_webhook_logs_provider_event")
+  @@index([tenantId, createdAt(sort: Desc)], name: "idx_integration_webhook_logs_tenant_timeline")
+  @@index([status], name: "idx_integration_webhook_logs_status")
+  @@map("integration_webhook_logs")
+}
+
+/// Durable, Postgres-backed job/run history — BullMQ (see `config/queue.ts`) only
+/// keeps job state in Redis, which is fine for processing but useless for the
+/// permanent audit/history trail PRD §17 Step 10/11 needs. `queueJobId` cross-references
+/// the actual BullMQ job for live-status lookups while it's still in Redis.
+model IntegrationJob {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId     String? @map("tenant_id") @db.Uuid
+  connectionId String? @map("connection_id") @db.Uuid
+
+  jobType IntegrationJobType
+  status  IntegrationJobStatus @default(QUEUED)
+
+  /// The BullMQ job id from the queue this was enqueued onto
+  /// (`integrationSyncQueue/integrationWebhookQueue`), for cross-referencing live state.
+  queueJobId String? @map("queue_job_id") @db.VarChar(255)
+
+  relatedSyncId       String? @map("related_sync_id") @db.Uuid
+  relatedWebhookLogId String? @map("related_webhook_log_id") @db.Uuid
+
+  payload Json? @db.JsonB
+
+  attempts    Int @default(0) @map("attempts")
+  maxAttempts Int @default(3) @map("max_attempts")
+
+  lastError String? @map("last_error") @db.Text
+
+  scheduledFor DateTime? @map("scheduled_for") @db.Timestamptz
+  startedAt    DateTime? @map("started_at") @db.Timestamptz
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  connection        IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  relatedSync       IntegrationSync?       @relation(fields: [relatedSyncId], references: [id], onDelete: SetNull)
+  relatedWebhookLog IntegrationWebhookLog? @relation(fields: [relatedWebhookLogId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status], name: "idx_integration_jobs_tenant_status")
+  @@index([status, scheduledFor], name: "idx_integration_jobs_status_scheduled")
+  @@map("integration_jobs")
 }

@@ -12,6 +12,7 @@ import { env } from './config/environment';
 import { logger } from './config/logger';
 import { connectDatabase, disconnectDatabase } from './config/database';
 import { connectRedis, disconnectRedis } from './config/redis';
+import { syncIntegrationProviderCatalog } from './modules/integrations';
 
 // Anything that reaches here escaped every try/catch in the app — the process
 // is in an unknown state and must not keep serving traffic on it.
@@ -34,6 +35,12 @@ async function startServer(): Promise<void> {
     // this on the first real request.
     await connectDatabase();
     await connectRedis();
+
+    // PRD §17 — never blocks boot: the catalog is a read-side convenience table,
+    // not something any other startup step depends on (see its own header comment).
+    syncIntegrationProviderCatalog().catch((err: unknown) => {
+      logger.error({ err }, 'Failed to sync integration provider catalog');
+    });
 
     const port = env.APP_PORT;
     server = app.listen(port, () => {

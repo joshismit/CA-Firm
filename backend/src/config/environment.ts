@@ -99,6 +99,19 @@ const envSchema = z.object({
     .regex(/^[0-9a-f]{64}$/i, 'PAYMENT_GATEWAY_ENCRYPTION_KEY must be 64 hex characters (32 bytes)')
     .optional(),
 
+  // ─── Integration Framework (PRD §17) ────────────────────────────────────────
+  // Symmetric key used to encrypt every `IntegrationConnection.encryptedCredentials`
+  // blob at rest (`CryptoUtils.encryptSecret`/`decryptSecret`, AES-256-GCM) — its own
+  // key, deliberately separate from `PAYMENT_GATEWAY_ENCRYPTION_KEY` above, so
+  // rotating one never affects the other. 32 raw bytes, hex-encoded (64 hex chars).
+  // Optional: absent means `integrationEncryptionConfig.isConfigured` is false and
+  // `IntegrationConnectionService` rejects saving credentials with a clear 503,
+  // mirroring `paymentGatewayEncryptionConfig.isConfigured`'s same pattern.
+  INTEGRATION_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/i, 'INTEGRATION_ENCRYPTION_KEY must be 64 hex characters (32 bytes)')
+    .optional(),
+
   // ─── Swagger ─────────────────────────────────────────────────────────────
   ENABLE_SWAGGER: z.coerce.boolean().default(true),
 

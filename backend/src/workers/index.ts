@@ -13,6 +13,13 @@ import { createTaskReminderWorker, scheduleTaskReminderJob } from './task-remind
 import { createBillingReminderWorker, scheduleBillingReminderJob } from './billing-reminder.worker';
 import { createComplianceReminderWorker, scheduleComplianceReminderJob } from './compliance-reminder.worker';
 import { createDocumentReminderWorker, scheduleDocumentReminderJob } from './document-reminder.worker';
+import {
+  createIntegrationSyncWorker,
+  createIntegrationSyncScanWorker,
+  scheduleIntegrationSyncScanJob,
+  handleIntegrationSyncJobExhausted,
+} from './integration-sync.worker';
+import { createIntegrationWebhookWorker, handleIntegrationWebhookJobExhausted } from './integration-webhook.worker';
 
 // Same rationale as src/server.ts — a worker mid-job that hits an unhandled
 // error is in an unknown state; BullMQ's own retry/backoff picks the job back
@@ -45,6 +52,9 @@ const taskReminderWorker = createTaskReminderWorker();
 const billingReminderWorker = createBillingReminderWorker();
 const complianceReminderWorker = createComplianceReminderWorker();
 const documentReminderWorker = createDocumentReminderWorker();
+const integrationSyncWorker = createIntegrationSyncWorker();
+const integrationSyncScanWorker = createIntegrationSyncScanWorker();
+const integrationWebhookWorker = createIntegrationWebhookWorker();
 
 emailWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'Email job completed'));
 emailWorker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'Email job failed'));
@@ -63,9 +73,25 @@ complianceReminderWorker.on('completed', (job) => logger.info({ jobId: job.id },
 complianceReminderWorker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'Compliance reminder scan failed'));
 documentReminderWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'Document reminder scan completed'));
 documentReminderWorker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'Document reminder scan failed'));
+integrationSyncWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'Integration sync job completed'));
+integrationSyncWorker.on('failed', (job, err) => {
+  logger.error({ jobId: job?.id, err }, 'Integration sync job failed');
+  handleIntegrationSyncJobExhausted(job, err).catch((handlerErr: unknown) => {
+    logger.error({ handlerErr, jobId: job?.id }, 'Failed to handle exhausted integration sync job');
+  });
+});
+integrationSyncScanWorker.on('completed', (job) => logger.info({ jobId: job.id, result: job.returnvalue }, 'Integration sync scan completed'));
+integrationSyncScanWorker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'Integration sync scan failed'));
+integrationWebhookWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'Integration webhook job completed'));
+integrationWebhookWorker.on('failed', (job, err) => {
+  logger.error({ jobId: job?.id, err }, 'Integration webhook job failed');
+  handleIntegrationWebhookJobExhausted(job, err).catch((handlerErr: unknown) => {
+    logger.error({ handlerErr, jobId: job?.id }, 'Failed to handle exhausted integration webhook job');
+  });
+});
 
 logger.info(
-  'Worker process started — listening on "email", "notification", "task-reminder", "billing-reminder", "compliance-reminder", and "document-reminder" queues',
+  'Worker process started — listening on "email", "notification", "task-reminder", "billing-reminder", "compliance-reminder", "document-reminder", "integration-sync", "integration-sync-scan", and "integration-webhook" queues',
 );
 
 // Idempotent (see scheduleTaskReminderJob's own comment) — safe to call on every boot.
@@ -81,6 +107,9 @@ scheduleComplianceReminderJob().catch((err: unknown) => {
 scheduleDocumentReminderJob().catch((err: unknown) => {
   logger.error({ err }, 'Failed to schedule document reminder job');
 });
+scheduleIntegrationSyncScanJob().catch((err: unknown) => {
+  logger.error({ err }, 'Failed to schedule integration sync scan job');
+});
 
 async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, 'Worker process shutting down');
@@ -91,6 +120,9 @@ async function shutdown(signal: string): Promise<void> {
     billingReminderWorker.close(),
     complianceReminderWorker.close(),
     documentReminderWorker.close(),
+    integrationSyncWorker.close(),
+    integrationSyncScanWorker.close(),
+    integrationWebhookWorker.close(),
   ]);
   process.exit(0);
 }

@@ -34,6 +34,7 @@ export {
   BILLING_REMINDER,
   COMPLIANCE_REMINDER,
   DOCUMENT_REMINDER,
+  INTEGRATION_SYNC_SCAN,
 } from './api.constants';
 
 export { REGEX } from './regex';

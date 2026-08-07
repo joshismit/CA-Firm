@@ -41,4 +41,8 @@ export enum PermissionResource {
   BUSINESS = 'business',
   SUBSCRIPTIONS = 'subscriptions',
   TASK_TEMPLATES = 'task_templates',
+  /** PRD §17 — Integration Framework (`modules/integrations`): connecting/disconnecting/syncing
+   *  third-party providers. Distinct from every existing provider-backed resource
+   *  (NOTIFICATIONS/CLIENT_BILLING) since it governs the generic framework, not one feature. */
+  INTEGRATIONS = 'integrations',
 }
