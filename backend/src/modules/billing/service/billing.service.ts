@@ -1,18 +1,19 @@
 import { Request } from 'express';
 import Razorpay from 'razorpay';
-import { BillingCycle, PlatformInvoice, PlatformInvoiceStatus, SubscriptionStatus, NotificationChannel } from '@prisma/client';
+import { BillingCycle, PlatformInvoice, PlatformInvoiceStatus, SubscriptionStatus, NotificationChannel, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { razorpayClient, razorpayConfig } from '@config/razorpay';
 import { BaseService } from '@shared/base';
 import { PaginationMeta } from '@shared/types';
 import { ForbiddenError, ServiceUnavailableError } from '@shared/errors';
 import { ErrorCode } from '@shared/enums';
-import { MESSAGES, BILLING } from '@shared/constants';
+import { MESSAGES, BILLING, AUDIT } from '@shared/constants';
 import { CryptoUtils } from '@shared/utils';
 // Concrete path, not the `@modules/notifications` barrel — see
 // `middlewares/tenant.middleware.ts`'s header comment for why.
 import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import { UserRepository } from '@modules/users/repository/user.repository';
+import { AuditLogRecorder } from '@modules/audit';
 import { PlanRepository } from '../repository/plan.repository';
 import { PlatformInvoiceRepository } from '../repository/platform-invoice.repository';
 import { TenantBillingRepository } from '../repository/tenant-billing.repository';
@@ -59,6 +60,7 @@ export class BillingService extends BaseService {
     private readonly tenantBillingRepository: TenantBillingRepository = new TenantBillingRepository(prisma),
     private readonly userRepository: UserRepository = new UserRepository(prisma),
     private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -213,6 +215,22 @@ export class BillingService extends BaseService {
     // legitimate confirmation to send to the person who just paid, not a
     // self-action they already know about (e.g. an assignment they made).
     await this.notifyOwner(invoice.tenantId, 'Subscription activated', `Your ${invoice.plan.name} subscription is now active.`);
+
+    // `this.userId` is only populated when this path was reached via `verifyPayment()`
+    // (an authenticated request) — `handleWebhook()` has no `req.user`, so it falls back
+    // to the system actor, same convention as the client-billing gateway webhook.
+    await this.auditLogRecorder.record({
+      tenantId: invoice.tenantId,
+      actorId: this.userId ?? AUDIT.SYSTEM_ACTOR_ID,
+      actorName: this.userId ? undefined : AUDIT.SYSTEM_ACTOR_NAME,
+      eventType: AuditEventType.SUBSCRIPTION_UPDATED,
+      description: `Subscription updated to plan "${invoice.plan.code}"`,
+      targetType: 'Tenant',
+      targetId: invoice.tenantId,
+      ipAddress: this.req.ip ?? null,
+      userAgent: (this.req.headers?.['user-agent'] as string | undefined) ?? null,
+      newValue: { planCode: invoice.plan.code, subscriptionStatus: SubscriptionStatus.ACTIVE, subscriptionExpiresAt: periodEnd.toISOString() },
+    });
 
     return paidInvoice;
   }

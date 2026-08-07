@@ -1,4 +1,4 @@
-import { AuditEventType } from '@prisma/client';
+import { AuditEventType, Prisma } from '@prisma/client';
 
 /**
  * Response DTO — field-for-field match with the frontend's already-built
@@ -15,5 +15,9 @@ export interface AuditLogResponseDto {
   targetId: string | null;
   description: string;
   ipAddress: string | null;
+  userAgent: string | null;
+  oldValue: Prisma.JsonValue | null;
+  newValue: Prisma.JsonValue | null;
+  metadata: Prisma.JsonValue | null;
   createdAt: string;
 }

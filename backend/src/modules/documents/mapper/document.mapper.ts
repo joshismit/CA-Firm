@@ -25,6 +25,10 @@ export class DocumentMapper {
       rootDocumentId: document.rootDocumentId,
       previousVersionId: document.previousVersionId,
       uploadedById: document.uploadedById,
+      approvalStatus: document.approvalStatus,
+      reviewerId: document.reviewerId,
+      reviewedAt: document.reviewedAt ? document.reviewedAt.toISOString() : null,
+      reviewComment: document.reviewComment,
       createdAt: document.createdAt.toISOString(),
     };
   }

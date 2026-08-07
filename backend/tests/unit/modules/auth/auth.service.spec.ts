@@ -107,6 +107,7 @@ function createMockAuthRepository(): MockedAuthRepository {
     findTenantById: jest.fn(),
     resolvePermissionCodes: jest.fn(),
     createSession: jest.fn(),
+    enforceConcurrentSessionLimit: jest.fn(),
     touchSession: jest.fn(),
     findActiveSessionsByUser: jest.fn(),
     findSessionById: jest.fn(),
@@ -182,6 +183,7 @@ function createMockUser(overrides: Partial<User> = {}): User {
     phone: null,
     status: UserStatus.ACTIVE,
     isOwner: false,
+    isManager: false,
     failedLoginCount: 0,
     lockedUntil: null,
     avatarStorageKey: null,
@@ -929,7 +931,7 @@ describe('AuthService', () => {
       const service = createService(createMockAuthRepository(), createFakeRequest(), createMockUserRepository(), invitationRepo);
 
       await expect(service.getInviteInfo('expired-token')).rejects.toThrow(NotFoundError);
-      expect(invitationRepo.update).toHaveBeenCalledWith(invitation.id, { status: InvitationStatus.EXPIRED });
+      expect(invitationRepo.update).toHaveBeenCalledWith(invitation.id, TENANT_ID, { status: InvitationStatus.EXPIRED });
     });
 
     it('throws NotFoundError for an already-ACCEPTED invitation (no replay)', async () => {
@@ -1016,7 +1018,7 @@ describe('AuthService', () => {
       const service = createService(createMockAuthRepository(), createFakeRequest(), createMockUserRepository(), invitationRepo);
 
       await expect(service.acceptInvite('expired-token', dto, META)).rejects.toThrow(UnauthorizedError);
-      expect(invitationRepo.update).toHaveBeenCalledWith(invitation.id, { status: InvitationStatus.EXPIRED });
+      expect(invitationRepo.update).toHaveBeenCalledWith(invitation.id, TENANT_ID, { status: InvitationStatus.EXPIRED });
     });
 
     it('throws UnauthorizedError for an already-ACCEPTED invitation (replay attack)', async () => {
@@ -1078,7 +1080,8 @@ describe('AuthService', () => {
       );
       expect(invitationRepo.update).toHaveBeenCalledWith(
         invitation.id,
-        expect.objectContaining({ status: InvitationStatus.ACCEPTED, acceptedBy: { connect: { id: createdUser.id } } }),
+        invitation.tenantId,
+        expect.objectContaining({ status: InvitationStatus.ACCEPTED, acceptedById: createdUser.id }),
         expect.anything(),
       );
 

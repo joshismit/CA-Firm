@@ -11,6 +11,7 @@ import {
   listUsers,
   resendInvitation,
   revokeInvitation,
+  revokeUserSession,
   updateUser,
 } from '../api'
 import type { InviteUserPayload, UpdateUserPayload, UserListFilters } from '../types'
@@ -29,6 +30,14 @@ export function useUserRolesQuery(id: string) {
 
 export function useUserSessionsQuery(id: string) {
   return useQuery({ queryKey: queryKeys.users.sessions(id), queryFn: () => getUserSessions(id), enabled: !!id })
+}
+
+export function useRevokeUserSessionMutation(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (sessionId: string) => revokeUserSession(userId, sessionId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.users.sessions(userId) }),
+  })
 }
 
 export function useInviteUserMutation() {

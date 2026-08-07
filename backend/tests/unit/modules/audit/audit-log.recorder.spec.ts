@@ -66,6 +66,10 @@ describe('AuditLogRecorder', () => {
         targetId: 'target-user-id',
         description: 'Assigned role "Manager"',
         ipAddress: '10.0.0.1',
+        userAgent: null,
+        oldValue: null,
+        newValue: null,
+        metadata: null,
       },
       { tenantId: TENANT_ID },
     );

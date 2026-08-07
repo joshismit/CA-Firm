@@ -15,6 +15,10 @@ import {
   listDocumentsQuerySchema,
   documentIdParamSchema,
   shareDocumentSchema,
+  revokeShareParamSchema,
+  requestDocumentApprovalSchema,
+  approveDocumentSchema,
+  rejectDocumentSchema,
 } from '../schemas/document.schema';
 
 /**
@@ -91,8 +95,12 @@ const upload = multer({
  *         rootDocumentId: { type: string, format: uuid, nullable: true, description: Null on the first (v1) version, which is the root; every later version points at it. }
  *         previousVersionId: { type: string, format: uuid, nullable: true, description: The version this one replaced, if any. }
  *         uploadedById: { type: string, format: uuid }
+ *         approvalStatus: { type: string, enum: [NOT_REQUIRED, PENDING_APPROVAL, APPROVED, REJECTED], description: 'PRD §14.7 — Sensitive Upload Approval status.' }
+ *         reviewerId: { type: string, format: uuid, nullable: true }
+ *         reviewedAt: { type: string, format: date-time, nullable: true }
+ *         reviewComment: { type: string, nullable: true }
  *         createdAt: { type: string, format: date-time }
- *       required: [id, category, fileName, storageKey, mimeType, sizeBytes, version, isLatestVersion, rootDocumentId, previousVersionId, uploadedById, createdAt]
+ *       required: [id, category, fileName, storageKey, mimeType, sizeBytes, version, isLatestVersion, rootDocumentId, previousVersionId, uploadedById, approvalStatus, reviewerId, reviewedAt, reviewComment, createdAt]
  *     UpdateDocumentRequest:
  *       type: object
  *       description: Partial metadata update. The file itself cannot be replaced through this endpoint.
@@ -388,6 +396,38 @@ router.post(
 
 /**
  * @swagger
+ * /documents/{id}/share/{userId}:
+ *   delete:
+ *     tags: [Documents]
+ *     summary: Revoke a document share
+ *     description: Removes a previously-granted share access for one user, before it would otherwise lapse on its own expiresAt (or removes a permanent, no-expiry grant).
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: documents:share
+ *     parameters:
+ *       - { $ref: '#/components/parameters/DocumentIdParam' }
+ *       - name: userId
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: The user whose share access is being revoked.
+ *     responses:
+ *       200: { description: Share revoked., content: { application/json: { schema: { $ref: '#/components/schemas/DeleteEnvelope' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `documents:share` permission, or cannot see this document., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No document with this ID exists in the tenant, or no share grant exists for that user., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: id or userId is not a valid UUID., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.delete(
+  '/:id/share/:userId',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(DOCUMENT_PERMISSIONS.SHARE),
+  validate({ params: revokeShareParamSchema }),
+  DocumentController.revokeShare,
+);
+
+/**
+ * @swagger
  * /documents/{id}/versions:
  *   get:
  *     tags: [Documents]
@@ -455,6 +495,101 @@ router.post(
   upload.single('file'),
   validate({ params: documentIdParamSchema }),
   DocumentController.createVersion,
+);
+
+/**
+ * @swagger
+ * /documents/{id}/request-approval:
+ *   post:
+ *     tags: [Documents]
+ *     summary: Request approval for a sensitive document (PRD §14.7)
+ *     description: Moves the document to PENDING_APPROVAL and notifies the chosen reviewer. Reachable from NOT_REQUIRED (first request) or REJECTED (resubmission). The caller must already be able to see the document themselves.
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: documents:update
+ *     parameters: [{ $ref: '#/components/parameters/DocumentIdParam' }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { type: object, required: [reviewerId], properties: { reviewerId: { type: string, format: uuid } } }
+ *     responses:
+ *       200: { description: Approval requested., content: { application/json: { schema: { $ref: '#/components/schemas/DocumentEnvelope' } } } }
+ *       400: { description: Reviewer not found in this tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `documents:update` permission, or cannot see this document., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No document with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       409: { description: Document is already PENDING_APPROVAL or APPROVED., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post(
+  '/:id/request-approval',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(DOCUMENT_PERMISSIONS.UPDATE),
+  validate({ params: documentIdParamSchema, body: requestDocumentApprovalSchema }),
+  DocumentController.requestApproval,
+);
+
+/**
+ * @swagger
+ * /documents/{id}/approve:
+ *   post:
+ *     tags: [Documents]
+ *     summary: Approve a document pending approval (PRD §14.7)
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: documents:approve
+ *     parameters: [{ $ref: '#/components/parameters/DocumentIdParam' }]
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema: { type: object, properties: { comment: { type: string, maxLength: 1000 } } }
+ *     responses:
+ *       200: { description: Document approved., content: { application/json: { schema: { $ref: '#/components/schemas/DocumentEnvelope' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `documents:approve` permission, or cannot see this document., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No document with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       409: { description: Document is not PENDING_APPROVAL., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post(
+  '/:id/approve',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(DOCUMENT_PERMISSIONS.APPROVE),
+  validate({ params: documentIdParamSchema, body: approveDocumentSchema }),
+  DocumentController.approve,
+);
+
+/**
+ * @swagger
+ * /documents/{id}/reject:
+ *   post:
+ *     tags: [Documents]
+ *     summary: Reject a document pending approval (PRD §14.7)
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: documents:approve
+ *     parameters: [{ $ref: '#/components/parameters/DocumentIdParam' }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { type: object, required: [comment], properties: { comment: { type: string, minLength: 1, maxLength: 1000 } } }
+ *     responses:
+ *       200: { description: Document rejected., content: { application/json: { schema: { $ref: '#/components/schemas/DocumentEnvelope' } } } }
+ *       401: { description: Missing or invalid access token., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       403: { description: Caller lacks the `documents:approve` permission, or cannot see this document., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       404: { description: No document with this ID exists in the tenant., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       409: { description: Document is not PENDING_APPROVAL., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ *       422: { description: Validation failed — a comment is required., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
+ */
+router.post(
+  '/:id/reject',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(DOCUMENT_PERMISSIONS.APPROVE),
+  validate({ params: documentIdParamSchema, body: rejectDocumentSchema }),
+  DocumentController.reject,
 );
 
 export default router;

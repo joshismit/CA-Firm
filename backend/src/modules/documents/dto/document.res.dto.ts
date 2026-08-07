@@ -1,4 +1,4 @@
-import { DocumentCategory } from '@prisma/client';
+import { DocumentCategory, DocumentApprovalStatus } from '@prisma/client';
 
 /**
  * Response DTO — the shape returned to API clients. Deliberately omits
@@ -23,6 +23,10 @@ export interface DocumentResponseDto {
   rootDocumentId: string | null;
   previousVersionId: string | null;
   uploadedById: string;
+  approvalStatus: DocumentApprovalStatus;
+  reviewerId: string | null;
+  reviewedAt: string | null;
+  reviewComment: string | null;
   createdAt: string;
 }
 

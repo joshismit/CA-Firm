@@ -110,8 +110,9 @@ export class RoleRepository extends BaseRepository<Prisma.RoleDelegate, Role> {
     return this.prisma.userRole.create({ data });
   }
 
-  async deleteUserRoleAssignment(id: string): Promise<void> {
-    await this.prisma.userRole.delete({ where: { id } });
+  /** `tenantId` is enforced on the delete's own `where`, not just trusted from the caller's prior lookup — defense-in-depth, matching this class's other tenant-scoped writes. */
+  async deleteUserRoleAssignment(id: string, tenantId: string): Promise<void> {
+    await this.prisma.userRole.deleteMany({ where: { id, tenantId } });
   }
 
   /**

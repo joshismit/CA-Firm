@@ -69,6 +69,8 @@ export const updateDocumentSchema = z.object({
 
 export const documentIdParamSchema = z.object({ id: uuid });
 
+export const revokeShareParamSchema = z.object({ id: uuid, userId: uuid });
+
 // ─── List / Search Query ──────────────────────────────────────────────────────
 
 export const listDocumentsQuerySchema = searchPaginationSchema.extend({
@@ -85,4 +87,20 @@ export const listDocumentsQuerySchema = searchPaginationSchema.extend({
 export const shareDocumentSchema = z.object({
   userId: uuid,
   expiresAt: z.string().datetime().optional(),
+});
+
+// ─── Approval (PRD §14.7 — Sensitive Upload Approval) ─────────────────────────
+
+const reviewComment = z.string().trim().min(1, 'A comment is required').max(1000, 'Comment cannot exceed 1000 characters');
+
+export const requestDocumentApprovalSchema = z.object({
+  reviewerId: uuid,
+});
+
+export const approveDocumentSchema = z.object({
+  comment: reviewComment.optional(),
+});
+
+export const rejectDocumentSchema = z.object({
+  comment: reviewComment,
 });

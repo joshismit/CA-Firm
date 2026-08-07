@@ -126,6 +126,27 @@ export class UserRepository extends BaseRepository<Prisma.UserDelegate, User> {
   }
 
   /**
+   * PRD §14.5 — admin-initiated force-logout of one specific session/device, without deactivating
+   * the whole account (unlike `revokeAllSessionsAndTokens()`, called on full deactivation/deletion
+   * instead). Scoped to `(id, userId, tenantId)` together so an admin can only ever revoke a
+   * session that both belongs to this tenant and to the target user. Returns false if no such
+   * active session exists (nothing to revoke).
+   */
+  async revokeUserSession(sessionId: string, userId: string, tenantId: string): Promise<boolean> {
+    const result = await this.prisma.userSession.updateMany({
+      where: { id: sessionId, userId, tenantId, status: SessionStatus.ACTIVE },
+      data: { status: SessionStatus.REVOKED, revokedAt: new Date(), revokeReason: SessionRevokeReason.ADMIN_REVOKE },
+    });
+    if (result.count === 0) return false;
+
+    await this.prisma.refreshToken.updateMany({
+      where: { sessionId, userId, tenantId, revokedAt: null, isUsed: false },
+      data: { revokedAt: new Date(), revokeReason: RefreshTokenRevokeReason.ADMIN_REVOKE },
+    });
+    return true;
+  }
+
+  /**
    * Revokes every active session and not-yet-used refresh token for a user —
    * called when an admin deletes a user or transitions them out of ACTIVE
    * status, so the change takes effect immediately rather than leaving

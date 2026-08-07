@@ -1,8 +1,9 @@
 import { Request } from 'express';
-import { DocumentFolder } from '@prisma/client';
+import { DocumentFolder, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { BadRequestError, ConflictError, UnauthorizedError } from '@shared/errors';
+import { AuditLogRecorder } from '@modules/audit';
 import { BusinessRepository } from '@modules/business/repository/business.repository';
 import { DocumentFolderRepository } from '../repository/document-folder.repository';
 import { DocumentAccessScope, DocumentAccessScopeService } from './document-access-scope.service';
@@ -36,8 +37,23 @@ export class DocumentFolderService extends BaseService {
     private readonly folderRepository: DocumentFolderRepository = new DocumentFolderRepository(prisma),
     private readonly businessRepository: BusinessRepository = new BusinessRepository(prisma),
     private readonly accessScopeService: DocumentAccessScopeService = new DocumentAccessScopeService(),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
+  }
+
+  private async recordAudit(eventType: AuditEventType, description: string, targetId: string): Promise<void> {
+    if (!this.userId || !this.tenantId) return;
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId,
+      actorId: this.userId,
+      eventType,
+      description,
+      targetType: 'DocumentFolder',
+      targetId,
+      ipAddress: this.req.ip ?? null,
+      userAgent: (this.req.headers?.['user-agent'] as string | undefined) ?? null,
+    });
   }
 
   private async getAccessScope(): Promise<DocumentAccessScope> {
@@ -102,7 +118,7 @@ export class DocumentFolderService extends BaseService {
 
     this.logger.info({ businessId, category: dto.category, parentFolderId }, 'Creating document folder');
 
-    return this.folderRepository.create(
+    const folder = await this.folderRepository.create(
       {
         businessId,
         category: dto.category,
@@ -112,6 +128,10 @@ export class DocumentFolderService extends BaseService {
       },
       { tenantId: this.tenantId },
     );
+
+    await this.recordAudit(AuditEventType.FOLDER_CREATED, `Created folder "${folder.name}"`, folder.id);
+
+    return folder;
   }
 
   async renameFolder(id: string, dto: UpdateFolderDto): Promise<DocumentFolder> {
@@ -125,7 +145,11 @@ export class DocumentFolderService extends BaseService {
 
     this.logger.info({ folderId: id }, 'Renaming document folder');
 
-    return this.folderRepository.update(id, { name: dto.name }, { tenantId: this.tenantId });
+    const updated = await this.folderRepository.update(id, { name: dto.name }, { tenantId: this.tenantId });
+
+    await this.recordAudit(AuditEventType.FOLDER_RENAMED, `Renamed folder "${existing.name}" to "${updated.name}"`, updated.id);
+
+    return updated;
   }
 
   async deleteFolder(id: string): Promise<void> {
@@ -146,6 +170,8 @@ export class DocumentFolderService extends BaseService {
     this.logger.info({ folderId: id }, 'Deleting document folder');
 
     await this.folderRepository.delete(id, { tenantId: this.tenantId, userId: this.userId });
+
+    await this.recordAudit(AuditEventType.FOLDER_DELETED, `Deleted folder "${existing.name}"`, existing.id);
   }
 
   // ────────────────────────────────────────────────────────────────────────────

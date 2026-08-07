@@ -1,7 +1,9 @@
-import { PaymentGatewayLinkStatus, PaymentStatus, InvoiceStatus } from '@prisma/client';
+import { PaymentGatewayLinkStatus, PaymentStatus, InvoiceStatus, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { logger } from '@config/logger';
 import { ForbiddenError } from '@shared/errors';
+import { AUDIT } from '@shared/constants';
+import { AuditLogRecorder } from '@modules/audit';
 import { PaymentGatewayLinkRepository } from '../repository/payment-gateway-link.repository';
 import { PaymentGatewaySettingsRepository } from '../repository/payment-gateway-settings.repository';
 import { InvoiceRepository } from '../repository/invoice.repository';
@@ -43,6 +45,7 @@ export class PaymentGatewayWebhookService {
     private readonly settingsRepository: PaymentGatewaySettingsRepository = new PaymentGatewaySettingsRepository(prisma),
     private readonly invoiceRepository: InvoiceRepository = new InvoiceRepository(prisma),
     private readonly paymentRepository: PaymentRepository = new PaymentRepository(prisma),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {}
 
   async handleWebhook(rawBody: Buffer | undefined, signature: string | undefined): Promise<void> {
@@ -78,7 +81,7 @@ export class PaymentGatewayWebhookService {
 
     const providerPaymentReferenceId = payload.payload.payment?.entity?.id ?? providerPaymentId;
 
-    await prisma.$transaction(async (tx) => {
+    const payment = await prisma.$transaction(async (tx) => {
       const payment = await this.paymentRepository.create(
         {
           paymentNumber: `PAY-GW-${providerPaymentId}`,
@@ -99,8 +102,24 @@ export class PaymentGatewayWebhookService {
       );
 
       await this.invoiceRepository.update(link.invoiceId, { status: InvoiceStatus.PAID }, { tenantId: link.tenantId, tx });
+
+      return payment;
     });
 
     logger.info({ tenantId: link.tenantId, invoiceId: link.invoiceId }, 'Client payment confirmed via gateway webhook');
+
+    // Webhook request has no authenticated actor — recorded under the system actor, same
+    // convention as `TaskReminderService`'s scheduled-job audit events.
+    await this.auditLogRecorder.record({
+      tenantId: link.tenantId,
+      actorId: AUDIT.SYSTEM_ACTOR_ID,
+      actorName: AUDIT.SYSTEM_ACTOR_NAME,
+      eventType: AuditEventType.PAYMENT_COMPLETED,
+      description: `Payment for invoice ${link.invoiceId} confirmed via gateway webhook`,
+      targetType: 'Payment',
+      targetId: payment.id,
+      ipAddress: null,
+      metadata: { providerPaymentId, invoiceId: link.invoiceId },
+    });
   }
 }

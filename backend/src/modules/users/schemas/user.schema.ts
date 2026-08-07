@@ -42,12 +42,17 @@ export const updateUserSchema = z.object({
   phone: phone.optional(),
   jobTitle: jobTitle.optional(),
   status: z.nativeEnum(UserStatus).optional(),
+  // PRD §14.5 — grants/revokes the MANAGER coarse role (unrestricted tenant-wide data
+  // visibility). Not yet in the frontend's mirrored schema — backend-only until a Manager
+  // toggle is added to the user edit UI.
+  isManager: z.boolean().optional(),
 });
 
 // ─── Params ───────────────────────────────────────────────────────────────────
 
 export const userIdParamSchema = z.object({ id: uuid });
 export const invitationIdParamSchema = z.object({ id: uuid });
+export const userSessionParamSchema = z.object({ id: uuid, sessionId: uuid });
 
 // ─── List / Search Query ──────────────────────────────────────────────────────
 

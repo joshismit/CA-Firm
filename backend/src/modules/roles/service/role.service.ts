@@ -234,7 +234,7 @@ export class RoleService extends BaseService {
 
     this.logger.info({ userId: dto.userId, roleId: dto.roleId }, 'Revoking role');
 
-    await this.roleRepository.deleteUserRoleAssignment(assignment.id);
+    await this.roleRepository.deleteUserRoleAssignment(assignment.id, tenantId);
 
     await this.auditLogRecorder.record({
       tenantId,

@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { User, UserInvitation, UserStatus, InvitationStatus, NotificationChannel } from '@prisma/client';
+import { User, UserInvitation, UserStatus, InvitationStatus, NotificationChannel, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { env } from '@config/environment';
 import { emailQueue } from '@config/queue';
@@ -11,6 +11,7 @@ import { CryptoUtils } from '@shared/utils';
 import { AuthMapper } from '@modules/auth/mapper/auth.mapper';
 import { SessionResponseDto } from '@modules/auth/dto/auth.res.dto';
 import { PaginationMeta } from '@shared/types';
+import { AuditLogRecorder } from '@modules/audit';
 // Concrete path, not the `@modules/notifications` barrel — see
 // `middlewares/tenant.middleware.ts`'s header comment for the module-load
 // cycle this avoids (that barrel also re-exports `notificationRoutes`,
@@ -47,6 +48,7 @@ export class UserService extends BaseService {
     private readonly userRepository: UserRepository = new UserRepository(prisma),
     private readonly userInvitationRepository: UserInvitationRepository = new UserInvitationRepository(prisma),
     private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -81,6 +83,35 @@ export class UserService extends BaseService {
     // row is necessarily some *other* user's session, so `isCurrent` is always false here (never
     // fabricated as true). Same caveat as AuthService.listSessions()'s header comment.
     return AuthMapper.toSessionResponseDtoList(sessions, undefined);
+  }
+
+  /**
+   * PRD §14.5 — admin-initiated force-logout of one specific session ("log this device out"),
+   * without deactivating the whole account. The self-service equivalent
+   * (`AuthService.revokeSession()`) only ever operates on the caller's own session; this is the
+   * one-user-acting-on-another counterpart, so — unlike that method — it's audit-logged.
+   */
+  async revokeUserSession(userId: string, sessionId: string): Promise<void> {
+    const user = await this.getUserById(userId);
+
+    const revoked = await this.userRepository.revokeUserSession(sessionId, userId, user.tenantId);
+    if (!revoked) {
+      throw new NotFoundError('Session');
+    }
+
+    this.logger.info({ userId, sessionId }, 'Admin revoked user session');
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.SESSION_REVOKED,
+        description: `Revoked a session for ${user.firstName} ${user.lastName}`,
+        targetType: 'User',
+        targetId: user.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -198,7 +229,7 @@ export class UserService extends BaseService {
     const rawToken = CryptoUtils.generateRandomToken(TOKEN.SECURE_BYTES);
     const expiresAt = new Date(Date.now() + TOKEN.INVITATION_EXPIRY_HOURS * 60 * 60 * 1000);
 
-    const updated = await this.userInvitationRepository.update(invitationId, {
+    const updated = await this.userInvitationRepository.update(invitationId, this.tenantId as string, {
       tokenHash: CryptoUtils.sha256(rawToken),
       expiresAt,
       status: InvitationStatus.PENDING,
@@ -216,7 +247,7 @@ export class UserService extends BaseService {
       throw new ConflictError('This invitation has already been accepted.', ErrorCode.INVITATION_ALREADY_ACCEPTED);
     }
 
-    await this.userInvitationRepository.update(invitationId, {
+    await this.userInvitationRepository.update(invitationId, this.tenantId as string, {
       status: InvitationStatus.REVOKED,
       revokedAt: new Date(),
     });

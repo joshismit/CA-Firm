@@ -90,18 +90,18 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
   }
 
   /**
-   * Finds open (non-terminal) tasks whose due date has passed.
+   * Finds open (non-terminal) tasks whose due date has passed. `scopeWhere` is ANDed onto the
+   * built filter — the caller's `TaskAccessScopeService.toWhereInput()` result, same pattern as
+   * `DocumentRepository.search()`'s identically-named parameter.
    */
-  async findOverdue(options: RepositoryOptions = {}): Promise<Task[]> {
-    return this.findMany(
-      {
-        dueDate: { lt: new Date() },
-        status: { notIn: TERMINAL_STATUSES },
-      },
-      options,
-      undefined,
-      { dueDate: 'asc' },
-    );
+  async findOverdue(options: RepositoryOptions = {}, scopeWhere?: Prisma.TaskWhereInput): Promise<Task[]> {
+    const where: Prisma.TaskWhereInput = {
+      dueDate: { lt: new Date() },
+      status: { notIn: TERMINAL_STATUSES },
+    };
+    const combinedWhere = scopeWhere && Object.keys(scopeWhere).length > 0 ? { AND: [where, scopeWhere] } : where;
+
+    return this.findMany(combinedWhere, options, undefined, { dueDate: 'asc' });
   }
 
   /**
@@ -130,13 +130,11 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
    * Tasks awaiting a reviewer's decision (SUBMITTED or UNDER_REVIEW) — PRD §9.
    * Mirrors `findOverdue()`'s shape, ordered oldest-due first.
    */
-  async findPendingReview(options: RepositoryOptions = {}): Promise<Task[]> {
-    return this.findMany(
-      { status: { in: PENDING_REVIEW_STATUSES } },
-      options,
-      undefined,
-      { dueDate: 'asc' },
-    );
+  async findPendingReview(options: RepositoryOptions = {}, scopeWhere?: Prisma.TaskWhereInput): Promise<Task[]> {
+    const where: Prisma.TaskWhereInput = { status: { in: PENDING_REVIEW_STATUSES } };
+    const combinedWhere = scopeWhere && Object.keys(scopeWhere).length > 0 ? { AND: [where, scopeWhere] } : where;
+
+    return this.findMany(combinedWhere, options, undefined, { dueDate: 'asc' });
   }
 
   /**
@@ -148,6 +146,7 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
     filters: TaskSearchFilters,
     pagination: PaginationQuery,
     options: RepositoryOptions = {},
+    scopeWhere?: Prisma.TaskWhereInput,
   ): Promise<{ data: Task[]; meta: PaginationMeta }> {
     const where: Prisma.TaskWhereInput = {};
 
@@ -173,7 +172,9 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
       ];
     }
 
-    return this.paginate(pagination, where, options);
+    const combinedWhere = scopeWhere && Object.keys(scopeWhere).length > 0 ? { AND: [where, scopeWhere] } : where;
+
+    return this.paginate(pagination, combinedWhere, options);
   }
 
   /**

@@ -1,5 +1,6 @@
 import { Request } from 'express';
 import { Task, TaskStatus } from '@prisma/client';
+import { UserRole } from '@shared/enums';
 
 /**
  * `TaskService`'s constructor defaults to `new TaskRepository(prisma)` (the
@@ -38,7 +39,7 @@ describe('TaskService', () => {
 
   const mockReq = {
     tenant: { id: tenantId },
-    user: { id: userId },
+    user: { id: userId, role: UserRole.TENANT_ADMIN, tenantId, permissions: [] },
   } as unknown as Request;
 
   const sampleTask: Task = {
@@ -439,6 +440,7 @@ describe('TaskService', () => {
         expect.objectContaining({ status: TaskStatus.TODO }),
         expect.objectContaining({ page: 1, limit: 20 }),
         { tenantId },
+        {},
       );
     });
   });

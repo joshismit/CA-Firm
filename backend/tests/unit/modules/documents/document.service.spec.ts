@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Document, DocumentCategory } from '@prisma/client';
+import { Document, DocumentCategory, DocumentApprovalStatus } from '@prisma/client';
 
 /**
  * See the identical comment in tests/unit/modules/business/business.service.spec.ts
@@ -152,6 +152,10 @@ function createMockDocument(overrides: Partial<Document> = {}): Document {
     uploadedById: USER_ID,
     archived: false,
     retentionUntil: null,
+    approvalStatus: DocumentApprovalStatus.NOT_REQUIRED,
+    reviewerId: null,
+    reviewedAt: null,
+    reviewComment: null,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,

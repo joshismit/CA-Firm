@@ -48,6 +48,10 @@ function createMockAuditLog(overrides: Partial<AuditLog> = {}): AuditLog {
     targetId: null,
     description: 'staff@acme.test logged in',
     ipAddress: '127.0.0.1',
+    userAgent: null,
+    oldValue: null,
+    newValue: null,
+    metadata: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
   };

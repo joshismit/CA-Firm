@@ -1,10 +1,11 @@
 import { Request } from 'express';
-import { NotificationTemplate } from '@prisma/client';
+import { NotificationTemplate, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { ConflictError } from '@shared/errors';
 import { PaginationMeta } from '@shared/types';
 import { ApiResponseHelper } from '@shared/response/api-response';
+import { AuditLogRecorder } from '@modules/audit';
 import { NotificationTemplateRepository } from '../repository/notification-template.repository';
 import {
   CreateNotificationTemplateDto,
@@ -40,8 +41,23 @@ export class NotificationTemplateService extends BaseService {
   constructor(
     req: Request,
     private readonly repository: NotificationTemplateRepository = new NotificationTemplateRepository(prisma),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
+  }
+
+  private async recordAudit(eventType: AuditEventType, description: string, targetId: string): Promise<void> {
+    if (!this.userId || !this.tenantId) return;
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId,
+      actorId: this.userId,
+      eventType,
+      description,
+      targetType: 'NotificationTemplate',
+      targetId,
+      ipAddress: this.req.ip ?? null,
+      userAgent: (this.req.headers?.['user-agent'] as string | undefined) ?? null,
+    });
   }
 
   /**
@@ -110,7 +126,7 @@ export class NotificationTemplateService extends BaseService {
 
     this.logger.info({ key: dto.key, channel: dto.channel }, 'Creating notification template override');
 
-    return this.repository.create(
+    const template = await this.repository.create(
       {
         key: dto.key,
         channel: dto.channel,
@@ -124,6 +140,10 @@ export class NotificationTemplateService extends BaseService {
       },
       { tenantId: this.tenantId },
     );
+
+    await this.recordAudit(AuditEventType.NOTIFICATION_TEMPLATE_CREATED, `Created notification template "${template.name}"`, template.id);
+
+    return template;
   }
 
   async updateTemplate(id: string, dto: UpdateNotificationTemplateDto): Promise<NotificationTemplate> {
@@ -132,7 +152,11 @@ export class NotificationTemplateService extends BaseService {
 
     this.logger.info({ templateId: id }, 'Updating notification template');
 
-    return this.repository.update(id, dto, { tenantId: this.tenantId });
+    const updated = await this.repository.update(id, dto, { tenantId: this.tenantId });
+
+    await this.recordAudit(AuditEventType.NOTIFICATION_TEMPLATE_UPDATED, `Updated notification template "${updated.name}"`, updated.id);
+
+    return updated;
   }
 
   /** Reverts this tenant's override back to the global default — see this class's header comment. */
@@ -143,5 +167,7 @@ export class NotificationTemplateService extends BaseService {
     this.logger.info({ templateId: id }, 'Deleting notification template override');
 
     await this.repository.delete(id, { tenantId: this.tenantId, userId: this.userId });
+
+    await this.recordAudit(AuditEventType.NOTIFICATION_TEMPLATE_DELETED, `Deleted notification template "${existing.name}"`, existing.id);
   }
 }

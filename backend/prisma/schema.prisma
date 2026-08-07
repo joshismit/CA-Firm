@@ -73,6 +73,10 @@ enum SessionRevokeReason {
   SESSION_EXPIRED
   SUSPICIOUS_ACTIVITY
   DEVICE_REMOVED
+  /// PRD §14.5 — this session was evicted at login because the user already had
+  /// `SESSION.MAX_CONCURRENT` other active sessions; the oldest (by `lastActiveAt`)
+  /// is revoked to make room for the new one.
+  CONCURRENT_LIMIT_EXCEEDED
 
   @@map("session_revoke_reason")
 }
@@ -95,6 +99,9 @@ enum RefreshTokenRevokeReason {
   SESSION_REVOKED
   ADMIN_REVOKE
   EXPIRED
+  /// Mirrors `SessionRevokeReason.CONCURRENT_LIMIT_EXCEEDED` — the token's
+  /// session was evicted to enforce `SESSION.MAX_CONCURRENT`.
+  CONCURRENT_LIMIT_EXCEEDED
 
   @@map("refresh_token_revoke_reason")
 }
@@ -427,6 +434,10 @@ model User {
 
   status           UserStatus @default(INVITED) @map("status")
   isOwner          Boolean    @default(false) @map("is_owner")
+  /// PRD §14.5 — marks a non-owner user as a coarse-role `MANAGER` (unrestricted tenant-wide
+  /// data visibility, same as `TENANT_ADMIN`, without also being the tenant owner). Mirrors
+  /// `isOwner`'s shape; resolved into `UserRole.MANAGER` by `AuthService.resolveRole()`.
+  isManager        Boolean    @default(false) @map("is_manager")
   failedLoginCount Int        @default(0) @map("failed_login_count")
   lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz
 
@@ -490,34 +501,35 @@ model User {
   managedProjects Project[] @relation("ProjectManager")
 
   // ── Relations: Tasks ───────────────────────────────────────────────────
-  assignedTasks Task[]         @relation("TaskAssignee")
-  createdTasks  Task[]         @relation("TaskCreatedBy")
-  deletedTasks  Task[]         @relation("TaskDeletedBy")
-  completedTasks Task[]        @relation("TaskCompletedBy")
-  approvedTasks  Task[]        @relation("TaskApprovedBy")
-  rejectedTasks  Task[]        @relation("TaskRejectedBy")
-  taskReminders TaskReminder[] @relation("TaskReminderRecipient")
+  assignedTasks        Task[]         @relation("TaskAssignee")
+  createdTasks         Task[]         @relation("TaskCreatedBy")
+  deletedTasks         Task[]         @relation("TaskDeletedBy")
+  completedTasks       Task[]         @relation("TaskCompletedBy")
+  approvedTasks        Task[]         @relation("TaskApprovedBy")
+  rejectedTasks        Task[]         @relation("TaskRejectedBy")
+  taskReminders        TaskReminder[] @relation("TaskReminderRecipient")
   createdTaskTemplates TaskTemplate[] @relation("TaskTemplateCreatedBy")
   deletedTaskTemplates TaskTemplate[] @relation("TaskTemplateDeletedBy")
 
   // ── Relations: Documents ───────────────────────────────────────────────
   uploadedDocuments      Document[]       @relation("DocumentUploadedBy")
   deletedDocuments       Document[]       @relation("DocumentDeletedBy")
+  reviewedDocuments      Document[]       @relation("DocumentReviewer")
   createdDocumentFolders DocumentFolder[] @relation("DocumentFolderCreatedBy")
 
   // ── Relations: Notifications ──────────────────────────────────────────
-  notifications Notification[]
-  notificationPreference NotificationPreference? @relation("NotificationPreferenceUser")
-  createdNotificationTemplates NotificationTemplate[] @relation("NotificationTemplateCreatedBy")
-  deletedNotificationTemplates NotificationTemplate[] @relation("NotificationTemplateDeletedBy")
-  invoiceReminders          InvoiceReminder[]          @relation("InvoiceReminderRecipient")
-  complianceReminders       ComplianceReminder[]       @relation("ComplianceReminderRecipient")
-  documentRequestReminders  DocumentRequestReminder[]  @relation("DocumentRequestReminderRecipient")
-  requestedDocumentRequests DocumentRequest[]          @relation("DocumentRequestRequestedBy")
+  notifications                Notification[]
+  notificationPreference       NotificationPreference?   @relation("NotificationPreferenceUser")
+  createdNotificationTemplates NotificationTemplate[]    @relation("NotificationTemplateCreatedBy")
+  deletedNotificationTemplates NotificationTemplate[]    @relation("NotificationTemplateDeletedBy")
+  invoiceReminders             InvoiceReminder[]         @relation("InvoiceReminderRecipient")
+  complianceReminders          ComplianceReminder[]      @relation("ComplianceReminderRecipient")
+  documentRequestReminders     DocumentRequestReminder[] @relation("DocumentRequestReminderRecipient")
+  requestedDocumentRequests    DocumentRequest[]         @relation("DocumentRequestRequestedBy")
 
   // ── Relations: Dashboard ───────────────────────────────────────────────
-  dashboardPreference       DashboardPreference?
-  updatedDashboardDefaults  DashboardTenantDefault[] @relation("DashboardTenantDefaultUpdatedBy")
+  dashboardPreference      DashboardPreference?
+  updatedDashboardDefaults DashboardTenantDefault[] @relation("DashboardTenantDefaultUpdatedBy")
 
   // ── Relations: Client Billing Payment Gateway ───────────────────────────
   createdPaymentGatewaySettings FirmPaymentGatewaySettings[] @relation("PaymentGatewaySettingsCreatedBy")
@@ -982,20 +994,20 @@ model Business {
   createdByUser User?        @relation("BusinessCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
   deletedByUser User?        @relation("BusinessDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
 
-  addresses       BusinessAddress[]
-  registrations   BusinessRegistration[]
-  assignments     BusinessAssignment[]
-  statusHistory   BusinessStatusHistory[]
-  contactRoles    ContactRole[]
-  client          Client?
-  leads           Lead[]
-  documents       Document[]
-  documentFolders DocumentFolder[]
-  invoices        Invoice[]
-  tasks           Task[]
+  addresses         BusinessAddress[]
+  registrations     BusinessRegistration[]
+  assignments       BusinessAssignment[]
+  statusHistory     BusinessStatusHistory[]
+  contactRoles      ContactRole[]
+  client            Client?
+  leads             Lead[]
+  documents         Document[]
+  documentFolders   DocumentFolder[]
+  invoices          Invoice[]
+  tasks             Task[]
   /// PRD §8.6 — internal notes on the Business itself (post-conversion / always-was-a-client),
   /// distinct from `LeadNote` (pre-conversion only). Never visible to the Client portal.
-  notes           BusinessNote[]
+  notes             BusinessNote[]
   complianceFilings ComplianceFiling[]
   documentRequests  DocumentRequest[]
 
@@ -1102,7 +1114,7 @@ model BusinessNote {
   content    String   @db.Text
   authorId   String   @map("author_id") @db.Uuid
   /// Optional attachment reference — reuses the existing Document model, mirrors `LeadNote.documentId`.
-  documentId String? @map("document_id") @db.Uuid
+  documentId String?  @map("document_id") @db.Uuid
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -1381,10 +1393,10 @@ model Lead {
   stage         LeadStage  @relation(fields: [stageId], references: [id], onDelete: Restrict)
   deletedByUser User?      @relation("LeadDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
 
-  activities  LeadActivity[]
-  notes       LeadNote[]
-  assignments LeadAssignment[]
-  conversion  LeadConversion?
+  activities    LeadActivity[]
+  notes         LeadNote[]
+  assignments   LeadAssignment[]
+  conversion    LeadConversion?
   followUpTasks Task[]
 
   @@index([tenantId, stageId])
@@ -1442,14 +1454,14 @@ model LeadNote {
   tenantId String @map("tenant_id") @db.Uuid
   leadId   String @map("lead_id") @db.Uuid
 
-  content   String   @db.Text
-  authorId  String   @map("author_id") @db.Uuid
+  content    String   @db.Text
+  authorId   String   @map("author_id") @db.Uuid
   /// PRD §8.6 — optional attachment reference. Reuses the existing Document model rather than a
   /// new upload mechanism; the document must already exist (uploaded via the Documents module)
   /// before it can be referenced here.
-  documentId String? @map("document_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  documentId String?  @map("document_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   lead     Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
   author   User      @relation("NoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
@@ -1760,7 +1772,7 @@ model TaskTemplate {
   defaultPriority TaskPriority? @map("default_priority")
   /// Offset in days from the instantiation moment, used to compute the created
   /// Task's `dueDate` when the caller doesn't supply one explicitly.
-  dueInDays Int? @map("due_in_days")
+  dueInDays       Int?          @map("due_in_days")
 
   isActive Boolean @default(true) @map("is_active")
 
@@ -1828,15 +1840,15 @@ model Document {
 
   /// This row's own position in its version chain (1 for the first upload, 2+ for
   /// each confirmed replacement — see `rootDocumentId`/`previousVersionId` below).
-  version         Int     @default(1)
+  version           Int     @default(1)
   /// True only for the newest row in the chain — the one every read (list/search/
   /// download) should resolve to. Flipped to `false` on the prior latest row in the
   /// same DB transaction that creates a new version (`DocumentService.createVersion`).
-  isLatestVersion Boolean @default(true) @map("is_latest_version")
+  isLatestVersion   Boolean @default(true) @map("is_latest_version")
   /// Null on the chain's first (v1) row, which *is* the root; every later version
   /// points at that same v1 row's id, so "all versions of a document" is a single
   /// `WHERE id = rootId OR rootDocumentId = rootId` query (`DocumentRepository.findVersionChain`).
-  rootDocumentId String? @map("root_document_id") @db.Uuid
+  rootDocumentId    String? @map("root_document_id") @db.Uuid
   /// The version this one replaced, if any — `null` on v1. `@unique` because a given
   /// version can only ever be superseded by exactly one next version.
   previousVersionId String? @unique @map("previous_version_id") @db.Uuid
@@ -1849,6 +1861,15 @@ model Document {
   archived       Boolean   @default(false) @map("archived")
   retentionUntil DateTime? @map("retention_until") @db.Timestamptz
 
+  /// PRD §14.7 — Sensitive Upload Approval. `NOT_REQUIRED` (default) covers every document
+  /// today, since approval is opt-in per upload (`DocumentService.requestApproval()`), not a
+  /// blanket requirement. `reviewerId`/`reviewedAt`/`reviewComment` are only ever set once the
+  /// document has moved past `NOT_REQUIRED`.
+  approvalStatus DocumentApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
+  reviewerId     String?                @map("reviewer_id") @db.Uuid
+  reviewedAt     DateTime?              @map("reviewed_at") @db.Timestamptz
+  reviewComment  String?                @map("review_comment") @db.Text
+
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
@@ -1859,15 +1880,16 @@ model Document {
   folder        DocumentFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   uploadedBy    User            @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
   deletedByUser User?           @relation("DocumentDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+  reviewer      User?           @relation("DocumentReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
 
   rootDocument    Document?  @relation("DocumentVersionGroup", fields: [rootDocumentId], references: [id], onDelete: SetNull)
   versions        Document[] @relation("DocumentVersionGroup")
   previousVersion Document?  @relation("DocumentVersionChain", fields: [previousVersionId], references: [id], onDelete: SetNull)
   nextVersion     Document?  @relation("DocumentVersionChain")
 
-  leadNoteAttachments     LeadNote[]
-  businessNoteAttachments BusinessNote[]
-  tasks                   Task[]
+  leadNoteAttachments       LeadNote[]
+  businessNoteAttachments   BusinessNote[]
+  tasks                     Task[]
   fulfilledDocumentRequests DocumentRequest[]
 
   @@index([tenantId, category])
@@ -1877,8 +1899,19 @@ model Document {
   @@index([tenantId, deletedAt])
   @@index([tenantId, rootDocumentId])
   @@index([tenantId, archived])
+  @@index([tenantId, approvalStatus])
   @@index([fileName(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("documents")
+}
+
+/// PRD §14.7 — Sensitive Upload Approval lifecycle.
+enum DocumentApprovalStatus {
+  NOT_REQUIRED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+
+  @@map("document_approval_status")
 }
 
 enum DocumentCategory {
@@ -1921,9 +1954,9 @@ model DocumentRequest {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  requestedBy       User      @relation("DocumentRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
-  fulfilledDocument Document? @relation(fields: [fulfilledDocumentId], references: [id], onDelete: SetNull)
+  business          Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  requestedBy       User                      @relation("DocumentRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  fulfilledDocument Document?                 @relation(fields: [fulfilledDocumentId], references: [id], onDelete: SetNull)
   reminders         DocumentRequestReminder[]
 
   @@index([tenantId, businessId])
@@ -2024,7 +2057,7 @@ model ComplianceFiling {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  business  Business?            @relation(fields: [businessId], references: [id], onDelete: SetNull)
   reminders ComplianceReminder[]
 
   @@index([tenantId, category, status], name: "idx_compliance_tenant_category_status")
@@ -2094,10 +2127,10 @@ model Invoice {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  client   Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  payments Payment[]
-  reminders InvoiceReminder[]
+  client              Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  business            Business?            @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  payments            Payment[]
+  reminders           InvoiceReminder[]
   paymentGatewayLinks PaymentGatewayLink[]
 
   @@unique([tenantId, invoiceNumber], name: "uq_invoices_tenant_number")
@@ -2153,7 +2186,7 @@ model Payment {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  invoice            Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   paymentGatewayLink PaymentGatewayLink?
 
   @@unique([tenantId, paymentNumber], name: "uq_payments_tenant_number")
@@ -2192,8 +2225,8 @@ model FirmPaymentGatewaySettings {
   id       String @id @default(uuid()) @db.Uuid
   tenantId String @unique @map("tenant_id") @db.Uuid
 
-  enabled  Boolean                     @default(false)
-  provider PaymentGatewayProviderType  @default(DISABLED)
+  enabled  Boolean                    @default(false)
+  provider PaymentGatewayProviderType @default(DISABLED)
 
   keyId                  String? @map("key_id") @db.VarChar(255)
   encryptedKeySecret     String? @map("encrypted_key_secret") @db.Text
@@ -2224,13 +2257,13 @@ model PaymentGatewayLink {
   provider  PaymentGatewayProviderType
 
   providerPaymentId String                   @unique @map("provider_payment_id") @db.VarChar(100)
-  url                String                   @db.Text
-  amountInPaise      Int                      @map("amount_in_paise")
-  currency           String                   @default("INR") @map("currency") @db.Char(3)
-  status             PaymentGatewayLinkStatus @default(CREATED)
-  expiresAt          DateTime?                @map("expires_at") @db.Timestamptz
+  url               String                   @db.Text
+  amountInPaise     Int                      @map("amount_in_paise")
+  currency          String                   @default("INR") @map("currency") @db.Char(3)
+  status            PaymentGatewayLinkStatus @default(CREATED)
+  expiresAt         DateTime?                @map("expires_at") @db.Timestamptz
   /// Provider's own response payload, stored separately from this table's normalized columns (PRD §12).
-  providerMetadata   Json?                    @map("provider_metadata") @db.JsonB
+  providerMetadata  Json?                    @map("provider_metadata") @db.JsonB
 
   /// Set once the webhook confirms payment and creates the corresponding `Payment` row.
   paymentId String? @unique @map("payment_id") @db.Uuid
@@ -2331,23 +2364,23 @@ model Notification {
   /// BullMQ's own `job.attemptsMade` already tracks, kept here too because the `Notification`
   /// row (not the transient job) is this module's durable history — see
   /// `workers/notification.worker.ts`'s header comment.
-  retryCount        Int       @default(0) @map("retry_count")
-  providerMessageId String?   @map("provider_message_id")
-  providerResponse  Json?     @map("provider_response") @db.JsonB
-  sentAt            DateTime? @map("sent_at") @db.Timestamptz
+  retryCount        Int                  @default(0) @map("retry_count")
+  providerMessageId String?              @map("provider_message_id")
+  providerResponse  Json?                @map("provider_response") @db.JsonB
+  sentAt            DateTime?            @map("sent_at") @db.Timestamptz
   /// Reserved, unemitted in Phase 1 — no vendor delivery webhook exists yet to confirm real
   /// delivery for any channel (see `NotificationStatus.DELIVERED`'s own comment).
-  deliveredAt       DateTime? @map("delivered_at") @db.Timestamptz
+  deliveredAt       DateTime?            @map("delivered_at") @db.Timestamptz
   /// Complements `isRead` with a timestamp — `isRead` stays the boolean of record for queries.
-  readAt            DateTime? @map("read_at") @db.Timestamptz
+  readAt            DateTime?            @map("read_at") @db.Timestamptz
   /// PRD §11.10 "Scheduled delivery" — set when the caller passes `scheduledFor` to
   /// `NotificationDispatchService.send()`; mirrors the `delay` the BullMQ job was enqueued with.
-  scheduledFor      DateTime? @map("scheduled_for") @db.Timestamptz
+  scheduledFor      DateTime?            @map("scheduled_for") @db.Timestamptz
   priority          NotificationPriority @default(NORMAL) @map("priority")
   /// PRD §11.10 "Duplicate prevention" — an optional caller-supplied idempotency key; see
   /// `NotificationRepository.findRecentByDedupeKey()`.
-  dedupeKey         String?   @map("dedupe_key")
-  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz
+  dedupeKey         String?              @map("dedupe_key")
+  cancelledAt       DateTime?            @map("cancelled_at") @db.Timestamptz
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
@@ -2474,9 +2507,9 @@ model NotificationPreference {
 
   digestFrequency NotificationDigestFrequency @default(IMMEDIATE) @map("digest_frequency")
   /// 0-23, local hour in `Tenant.timezone` — both null means no quiet hours configured.
-  quietHoursStart Int?      @map("quiet_hours_start")
-  quietHoursEnd   Int?      @map("quiet_hours_end")
-  muteUntil       DateTime? @map("mute_until") @db.Timestamptz
+  quietHoursStart Int?                        @map("quiet_hours_start")
+  quietHoursEnd   Int?                        @map("quiet_hours_end")
+  muteUntil       DateTime?                   @map("mute_until") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -2528,10 +2561,10 @@ enum ReminderCadenceType {
 /// true once per invoice) and an ISO week label (e.g. `"2026-W32"`) for the recurring `OVERDUE`
 /// case — one reminder per invoice per user per calendar week while still overdue.
 model InvoiceReminder {
-  id       String @id @default(uuid()) @db.Uuid
-  tenantId String @map("tenant_id") @db.Uuid
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @map("tenant_id") @db.Uuid
   invoiceId String @map("invoice_id") @db.Uuid
-  userId   String @map("user_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
 
   type   ReminderCadenceType
   bucket String              @default("") @db.VarChar(20)
@@ -2603,7 +2636,7 @@ model DashboardPreference {
   tenantId String @map("tenant_id") @db.Uuid
   userId   String @unique @map("user_id") @db.Uuid
 
-  widgets Json @default("[]") @map("widgets") @db.JsonB
+  widgets                Json @default("[]") @map("widgets") @db.JsonB
   /// PRD §10.2 — whole-dashboard auto-refresh cadence in seconds. `null` = use the frontend's
   /// own default interval (not persisted as a magic number here).
   refreshIntervalSeconds Int? @map("refresh_interval_seconds")
@@ -2686,10 +2719,10 @@ model Plan {
   billingCycle BillingCycle @map("billing_cycle")
   priceInPaise Int          @map("price_in_paise")
 
-  maxUsers     Int? @map("max_users")
-  maxClients   Int? @map("max_clients")
-  maxStorageGb Int? @map("max_storage_gb")
-  maxDocuments Int? @map("max_documents")
+  maxUsers        Int? @map("max_users")
+  maxClients      Int? @map("max_clients")
+  maxStorageGb    Int? @map("max_storage_gb")
+  maxDocuments    Int? @map("max_documents")
   /// PRD §7.4 — per-file upload size ceiling in MB for tenants on this plan (e.g. Starter 100,
   /// Professional 250, Enterprise 1024). Copied onto `Tenant.maxUploadSizeMb` by
   /// `TenantBillingRepository.applyPlan()`, same flow as `maxStorageGb`.
@@ -2808,6 +2841,17 @@ model AuditLog {
 
   description String  @db.Text
   ipAddress   String? @map("ip_address") @db.VarChar(45)
+  userAgent   String? @map("user_agent") @db.VarChar(500)
+
+  /// PRD §14.3 — the target's relevant field(s) before the change, for events where a
+  /// meaningful "before" snapshot exists (e.g. a status/value change). Omitted (null) for
+  /// events with no natural before-state (e.g. LOGIN, UPLOAD).
+  oldValue Json? @map("old_value")
+  /// PRD §14.3 — the target's relevant field(s) after the change. Paired with `oldValue`.
+  newValue Json? @map("new_value")
+  /// PRD §14.3 — free-form structured context that doesn't fit `oldValue`/`newValue`
+  /// (e.g. a request's query params, a batch operation's affected count).
+  metadata Json? @map("metadata")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
@@ -2823,12 +2867,22 @@ enum AuditEventType {
   UPLOAD
   DOWNLOAD
   SHARE
+  /// PRD §14.1 — a previously-granted document share (`ResourceAccessPolicy`) was revoked via
+  /// `DocumentService.revokeShare()`, before it would otherwise have lapsed on its own `expiresAt`.
+  SHARE_REVOKED
+  /// PRD §14.1 — a `Document` was soft-deleted via `DocumentService.deleteDocument()`.
+  DOCUMENT_DELETE
   /// A new `Document` version was created via the PRD §7.2 replace flow
   /// (`DocumentService.createVersion`) — distinct from `UPLOAD`, which is only ever
   /// the first version of a document.
   VERSION_CREATE
   LOGIN
   LOGOUT
+  /// PRD §14.1 — a login attempt failed for a known (existing, matched-by-email) user, i.e.
+  /// wrong password against a real account. Mirrors `LoginHistory`'s existing `FAILED_LOGIN`
+  /// `LoginEventType`, written alongside it — see `AuthService.recordFailedLogin()`. Not written
+  /// when the email itself doesn't match any user (no tenant/actor to scope the row to).
+  FAILED_LOGIN
   ROLE_CHANGE
   TASK_UPDATE
   PAYMENT_ACTION
@@ -2847,6 +2901,11 @@ enum AuditEventType {
   /// storage quota. Written best-effort by `DocumentService.assertUploadAllowed()`,
   /// same swallow-errors semantics as every other `AuditLogRecorder.record()` call.
   UPLOAD_REJECTED
+  /// PRD §14.5 — an admin (`users:manage`) force-revoked another user's specific active
+  /// session/device via `UserService.revokeUserSession()`, distinct from that user's own
+  /// self-service `AuthService.revokeSession()` (which isn't audit-logged — it's the caller
+  /// acting on themselves, not one user acting on another).
+  SESSION_REVOKED
 
   /// PRD §8.11 — a new `Lead` was created (`LeadService.createLead`).
   LEAD_CREATED
@@ -2931,6 +2990,44 @@ enum AuditEventType {
   COMPLIANCE_REMINDER_SENT
   /// PRD §11.12 — `DocumentReminderService` dispatched a document-request follow-up reminder.
   DOCUMENT_REMINDER_SENT
+
+  /// PRD §14.2 — an `Invoice` was created (`InvoiceService.createInvoice`).
+  INVOICE_CREATED
+  /// PRD §14.2 — an `Invoice` was updated (`InvoiceService.updateInvoice`).
+  INVOICE_UPDATED
+  /// PRD §14.2 — an `Invoice` was deleted (`InvoiceService.deleteInvoice`).
+  INVOICE_DELETED
+  /// PRD §14.2 — a gateway webhook marked a `Payment` COMPLETED
+  /// (`PaymentGatewayWebhookService`'s paid branch).
+  PAYMENT_COMPLETED
+  /// PRD §14.2 — a `Tenant`'s subscription status/plan was updated as part of finalizing a
+  /// payment (`BillingService.finalizePayment`).
+  SUBSCRIPTION_UPDATED
+  /// PRD §14.2 — a `DocumentFolder` was created (`DocumentFolderService.createFolder`).
+  FOLDER_CREATED
+  /// PRD §14.2 — a `DocumentFolder` was renamed (`DocumentFolderService.renameFolder`).
+  FOLDER_RENAMED
+  /// PRD §14.2 — a `DocumentFolder` was deleted (`DocumentFolderService.deleteFolder`).
+  FOLDER_DELETED
+  /// PRD §14.2 — a user's dashboard widget/layout preferences were changed
+  /// (`DashboardPreferenceService.updatePreferences`).
+  DASHBOARD_PREFERENCES_CHANGED
+  /// PRD §14.2 — a user reset their dashboard layout back to tenant defaults
+  /// (`DashboardPreferenceService.resetPreferences`).
+  DASHBOARD_LAYOUT_RESET
+  /// PRD §14.2 — a tenant-wide default dashboard configuration was created, changed, or
+  /// removed (`DashboardTenantDefaultService.upsertDefault`/`deleteDefault`).
+  DASHBOARD_DEFAULTS_UPDATED
+  /// PRD §14.2 — a `NotificationTemplate` was created (`NotificationTemplateService.createTemplate`).
+  NOTIFICATION_TEMPLATE_CREATED
+  /// PRD §14.2 — a `NotificationTemplate` was updated (`NotificationTemplateService.updateTemplate`).
+  NOTIFICATION_TEMPLATE_UPDATED
+  /// PRD §14.2 — a `NotificationTemplate` was deleted (`NotificationTemplateService.deleteTemplate`).
+  NOTIFICATION_TEMPLATE_DELETED
+  /// PRD §14.7 — a `Document` pending approval was approved (`DocumentService.approve`).
+  DOCUMENT_APPROVED
+  /// PRD §14.7 — a `Document` pending approval was rejected (`DocumentService.reject`).
+  DOCUMENT_REJECTED
 
   @@map("audit_event_type")
 }

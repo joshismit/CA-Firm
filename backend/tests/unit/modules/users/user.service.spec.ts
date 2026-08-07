@@ -103,6 +103,7 @@ function createMockUser(overrides: Partial<User> = {}): User {
     phone: null,
     status: UserStatus.ACTIVE,
     isOwner: false,
+    isManager: false,
     failedLoginCount: 0,
     lockedUntil: null,
     avatarStorageKey: null,
@@ -566,6 +567,7 @@ describe('UserService', () => {
 
       expect(invitationRepo.update).toHaveBeenCalledWith(
         invitation.id,
+        TENANT_ID,
         expect.objectContaining({ status: InvitationStatus.PENDING }),
       );
     });
@@ -605,6 +607,7 @@ describe('UserService', () => {
 
       expect(invitationRepo.update).toHaveBeenCalledWith(
         invitation.id,
+        TENANT_ID,
         expect.objectContaining({ status: InvitationStatus.REVOKED }),
       );
     });

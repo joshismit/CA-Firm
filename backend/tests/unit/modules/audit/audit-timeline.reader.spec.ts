@@ -35,6 +35,10 @@ function buildAuditLog(overrides: Partial<AuditLog> = {}): AuditLog {
     targetId: 'lead-1',
     description: 'Created lead "Acme Corp — GST Advisory"',
     ipAddress: '10.0.0.1',
+    userAgent: null,
+    oldValue: null,
+    newValue: null,
+    metadata: null,
     createdAt: new Date('2026-01-01T10:00:00.000Z'),
     ...overrides,
   };
@@ -79,6 +83,10 @@ describe('AuditTimelineReader', () => {
           targetId: log.targetId,
           description: log.description,
           ipAddress: log.ipAddress,
+          userAgent: log.userAgent,
+          oldValue: log.oldValue,
+          newValue: log.newValue,
+          metadata: log.metadata,
           createdAt: log.createdAt.toISOString(),
         },
       ]);

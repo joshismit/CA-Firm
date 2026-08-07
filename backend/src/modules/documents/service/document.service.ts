@@ -1,9 +1,9 @@
 import { Request } from 'express';
-import { Document, AuditEventType } from '@prisma/client';
+import { Document, AuditEventType, DocumentApprovalStatus, NotificationChannel } from '@prisma/client';
 import { prisma } from '@config/database';
 import { storageConfig } from '@config/storage';
 import { BaseService } from '@shared/base';
-import { AppError, BadRequestError, ConflictError, UnauthorizedError, UnsupportedMediaTypeError } from '@shared/errors';
+import { AppError, BadRequestError, ConflictError, NotFoundError, UnauthorizedError, UnsupportedMediaTypeError } from '@shared/errors';
 import { ErrorCode } from '@shared/enums';
 import { PaginationMeta } from '@shared/types';
 import { MESSAGES } from '@shared/constants';
@@ -11,13 +11,24 @@ import { CryptoUtils, FileValidation } from '@shared/utils';
 import { S3StorageService } from '@storage/s3-storage.service';
 import { AuditLogRecorder } from '@modules/audit';
 import { UserRepository } from '@modules/users/repository/user.repository';
+// Concrete path, not the `@modules/notifications` barrel — see
+// `middlewares/tenant.middleware.ts`'s header comment for why.
+import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import { DocumentRepository } from '../repository/document.repository';
 import { DocumentShareRepository } from '../repository/document-share.repository';
 import { DocumentFolderRepository } from '../repository/document-folder.repository';
 import { StorageQuotaService } from './storage-quota.service';
 import { DocumentAccessScope, DocumentAccessScopeService } from './document-access-scope.service';
 import { DocumentMapper } from '../mapper/document.mapper';
-import { CreateDocumentDto, UpdateDocumentDto, ListDocumentsQueryDto, ShareDocumentDto } from '../dto/document.req.dto';
+import {
+  CreateDocumentDto,
+  UpdateDocumentDto,
+  ListDocumentsQueryDto,
+  ShareDocumentDto,
+  RequestDocumentApprovalDto,
+  ApproveDocumentDto,
+  RejectDocumentDto,
+} from '../dto/document.req.dto';
 import { DocumentConflictDto, DocumentDownloadUrlResponseDto } from '../dto/document.res.dto';
 
 /** Strips path separators and unsafe characters before the name becomes part of an S3 key. */
@@ -67,6 +78,7 @@ export class DocumentService extends BaseService {
     private readonly userRepository: UserRepository = new UserRepository(prisma),
     private readonly folderRepository: DocumentFolderRepository = new DocumentFolderRepository(prisma),
     private readonly storageQuotaService: StorageQuotaService = new StorageQuotaService(),
+    private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
   ) {
     super(req);
   }
@@ -422,6 +434,18 @@ export class DocumentService extends BaseService {
     this.logger.info({ documentId: id }, 'Deleting document');
 
     await this.documentRepository.delete(id, { tenantId: this.tenantId, userId: this.userId });
+
+    if (this.userId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId as string,
+        actorId: this.userId,
+        eventType: AuditEventType.DOCUMENT_DELETE,
+        description: `Deleted document "${existing.fileName}"`,
+        targetType: 'Document',
+        targetId: existing.id,
+        ipAddress: this.req.ip ?? null,
+      });
+    }
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -504,6 +528,159 @@ export class DocumentService extends BaseService {
     });
 
     return document;
+  }
+
+  /**
+   * PRD §14.4 — revokes a previously-granted share before it would otherwise lapse on its own
+   * `expiresAt` (or removes a permanent, no-expiry grant, which had no other way to be revoked).
+   * Reuses `getDocumentById()` exactly like `shareDocument()` — a caller can only revoke a share
+   * on a document they can already see themselves.
+   */
+  async revokeShare(id: string, sharedWithUserId: string): Promise<void> {
+    const document = await this.getDocumentById(id);
+
+    if (!this.userId || !this.tenantId) {
+      throw new UnauthorizedError();
+    }
+
+    const revoked = await this.documentShareRepository.revokeShare(this.tenantId, document.id, sharedWithUserId);
+    if (!revoked) {
+      throw new NotFoundError('Share grant');
+    }
+
+    this.logger.info({ documentId: id, sharedWithUserId }, 'Revoked document share');
+
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId,
+      actorId: this.userId,
+      eventType: AuditEventType.SHARE_REVOKED,
+      description: `Revoked ${sharedWithUserId}'s share access to document "${document.fileName}"`,
+      targetType: 'Document',
+      targetId: document.id,
+      ipAddress: this.req.ip ?? null,
+    });
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Sensitive Upload Approval (PRD §14.7)
+  // ────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Opt-in — a document only enters the approval workflow when its uploader (or anyone else who
+   * can already see it) explicitly requests review from a chosen `reviewerId`, mirroring
+   * `shareDocument()`'s exact shape (reuses `getDocumentById()` for the access check, validates
+   * the target user exists in-tenant the same way). Reachable from `NOT_REQUIRED` (first request)
+   * or `REJECTED` (resubmission after a rejection) — not from `PENDING_APPROVAL`/`APPROVED`,
+   * which would either duplicate an in-flight request or reopen a decided one.
+   */
+  async requestApproval(id: string, dto: RequestDocumentApprovalDto): Promise<Document> {
+    const document = await this.getDocumentById(id);
+
+    if (!this.userId || !this.tenantId) {
+      throw new UnauthorizedError();
+    }
+
+    if (document.approvalStatus === DocumentApprovalStatus.PENDING_APPROVAL) {
+      throw new ConflictError('This document is already pending approval.');
+    }
+    if (document.approvalStatus === DocumentApprovalStatus.APPROVED) {
+      throw new ConflictError('This document has already been approved.');
+    }
+
+    const reviewerExists = await this.userRepository.exists({ id: dto.reviewerId }, { tenantId: this.tenantId });
+    if (!reviewerExists) {
+      throw new BadRequestError('Reviewer not found in this tenant.');
+    }
+
+    const updated = await this.documentRepository.update(
+      id,
+      {
+        approvalStatus: DocumentApprovalStatus.PENDING_APPROVAL,
+        reviewerId: dto.reviewerId,
+        reviewedAt: null,
+        reviewComment: null,
+      },
+      { tenantId: this.tenantId },
+    );
+
+    this.logger.info({ documentId: id, reviewerId: dto.reviewerId }, 'Requested document approval');
+
+    await this.notify(dto.reviewerId, 'Document pending your approval', `"${document.fileName}" was submitted for your approval.`);
+
+    return updated;
+  }
+
+  /** Reviewer decision: `PENDING_APPROVAL` → `APPROVED`. Gated by `documents:approve` at the route. */
+  async approve(id: string, dto: ApproveDocumentDto): Promise<Document> {
+    return this.decideApproval(id, DocumentApprovalStatus.APPROVED, AuditEventType.DOCUMENT_APPROVED, dto.comment ?? null);
+  }
+
+  /** Reviewer decision: `PENDING_APPROVAL` → `REJECTED`. `comment` is required (the rejection reason). Gated by `documents:approve` at the route. */
+  async reject(id: string, dto: RejectDocumentDto): Promise<Document> {
+    return this.decideApproval(id, DocumentApprovalStatus.REJECTED, AuditEventType.DOCUMENT_REJECTED, dto.comment);
+  }
+
+  private async decideApproval(
+    id: string,
+    status: typeof DocumentApprovalStatus.APPROVED | typeof DocumentApprovalStatus.REJECTED,
+    eventType: AuditEventType,
+    comment: string | null,
+  ): Promise<Document> {
+    const document = await this.getDocumentById(id);
+
+    if (!this.userId || !this.tenantId) {
+      throw new UnauthorizedError();
+    }
+
+    if (document.approvalStatus !== DocumentApprovalStatus.PENDING_APPROVAL) {
+      throw new ConflictError('Only a document pending approval can be approved or rejected.');
+    }
+
+    const updated = await this.documentRepository.update(
+      id,
+      {
+        approvalStatus: status,
+        // The actor who actually decided — not necessarily the reviewer originally notified by
+        // `requestApproval()`; anyone holding `documents:approve` may act on the request.
+        reviewerId: this.userId,
+        reviewedAt: new Date(),
+        reviewComment: comment,
+      },
+      { tenantId: this.tenantId },
+    );
+
+    this.logger.info({ documentId: id, status }, 'Recorded document approval decision');
+
+    await this.auditLogRecorder.record({
+      tenantId: this.tenantId,
+      actorId: this.userId,
+      eventType,
+      description: `${status === DocumentApprovalStatus.APPROVED ? 'Approved' : 'Rejected'} document "${document.fileName}"`,
+      targetType: 'Document',
+      targetId: document.id,
+      ipAddress: this.req.ip ?? null,
+      userAgent: (this.req.headers?.['user-agent'] as string | undefined) ?? null,
+      oldValue: { approvalStatus: document.approvalStatus },
+      newValue: { approvalStatus: status, reviewComment: comment },
+    });
+
+    if (document.uploadedById !== this.userId) {
+      const verb = status === DocumentApprovalStatus.APPROVED ? 'approved' : 'rejected';
+      const suffix = status === DocumentApprovalStatus.REJECTED ? ` Reason: ${comment}` : '';
+      await this.notify(document.uploadedById, `Document ${verb}`, `"${document.fileName}" was ${verb}.${suffix}`);
+    }
+
+    return updated;
+  }
+
+  /** IN_APP-only — no PRD text mandates EMAIL/SMS/WhatsApp for approval events. Best-effort: never fails the primary action. */
+  private async notify(userId: string, title: string, message: string): Promise<void> {
+    if (!this.tenantId) return;
+    try {
+      await this.notificationDispatchService.send({ tenantId: this.tenantId, userId, title, message, channels: [NotificationChannel.IN_APP] });
+    } catch (err) {
+      this.logger.warn({ err, userId, title }, 'Failed to dispatch notification');
+    }
   }
 
   /** Presigned, time-limited GET URL — never returns the bucket's raw credentials or a permanent link. */

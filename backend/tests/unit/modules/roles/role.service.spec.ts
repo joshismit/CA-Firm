@@ -138,6 +138,7 @@ function createMockUser(overrides: Partial<User> = {}): User {
     phone: null,
     status: UserStatus.ACTIVE,
     isOwner: false,
+    isManager: false,
     failedLoginCount: 0,
     lockedUntil: null,
     avatarStorageKey: null,
@@ -553,7 +554,7 @@ describe('RoleService', () => {
       const service = createService(repo, undefined, notificationDispatchService);
       await service.revokeRole(dto);
 
-      expect(repo.deleteUserRoleAssignment).toHaveBeenCalledWith(assignment.id);
+      expect(repo.deleteUserRoleAssignment).toHaveBeenCalledWith(assignment.id, TENANT_ID);
       expect(notificationDispatchService.send).toHaveBeenCalledWith({
         tenantId: TENANT_ID,
         userId: TARGET_USER_ID,

@@ -23,7 +23,7 @@ import { jwtConfig } from '@config/jwt';
 import { BaseService } from '@shared/base';
 import { UnauthorizedError, ForbiddenError, ConflictError, NotFoundError } from '@shared/errors';
 import { ErrorCode, UserRole } from '@shared/enums';
-import { MESSAGES, PASSWORD, TOKEN } from '@shared/constants';
+import { MESSAGES, PASSWORD, TOKEN, SESSION } from '@shared/constants';
 import { CryptoUtils } from '@shared/utils';
 import { JwtPayload } from '@middlewares/auth.middleware';
 import { AuditLogRecorder } from '@modules/audit';
@@ -169,6 +169,10 @@ export class AuthService extends BaseService {
       userAgent: meta.userAgent,
     });
 
+    // PRD §14.5 — cap concurrent active sessions; the session just created above is always the
+    // most recently active and therefore never itself evicted here.
+    await this.authRepository.enforceConcurrentSessionLimit(user.id, SESSION.MAX_CONCURRENT);
+
     await this.authRepository.recordSuccessfulLogin(user.id);
     await this.authRepository.recordLoginHistory({
       tenantId: user.tenantId,
@@ -222,6 +226,21 @@ export class AuthService extends BaseService {
 
     if (tokenRow.revokedAt || tokenRow.expiresAt < new Date()) {
       throw new UnauthorizedError('Refresh token has expired or been revoked.', ErrorCode.REFRESH_TOKEN_EXPIRED);
+    }
+
+    // PRD §14.5 — idle-session timeout, separate from (and typically shorter than) the token's own
+    // hard `expiresAt`. `refresh()` is the one checkpoint every client hits to stay signed in (the
+    // access token alone expires every 15 min), so it's the natural single place to enforce this —
+    // mirrors `touchSession()` already living here for the same "last thing that happens on every
+    // refresh" reason.
+    const session = await this.authRepository.findSessionById(tokenRow.sessionId, tokenRow.userId);
+    if (session) {
+      const idleMs = Date.now() - session.lastActiveAt.getTime();
+      if (idleMs > SESSION.IDLE_TIMEOUT_MINUTES * 60 * 1000) {
+        await this.authRepository.revokeRefreshTokensBySession(tokenRow.sessionId, RefreshTokenRevokeReason.EXPIRED);
+        await this.authRepository.revokeSession(tokenRow.sessionId, SessionRevokeReason.SESSION_EXPIRED);
+        throw new UnauthorizedError('Session expired due to inactivity. Please sign in again.', ErrorCode.REFRESH_TOKEN_EXPIRED);
+      }
     }
 
     const user = await this.authRepository.findUserById(tokenRow.userId);
@@ -543,7 +562,8 @@ export class AuthService extends BaseService {
 
       await this.userInvitationRepository.update(
         invitation.id,
-        { status: InvitationStatus.ACCEPTED, acceptedAt: new Date(), acceptedBy: { connect: { id: createdUser.id } } },
+        invitation.tenantId,
+        { status: InvitationStatus.ACCEPTED, acceptedAt: new Date(), acceptedById: createdUser.id },
         tx,
       );
 
@@ -623,7 +643,9 @@ export class AuthService extends BaseService {
   }
 
   private resolveRole(user: User): UserRole {
-    return user.isOwner ? UserRole.TENANT_ADMIN : UserRole.STAFF;
+    if (user.isOwner) return UserRole.TENANT_ADMIN;
+    if (user.isManager) return UserRole.MANAGER;
+    return UserRole.STAFF;
   }
 
   private signAccessToken(payload: Omit<JwtPayload, 'iat' | 'exp'>): string {
@@ -662,6 +684,18 @@ export class AuthService extends BaseService {
       userAgent: meta.userAgent,
       failureReason: 'Invalid credentials',
     });
+
+    // Only written when the email matched a real user — an unknown email has no
+    // tenant/actor to scope the row to (AuditLog, unlike LoginHistory, requires both).
+    if (user) {
+      await this.auditLogRecorder.record({
+        tenantId: user.tenantId,
+        actorId: user.id,
+        eventType: AuditEventType.FAILED_LOGIN,
+        description: `Failed login attempt for ${email}`,
+        ipAddress: meta.ipAddress,
+      });
+    }
   }
 
   /** Shared by `getInviteInfo()` and `acceptInvite()` — both resolve-by-token then reject identically on anything other than a still-`PENDING`, unexpired invitation. A `PENDING` invitation found past its `expiresAt` is persisted as `EXPIRED` here (no scheduled job exists anywhere in this codebase to do it proactively — the same reasoning `tenantMiddleware` applies to a lapsed subscription) so the tenant's own invitation list reflects reality instead of staying `PENDING` forever. */
@@ -672,7 +706,7 @@ export class AuthService extends BaseService {
     }
 
     if (invitation.status === InvitationStatus.PENDING && invitation.expiresAt < new Date()) {
-      await this.userInvitationRepository.update(invitation.id, { status: InvitationStatus.EXPIRED });
+      await this.userInvitationRepository.update(invitation.id, invitation.tenantId, { status: InvitationStatus.EXPIRED });
       throw makeError();
     }
 

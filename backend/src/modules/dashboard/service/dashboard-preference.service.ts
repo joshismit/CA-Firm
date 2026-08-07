@@ -1,7 +1,8 @@
 import { Request } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
+import { AuditLogRecorder } from '@modules/audit';
 import { DashboardPreferenceRepository } from '../repository/dashboard-preference.repository';
 import { DashboardTenantDefaultRepository } from '../repository/dashboard-tenant-default.repository';
 import { DashboardPreferenceMapper } from '../mapper/dashboard-preference.mapper';
@@ -37,6 +38,7 @@ export class DashboardPreferenceService extends BaseService {
     req: Request,
     private readonly repository: DashboardPreferenceRepository = new DashboardPreferenceRepository(prisma),
     private readonly tenantDefaultRepository: DashboardTenantDefaultRepository = new DashboardTenantDefaultRepository(prisma),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -70,6 +72,21 @@ export class DashboardPreferenceService extends BaseService {
       dto.widgets as unknown as Prisma.InputJsonValue,
       dto.refreshIntervalSeconds,
     );
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.DASHBOARD_PREFERENCES_CHANGED,
+        description: 'Updated dashboard preferences',
+        targetType: 'DashboardPreference',
+        targetId: this.userId,
+        ipAddress: this.req.ip ?? null,
+        userAgent: (this.req.headers?.['user-agent'] as string | undefined) ?? null,
+        newValue: { widgetCount: dto.widgets.length, refreshIntervalSeconds: dto.refreshIntervalSeconds ?? null },
+      });
+    }
+
     return DashboardPreferenceMapper.toResponseDto(preference);
   }
 
@@ -77,6 +94,20 @@ export class DashboardPreferenceService extends BaseService {
   async resetPreferences(): Promise<DashboardPreferenceResponseDto> {
     await this.repository.deleteByUserId(this.userId as string);
     this.logger.info('Reset dashboard preferences to default');
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.DASHBOARD_LAYOUT_RESET,
+        description: 'Reset dashboard layout to default',
+        targetType: 'DashboardPreference',
+        targetId: this.userId,
+        ipAddress: this.req.ip ?? null,
+        userAgent: (this.req.headers?.['user-agent'] as string | undefined) ?? null,
+      });
+    }
+
     return this.getPreferences();
   }
 }

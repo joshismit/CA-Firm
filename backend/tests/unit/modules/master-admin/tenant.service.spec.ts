@@ -143,6 +143,7 @@ function createMockOwner(overrides: Partial<User> = {}): User {
     phone: null,
     status: UserStatus.ACTIVE,
     isOwner: true,
+    isManager: false,
     failedLoginCount: 0,
     lockedUntil: null,
     avatarStorageKey: null,

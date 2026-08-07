@@ -78,7 +78,10 @@ export class LeadRepository extends BaseRepository<Prisma.LeadDelegate, Lead> {
         options,
       ),
       client.groupBy({ by: ['sourceId'], where, _count: true }),
-      this.prisma.leadSource.findMany({ where: { tenantId: options.tenantId } }),
+      // `LeadSource` has no `deletedAt` column — `ignoreSoftDelete` avoids `applyFilters`
+      // adding a filter Prisma would reject, while still failing closed on a missing
+      // `tenantId` the same way every other query in this class does.
+      this.prisma.leadSource.findMany({ where: this.applyFilters({}, { ...options, ignoreSoftDelete: true }) }),
     ]);
 
     const sourceNameById = new Map(sources.map((source) => [source.id, source.name]));

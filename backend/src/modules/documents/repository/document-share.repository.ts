@@ -51,6 +51,14 @@ export class DocumentShareRepository extends BaseRepository<Prisma.ResourceAcces
     });
   }
 
+  /** Deletes a specific share grant, if one exists. Returns whether a row was actually removed (vs. never having been shared). */
+  async revokeShare(tenantId: string, documentId: string, sharedWithUserId: string): Promise<boolean> {
+    const result = await this.prisma.resourceAccessPolicy.deleteMany({
+      where: { tenantId, userId: sharedWithUserId, resourceType: DOCUMENT_RESOURCE_TYPE, resourceId: documentId },
+    });
+    return result.count > 0;
+  }
+
   /** Document IDs explicitly shared with this user, excluding expired grants — consumed by `DocumentAccessScopeService`. */
   async findSharedDocumentIds(userId: string, tenantId: string): Promise<string[]> {
     const grants = await this.prisma.resourceAccessPolicy.findMany({

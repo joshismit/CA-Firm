@@ -30,6 +30,10 @@ export interface RecordAuditLogInput {
   targetId?: string | null;
   description: string;
   ipAddress?: string | null;
+  userAgent?: string | null;
+  oldValue?: Prisma.InputJsonValue | null;
+  newValue?: Prisma.InputJsonValue | null;
+  metadata?: Prisma.InputJsonValue | null;
 }
 
 /**
@@ -96,6 +100,10 @@ export class AuditLogRepository extends BaseRepository<Prisma.AuditLogDelegate, 
         targetId: input.targetId ?? null,
         description: input.description,
         ipAddress: input.ipAddress ?? null,
+        userAgent: input.userAgent ?? null,
+        oldValue: input.oldValue ?? undefined,
+        newValue: input.newValue ?? undefined,
+        metadata: input.metadata ?? undefined,
       },
       options,
     );

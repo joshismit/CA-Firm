@@ -16,6 +16,10 @@ export class AuditMapper {
       targetId: auditLog.targetId,
       description: auditLog.description,
       ipAddress: auditLog.ipAddress,
+      userAgent: auditLog.userAgent,
+      oldValue: auditLog.oldValue,
+      newValue: auditLog.newValue,
+      metadata: auditLog.metadata,
       createdAt: auditLog.createdAt.toISOString(),
     };
   }

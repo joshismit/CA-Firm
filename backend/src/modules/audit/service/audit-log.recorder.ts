@@ -1,4 +1,4 @@
-import { AuditEventType } from '@prisma/client';
+import { AuditEventType, Prisma } from '@prisma/client';
 import { prisma } from '@config/database';
 import { logger } from '@config/logger';
 import { AuditLogRepository } from '../repository/audit-log.repository';
@@ -11,6 +11,10 @@ export interface RecordAuditEventParams {
   targetType?: string;
   targetId?: string;
   ipAddress?: string | null;
+  userAgent?: string | null;
+  oldValue?: Prisma.InputJsonValue | null;
+  newValue?: Prisma.InputJsonValue | null;
+  metadata?: Prisma.InputJsonValue | null;
   /**
    * Skips the `User` lookup below and uses this name directly. For every
    * request-driven caller, omit this and get the existing looked-up-name
@@ -72,6 +76,10 @@ export class AuditLogRecorder {
           targetId: params.targetId ?? null,
           description: params.description,
           ipAddress: params.ipAddress ?? null,
+          userAgent: params.userAgent ?? null,
+          oldValue: params.oldValue ?? null,
+          newValue: params.newValue ?? null,
+          metadata: params.metadata ?? null,
         },
         { tenantId: params.tenantId },
       );

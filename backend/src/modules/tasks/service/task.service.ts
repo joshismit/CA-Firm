@@ -2,13 +2,14 @@ import { Request } from 'express';
 import { Task, TaskStatus, AuditEventType, NotificationChannel } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
-import { ConflictError, ValidationError } from '@shared/errors';
+import { ConflictError, ForbiddenError, UnauthorizedError, ValidationError } from '@shared/errors';
 import { PaginationMeta, PaginationQuery } from '@shared/types';
 import { AuditLogRecorder } from '@modules/audit';
 // Concrete path, not the `@modules/notifications` barrel — see
 // `middlewares/tenant.middleware.ts`'s header comment for why.
 import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
 import { TaskRepository, TaskSearchFilters } from '../repository/task.repository';
+import { TaskAccessScope, TaskAccessScopeService } from './task-access-scope.service';
 import {
   CreateTaskDto,
   UpdateTaskDto,
@@ -124,6 +125,7 @@ export class TaskService extends BaseService {
     private readonly taskRepository: TaskRepository = new TaskRepository(prisma),
     private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
     private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
+    private readonly accessScopeService: TaskAccessScopeService = new TaskAccessScopeService(),
   ) {
     super(req);
   }
@@ -131,6 +133,14 @@ export class TaskService extends BaseService {
   // ────────────────────────────────────────────────────────────────────────────
   // Internal guards
   // ────────────────────────────────────────────────────────────────────────────
+
+  /** PRD §14.6 — resolves the caller's task access scope once per request. Mirrors `DocumentFolderService.getAccessScope()`. */
+  private getAccessScope(): TaskAccessScope {
+    if (!this.req.user) {
+      throw new UnauthorizedError();
+    }
+    return this.accessScopeService.resolve(this.req.user);
+  }
 
   /**
    * Cross-field validation the Zod layer can't express (see schema file for why).
@@ -429,6 +439,7 @@ export class TaskService extends BaseService {
   async getTaskById(id: string): Promise<Task> {
     const task = await this.taskRepository.findById(id, { tenantId: this.tenantId });
     this.validateExists(task, 'Task');
+    TaskAccessScopeService.assertAllowed(task, this.getAccessScope());
     return task;
   }
 
@@ -452,6 +463,7 @@ export class TaskService extends BaseService {
         sortOrder: query.sortOrder,
       },
       { tenantId: this.tenantId },
+      TaskAccessScopeService.toWhereInput(this.getAccessScope()),
     );
   }
 
@@ -464,17 +476,22 @@ export class TaskService extends BaseService {
     return this.taskRepository.findByLead(leadId, { tenantId: this.tenantId });
   }
 
+  /** PRD §14.6 — `assigneeId` must be the caller's own id unless they hold unrestricted task access; otherwise this endpoint lets anyone enumerate anyone else's task list. */
   async getTasksByAssignee(assigneeId: string): Promise<Task[]> {
+    const scope = this.getAccessScope();
+    if (scope.userId && scope.userId !== assigneeId) {
+      throw new ForbiddenError('You can only view your own assigned tasks.');
+    }
     return this.taskRepository.findByAssignee(assigneeId, { tenantId: this.tenantId });
   }
 
   async getOverdueTasks(): Promise<Task[]> {
-    return this.taskRepository.findOverdue({ tenantId: this.tenantId });
+    return this.taskRepository.findOverdue({ tenantId: this.tenantId }, TaskAccessScopeService.toWhereInput(this.getAccessScope()));
   }
 
   /** PRD §9 — tasks awaiting a reviewer's decision (SUBMITTED or UNDER_REVIEW). */
   async getPendingReviewTasks(): Promise<Task[]> {
-    return this.taskRepository.findPendingReview({ tenantId: this.tenantId });
+    return this.taskRepository.findPendingReview({ tenantId: this.tenantId }, TaskAccessScopeService.toWhereInput(this.getAccessScope()));
   }
 
   async countByStatus(status: TaskStatus): Promise<number> {

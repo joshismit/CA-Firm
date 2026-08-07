@@ -20,10 +20,10 @@ import { DashboardTenantDefaultRepository } from '@modules/dashboard/repository/
 const TENANT_ID = 'tenant-11111111-1111-1111-1111-111111111111';
 const ADMIN_USER_ID = 'user-99999999-9999-9999-9999-999999999999';
 
-type MockedRepository = { [K in 'listByTenant' | 'upsert' | 'deleteByTenantAndRole']: jest.Mock };
+type MockedRepository = { [K in 'listByTenant' | 'upsert' | 'deleteByTenantAndRole' | 'findByTenantAndRole']: jest.Mock };
 
 function createMockRepository(): MockedRepository {
-  return { listByTenant: jest.fn(), upsert: jest.fn(), deleteByTenantAndRole: jest.fn() };
+  return { listByTenant: jest.fn(), upsert: jest.fn(), deleteByTenantAndRole: jest.fn(), findByTenantAndRole: jest.fn() };
 }
 
 function createFakeRequest(): Request {
@@ -87,6 +87,7 @@ describe('DashboardTenantDefaultService', () => {
   describe('deleteDefault', () => {
     it('deletes scoped to tenant + role', async () => {
       const repo = createMockRepository();
+      repo.findByTenantAndRole.mockResolvedValue(createMockRow({ role: UserRole.STAFF }));
 
       await createService(repo).deleteDefault(UserRole.STAFF);
 

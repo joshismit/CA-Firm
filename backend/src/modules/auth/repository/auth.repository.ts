@@ -143,6 +143,32 @@ export class AuthRepository {
     });
   }
 
+  /**
+   * PRD §14.5 — evicts the oldest (by `lastActiveAt`) active sessions once a user has more than
+   * `limit`, called right after `AuthService.login()` creates a new session (which is always the
+   * most recently active and therefore never itself among the evicted). Also revokes each evicted
+   * session's not-yet-used refresh tokens, mirroring every other session-revocation path here.
+   */
+  async enforceConcurrentSessionLimit(userId: string, limit: number): Promise<void> {
+    const activeSessions = await this.prisma.userSession.findMany({
+      where: { userId, status: SessionStatus.ACTIVE },
+      orderBy: { lastActiveAt: 'desc' },
+      select: { id: true },
+    });
+
+    const excessIds = activeSessions.slice(limit).map((session) => session.id);
+    if (excessIds.length === 0) return;
+
+    await this.prisma.userSession.updateMany({
+      where: { id: { in: excessIds } },
+      data: { status: SessionStatus.REVOKED, revokedAt: new Date(), revokeReason: SessionRevokeReason.CONCURRENT_LIMIT_EXCEEDED },
+    });
+    await this.prisma.refreshToken.updateMany({
+      where: { sessionId: { in: excessIds }, revokedAt: null, isUsed: false },
+      data: { revokedAt: new Date(), revokeReason: RefreshTokenRevokeReason.CONCURRENT_LIMIT_EXCEEDED },
+    });
+  }
+
   async revokeAllSessionsExcept(userId: string, exceptSessionId: string | undefined, reason: SessionRevokeReason): Promise<number> {
     const result = await this.prisma.userSession.updateMany({
       where: { userId, status: SessionStatus.ACTIVE, ...(exceptSessionId ? { id: { not: exceptSessionId } } : {}) },

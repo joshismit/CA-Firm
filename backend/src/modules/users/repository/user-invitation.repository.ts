@@ -37,8 +37,17 @@ export class UserInvitationRepository {
     return this.prisma.userInvitation.findUnique({ where: { tokenHash } });
   }
 
-  async update(id: string, data: Prisma.UserInvitationUpdateInput, tx?: Prisma.TransactionClient): Promise<UserInvitation> {
+  /**
+   * `tenantId` is enforced on the update itself (via `updateMany` + re-fetch), not just trusted
+   * from the caller's prior `findById` lookup — defense-in-depth, matching `RoleRepository
+   * .deleteUserRoleAssignment()`'s same fix. `data` is the `Unchecked` variant (scalar FKs, e.g.
+   * `acceptedById`) rather than `UserInvitationUpdateInput` (relation `connect`) because
+   * `updateMany()` doesn't support nested relation writes at all — only the checked `update()`
+   * (unique `where`) does.
+   */
+  async update(id: string, tenantId: string, data: Prisma.UserInvitationUncheckedUpdateInput, tx?: Prisma.TransactionClient): Promise<UserInvitation> {
     const client = tx ?? this.prisma;
-    return client.userInvitation.update({ where: { id }, data });
+    await client.userInvitation.updateMany({ where: { id, tenantId }, data });
+    return client.userInvitation.findFirstOrThrow({ where: { id, tenantId } });
   }
 }

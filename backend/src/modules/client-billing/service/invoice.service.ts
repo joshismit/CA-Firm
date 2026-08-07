@@ -1,9 +1,10 @@
 import { Request } from 'express';
-import { Invoice, InvoiceStatus } from '@prisma/client';
+import { Invoice, InvoiceStatus, AuditEventType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { NotFoundError } from '@shared/errors';
 import { PaginationMeta, PaginationQuery } from '@shared/types';
+import { AuditLogRecorder } from '@modules/audit';
 import { InvoiceRepository, InvoiceSearchFilters } from '../repository/invoice.repository';
 import { CreateInvoiceDto, UpdateInvoiceDto, ListInvoicesQueryDto } from '../dto/invoice.req.dto';
 
@@ -40,6 +41,7 @@ export class InvoiceService extends BaseService {
   constructor(
     req: Request,
     private readonly repository: InvoiceRepository = new InvoiceRepository(prisma),
+    private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
   ) {
     super(req);
   }
@@ -63,7 +65,7 @@ export class InvoiceService extends BaseService {
 
     this.logger.info({ invoiceNumber: dto.invoiceNumber }, 'Creating invoice');
 
-    return this.repository.create(
+    const invoice = await this.repository.create(
       {
         invoiceNumber: dto.invoiceNumber,
         clientId: dto.clientId ?? null,
@@ -75,23 +77,80 @@ export class InvoiceService extends BaseService {
       },
       { tenantId: this.tenantId },
     );
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.INVOICE_CREATED,
+        description: `Created invoice "${invoice.invoiceNumber}"`,
+        targetType: 'Invoice',
+        targetId: invoice.id,
+        ipAddress: this.req.ip ?? null,
+        userAgent: (this.req.headers?.['user-agent'] as string | undefined) ?? null,
+        newValue: { amount: invoice.amount.toString(), status: invoice.status },
+      });
+    }
+
+    return invoice;
   }
 
   async updateInvoice(id: string, dto: UpdateInvoiceDto): Promise<Invoice> {
-    await this.getInvoiceById(id);
+    const existing = await this.getInvoiceById(id);
     await this.validateReferences(dto);
 
     this.logger.info({ invoiceId: id }, 'Updating invoice');
 
-    return this.repository.update(id, dto, { tenantId: this.tenantId });
+    const updated = await this.repository.update(id, dto, { tenantId: this.tenantId });
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.INVOICE_UPDATED,
+        description: `Updated invoice "${updated.invoiceNumber}"`,
+        targetType: 'Invoice',
+        targetId: updated.id,
+        ipAddress: this.req.ip ?? null,
+        userAgent: (this.req.headers?.['user-agent'] as string | undefined) ?? null,
+        oldValue: {
+          amount: existing.amount.toString(),
+          tax: existing.tax.toString(),
+          dueDate: existing.dueDate?.toISOString() ?? null,
+          notes: existing.notes,
+        },
+        newValue: {
+          amount: updated.amount.toString(),
+          tax: updated.tax.toString(),
+          dueDate: updated.dueDate?.toISOString() ?? null,
+          notes: updated.notes,
+        },
+      });
+    }
+
+    return updated;
   }
 
   async deleteInvoice(id: string): Promise<void> {
-    await this.getInvoiceById(id);
+    const existing = await this.getInvoiceById(id);
 
     this.logger.info({ invoiceId: id }, 'Deleting invoice');
 
     await this.repository.delete(id, { tenantId: this.tenantId });
+
+    if (this.userId && this.tenantId) {
+      await this.auditLogRecorder.record({
+        tenantId: this.tenantId,
+        actorId: this.userId,
+        eventType: AuditEventType.INVOICE_DELETED,
+        description: `Deleted invoice "${existing.invoiceNumber}"`,
+        targetType: 'Invoice',
+        targetId: existing.id,
+        ipAddress: this.req.ip ?? null,
+        userAgent: (this.req.headers?.['user-agent'] as string | undefined) ?? null,
+        oldValue: { amount: existing.amount.toString(), status: existing.status },
+      });
+    }
   }
 
   /**

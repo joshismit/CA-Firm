@@ -4,7 +4,15 @@ import { ApiResponseHelper } from '@shared/response/api-response';
 import { asyncHandler } from '@shared/utils';
 import { DocumentService } from '../service/document.service';
 import { DocumentMapper } from '../mapper/document.mapper';
-import { CreateDocumentDto, UpdateDocumentDto, ListDocumentsQueryDto, ShareDocumentDto } from '../dto/document.req.dto';
+import {
+  CreateDocumentDto,
+  UpdateDocumentDto,
+  ListDocumentsQueryDto,
+  ShareDocumentDto,
+  RequestDocumentApprovalDto,
+  ApproveDocumentDto,
+  RejectDocumentDto,
+} from '../dto/document.req.dto';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -71,6 +79,13 @@ export class DocumentController {
     res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, DocumentMapper.toResponseDto(document), 'Document shared successfully'));
   });
 
+  static revokeShare = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new DocumentService(req);
+    await service.revokeShare(req.params.id, req.params.userId);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.deleted(req, undefined, 'Document share revoked successfully'));
+  });
+
   static createVersion = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const service = new DocumentService(req);
     const document = await service.createVersion(req.params.id, req.file);
@@ -83,5 +98,26 @@ export class DocumentController {
     const versions = await service.getVersionHistory(req.params.id);
 
     res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, DocumentMapper.toResponseDtoList(versions), MESSAGES.FETCHED));
+  });
+
+  static requestApproval = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new DocumentService(req);
+    const document = await service.requestApproval(req.params.id, req.body as RequestDocumentApprovalDto);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, DocumentMapper.toResponseDto(document), 'Approval requested successfully'));
+  });
+
+  static approve = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new DocumentService(req);
+    const document = await service.approve(req.params.id, req.body as ApproveDocumentDto);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, DocumentMapper.toResponseDto(document), 'Document approved successfully'));
+  });
+
+  static reject = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new DocumentService(req);
+    const document = await service.reject(req.params.id, req.body as RejectDocumentDto);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, DocumentMapper.toResponseDto(document), 'Document rejected successfully'));
   });
 }

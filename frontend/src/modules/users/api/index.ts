@@ -52,3 +52,10 @@ export async function getUserSessions(userId: string): Promise<AuthSession[]> {
   const { data } = await apiClient.get<ApiResponse<AuthSession[]>>(`/users/${userId}/sessions`)
   return data.data
 }
+
+// Admin-initiated "log this device out" for another user (PRD §14.5) - distinct from the
+// self-service DELETE /auth/sessions/:id (modules/auth), which only ever revokes the caller's own
+// session.
+export async function revokeUserSession(userId: string, sessionId: string): Promise<void> {
+  await apiClient.delete(`/users/${userId}/sessions/${sessionId}`)
+}

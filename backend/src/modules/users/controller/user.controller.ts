@@ -66,6 +66,13 @@ export class UserController {
     res.status(HTTP_STATUS.OK).json(ApiResponseHelper.success(req, sessions, MESSAGES.FETCHED));
   });
 
+  static revokeSession = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new UserService(req);
+    await service.revokeUserSession(req.params.id, req.params.sessionId);
+
+    res.status(HTTP_STATUS.OK).json(ApiResponseHelper.deleted(req, undefined, 'Session revoked successfully'));
+  });
+
   static invite = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const service = new UserService(req);
     const invitation = await service.inviteUser(req.body as InviteUserDto);

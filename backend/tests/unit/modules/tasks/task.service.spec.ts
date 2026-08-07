@@ -17,7 +17,7 @@ jest.mock('@config/database', () => ({ prisma: {} }));
 
 import { AuditEventType } from '@prisma/client';
 import { UserRole } from '@shared/enums';
-import { ConflictError, NotFoundError, ValidationError } from '@shared/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@shared/errors';
 import { TaskService } from '@modules/tasks/service/task.service';
 import { TaskRepository } from '@modules/tasks/repository/task.repository';
 import type { AuditLogRecorder } from '@modules/audit';
@@ -81,10 +81,17 @@ function createMockRepository(): MockedTaskRepository {
   };
 }
 
-function createFakeRequest(): Request {
+function createFakeRequest(userOverrides: Partial<{ id: string; role: UserRole; permissions: string[] }> = {}): Request {
   return {
     tenant: { id: TENANT_ID, slug: 'acme', name: 'Acme & Co', planCode: 'professional', isActive: true },
-    user: { id: USER_ID, email: 'manager@acme.test', role: UserRole.TENANT_ADMIN, tenantId: TENANT_ID, permissions: [] },
+    user: {
+      id: USER_ID,
+      email: 'manager@acme.test',
+      role: UserRole.TENANT_ADMIN,
+      tenantId: TENANT_ID,
+      permissions: [],
+      ...userOverrides,
+    },
     correlationId: 'test-correlation-id',
   } as unknown as Request;
 }
@@ -134,9 +141,10 @@ function createService(
   repository: MockedTaskRepository,
   notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
   auditLogRecorder: { record: jest.Mock } = createMockAuditLogRecorder(),
+  req: Request = createFakeRequest(),
 ): TaskService {
   return new TaskService(
-    createFakeRequest(),
+    req,
     repository as unknown as TaskRepository,
     auditLogRecorder as unknown as AuditLogRecorder,
     notificationDispatchService as unknown as NotificationDispatchService,
@@ -1008,8 +1016,52 @@ describe('TaskService', () => {
         },
         { page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' },
         { tenantId: TENANT_ID },
+        {},
       );
       expect(result).toBe(paginated);
+    });
+
+    it('narrows to the caller\'s own assignee/creator tasks when they lack unrestricted task access', async () => {
+      const repo = createMockRepository();
+      repo.search.mockResolvedValue({ data: [], meta: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false } });
+      const restrictedReq = createFakeRequest({ role: UserRole.STAFF, permissions: [] });
+      const service = createService(repo, undefined, undefined, restrictedReq);
+
+      await service.listTasks({ page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' });
+
+      expect(repo.search).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        { tenantId: TENANT_ID },
+        { OR: [{ assigneeId: USER_ID }, { createdBy: USER_ID }] },
+      );
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // getTaskById — access scope
+  // ────────────────────────────────────────────────────────────────────────
+  describe('getTaskById', () => {
+    it('returns the task when the caller is its assignee', async () => {
+      const repo = createMockRepository();
+      const task = createMockTask({ assigneeId: USER_ID, createdBy: 'someone-else' });
+      repo.findById.mockResolvedValue(task);
+      const restrictedReq = createFakeRequest({ role: UserRole.STAFF, permissions: [] });
+      const service = createService(repo, undefined, undefined, restrictedReq);
+
+      const result = await service.getTaskById(task.id);
+
+      expect(result).toBe(task);
+    });
+
+    it('rejects a restricted caller who is neither the assignee nor creator', async () => {
+      const repo = createMockRepository();
+      const task = createMockTask({ assigneeId: 'someone-else', createdBy: 'someone-else' });
+      repo.findById.mockResolvedValue(task);
+      const restrictedReq = createFakeRequest({ role: UserRole.STAFF, permissions: [] });
+      const service = createService(repo, undefined, undefined, restrictedReq);
+
+      await expect(service.getTaskById(task.id)).rejects.toThrow(ForbiddenError);
     });
   });
 
@@ -1056,6 +1108,28 @@ describe('TaskService', () => {
       expect(repo.findByAssignee).toHaveBeenCalledWith('user-assignee-1', { tenantId: TENANT_ID });
       expect(result).toBe(tasks);
     });
+
+    it('rejects a restricted (non-unrestricted-permission) caller requesting another user\'s tasks — PRD §14.6 enumeration fix', async () => {
+      const repo = createMockRepository();
+      const restrictedReq = createFakeRequest({ role: UserRole.STAFF, permissions: [] });
+      const service = createService(repo, undefined, undefined, restrictedReq);
+
+      await expect(service.getTasksByAssignee('some-other-user')).rejects.toThrow(ForbiddenError);
+      expect(repo.findByAssignee).not.toHaveBeenCalled();
+    });
+
+    it('allows a restricted caller to request their own tasks', async () => {
+      const repo = createMockRepository();
+      const tasks = [createMockTask({ assigneeId: USER_ID })];
+      repo.findByAssignee.mockResolvedValue(tasks);
+      const restrictedReq = createFakeRequest({ role: UserRole.STAFF, permissions: [] });
+      const service = createService(repo, undefined, undefined, restrictedReq);
+
+      const result = await service.getTasksByAssignee(USER_ID);
+
+      expect(repo.findByAssignee).toHaveBeenCalledWith(USER_ID, { tenantId: TENANT_ID });
+      expect(result).toBe(tasks);
+    });
   });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1072,7 +1146,7 @@ describe('TaskService', () => {
       const service = createService(repo);
       const result = await service.getOverdueTasks();
 
-      expect(repo.findOverdue).toHaveBeenCalledWith({ tenantId: TENANT_ID });
+      expect(repo.findOverdue).toHaveBeenCalledWith({ tenantId: TENANT_ID }, {});
       expect(result).toBe(overdueTasks);
     });
   });
@@ -1091,7 +1165,7 @@ describe('TaskService', () => {
       const service = createService(repo);
       const result = await service.getPendingReviewTasks();
 
-      expect(repo.findPendingReview).toHaveBeenCalledWith({ tenantId: TENANT_ID });
+      expect(repo.findPendingReview).toHaveBeenCalledWith({ tenantId: TENANT_ID }, {});
       expect(result).toBe(pending);
     });
   });

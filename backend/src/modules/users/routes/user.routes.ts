@@ -11,6 +11,7 @@ import {
   listUsersQuerySchema,
   userIdParamSchema,
   invitationIdParamSchema,
+  userSessionParamSchema,
 } from '../schemas/user.schema';
 
 /**
@@ -308,6 +309,36 @@ router.get(
   requirePermission(USER_PERMISSIONS.READ),
   validate({ params: userIdParamSchema }),
   UserController.getSessions,
+);
+
+/**
+ * @swagger
+ * /users/{id}/sessions/{sessionId}:
+ *   delete:
+ *     tags: [Users]
+ *     summary: Force-revoke one of a user's active sessions
+ *     description: Admin-initiated "log this device out" for another user — revokes the one specified session and its refresh tokens, without deactivating the account. Audit-logged (SESSION_REVOKED), unlike the self-service DELETE /auth/sessions/:id equivalent.
+ *     security: [{ BearerAuth: [] }]
+ *     x-permission: users:manage
+ *     parameters:
+ *       - { $ref: '#/components/parameters/UserIdParam' }
+ *       - name: sessionId
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Session revoked. }
+ *       401: { description: Missing or invalid access token. }
+ *       403: { description: Caller lacks the `users:manage` permission. }
+ *       404: { description: No user with this ID exists in the tenant, or no active session with this ID belongs to them. }
+ */
+router.delete(
+  '/:id/sessions/:sessionId',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(USER_PERMISSIONS.MANAGE),
+  validate({ params: userSessionParamSchema }),
+  UserController.revokeSession,
 );
 
 /**

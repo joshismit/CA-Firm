@@ -1,13 +1,15 @@
 // src/modules/users/components/UserSessionsCard.tsx
-// getUserSessions always 501s (no admin-facing sessions endpoint exists - distinct from the real,
-// self-service GET /auth/sessions used in Settings > Profile, which only ever returns the caller's
-// own sessions and cannot be repurposed to show an arbitrary user's sessions to an admin).
-import { Monitor } from 'lucide-react'
+// Admin-facing session list for another user - distinct from the self-service GET /auth/sessions
+// used in Settings > Profile, which only ever returns the caller's own sessions. Each row's
+// "Revoke" button hits the admin-only DELETE /users/:id/sessions/:sessionId (PRD §14.5), which
+// force-logs-out that one device without deactivating the whole account.
+import { Monitor, LogOut } from 'lucide-react'
 import { Card, CardHeader } from '@/components/shared/Card/Card'
 import { Spinner, ErrorState, EmptyState } from '@/components/feedback'
+import { Button } from '@/components/ui/button'
 import { normalizeApiError } from '@/services/api-error'
 import { formatDateLong } from '@/lib/utils'
-import { useUserSessionsQuery } from '../hooks'
+import { useUserSessionsQuery, useRevokeUserSessionMutation } from '../hooks'
 
 export interface UserSessionsCardProps {
   userId: string
@@ -15,6 +17,12 @@ export interface UserSessionsCardProps {
 
 export function UserSessionsCard({ userId }: UserSessionsCardProps) {
   const { data: sessions, isLoading, isError, error, refetch } = useUserSessionsQuery(userId)
+  const revokeMutation = useRevokeUserSessionMutation(userId)
+
+  const handleRevoke = (sessionId: string) => {
+    if (!window.confirm('Log this device out? The user will need to sign in again on it.')) return
+    revokeMutation.mutate(sessionId)
+  }
 
   return (
     <Card>
@@ -37,6 +45,15 @@ export function UserSessionsCard({ userId }: UserSessionsCardProps) {
                   {session.ipAddress ?? 'Unknown IP'} · Last active {formatDateLong(session.lastActiveAt)}
                 </p>
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleRevoke(session.id)}
+                disabled={revokeMutation.isPending}
+              >
+                <LogOut className="size-3.5" />
+                Revoke
+              </Button>
             </li>
           ))}
         </ul>

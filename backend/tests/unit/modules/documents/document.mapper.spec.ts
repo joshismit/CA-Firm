@@ -1,4 +1,4 @@
-import { Document, DocumentCategory } from '@prisma/client';
+import { Document, DocumentCategory, DocumentApprovalStatus } from '@prisma/client';
 import { DocumentMapper } from '@modules/documents/mapper/document.mapper';
 
 /**
@@ -32,6 +32,10 @@ function buildDocument(overrides: Partial<Document> = {}): Document {
     uploadedById: 'user-1',
     archived: false,
     retentionUntil: null,
+    approvalStatus: DocumentApprovalStatus.NOT_REQUIRED,
+    reviewerId: null,
+    reviewedAt: null,
+    reviewComment: null,
     createdAt: new Date('2026-01-01T10:00:00.000Z'),
     updatedAt: new Date('2026-01-02T11:30:00.000Z'),
     deletedAt: null,
@@ -62,6 +66,10 @@ describe('DocumentMapper', () => {
         rootDocumentId: null,
         previousVersionId: null,
         uploadedById: 'user-1',
+        approvalStatus: DocumentApprovalStatus.NOT_REQUIRED,
+        reviewerId: null,
+        reviewedAt: null,
+        reviewComment: null,
         createdAt: '2026-01-01T10:00:00.000Z',
       });
     });
