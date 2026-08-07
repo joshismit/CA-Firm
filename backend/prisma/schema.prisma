@@ -519,6 +519,11 @@ model User {
   dashboardPreference       DashboardPreference?
   updatedDashboardDefaults  DashboardTenantDefault[] @relation("DashboardTenantDefaultUpdatedBy")
 
+  // ── Relations: Client Billing Payment Gateway ───────────────────────────
+  createdPaymentGatewaySettings FirmPaymentGatewaySettings[] @relation("PaymentGatewaySettingsCreatedBy")
+  updatedPaymentGatewaySettings FirmPaymentGatewaySettings[] @relation("PaymentGatewaySettingsUpdatedBy")
+  createdPaymentGatewayLinks    PaymentGatewayLink[]         @relation("PaymentGatewayLinkCreatedBy")
+
   @@unique([tenantId, email], name: "uq_users_tenant_email")
   @@index([tenantId, status], name: "idx_users_tenant_status")
   @@index([tenantId, deletedAt], name: "idx_users_soft_delete")
@@ -2085,6 +2090,7 @@ model Invoice {
   business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
   payments Payment[]
   reminders InvoiceReminder[]
+  paymentGatewayLinks PaymentGatewayLink[]
 
   @@unique([tenantId, invoiceNumber], name: "uq_invoices_tenant_number")
   @@index([tenantId, status], name: "idx_invoices_tenant_status")
@@ -2140,6 +2146,7 @@ model Payment {
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
   invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  paymentGatewayLink PaymentGatewayLink?
 
   @@unique([tenantId, paymentNumber], name: "uq_payments_tenant_number")
   @@index([tenantId, status], name: "idx_payments_tenant_status")
@@ -2147,6 +2154,113 @@ model Payment {
   @@index([tenantId, deletedAt], name: "idx_payments_soft_delete")
   @@index([paymentNumber(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("payments")
+}
+
+// -----------------------------------------------------------------------------
+// SECTION 13B — CLIENT BILLING: PAYMENT GATEWAY (firm-owned client payment
+// collection — Client -> Firm; NOT platform billing, Section 16's Firm ->
+// Platform SaaS subscription, which this never touches).
+// -----------------------------------------------------------------------------
+//
+// Provider-based, mirroring `FirmNotificationSettings` (one-row-per-tenant
+// singleton) and `modules/notifications/providers` (a swappable interface
+// per vendor). `RAZORPAY`/`DISABLED` today; adding Paytm/Cashfree/Stripe/
+// PhonePe later means adding an enum value + a new
+// `PaymentGatewayProvider` implementation, not touching this schema's shape
+// or any of `PaymentLinkService`/`PaymentGatewayWebhookService`'s logic.
+//
+// `FirmPaymentGatewaySettings.encryptedKeySecret`/`encryptedWebhookSecret`
+// are AES-256-GCM ciphertext (`CryptoUtils.encryptSecret`/`decryptSecret`,
+// PRD §12 "Encrypted secrets") — the API layer (`PaymentGatewaySettingsMapper`)
+// never returns them, only `hasKeySecret`/`hasWebhookSecret` booleans.
+//
+// `PaymentGatewayLink.providerPaymentId` is `@unique` tenant-wide (a
+// provider-issued ID, e.g. Razorpay's `plink_...`, never client-chosen) —
+// the one field a webhook payload alone can be looked up by before the
+// tenant is known; see `PaymentGatewayLinkRepository.findByProviderPaymentId()`'s
+// comment for why that's still tenant-safe.
+
+model FirmPaymentGatewaySettings {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @unique @map("tenant_id") @db.Uuid
+
+  enabled  Boolean                     @default(false)
+  provider PaymentGatewayProviderType  @default(DISABLED)
+
+  keyId                  String? @map("key_id") @db.VarChar(255)
+  encryptedKeySecret     String? @map("encrypted_key_secret") @db.Text
+  encryptedWebhookSecret String? @map("encrypted_webhook_secret") @db.Text
+
+  isTestMode Boolean @default(true) @map("is_test_mode")
+  /// True only once `enabled` is set AND the selected provider has the credentials it needs —
+  /// recomputed by `PaymentGatewaySettingsService` on every update, not user-settable directly.
+  isActive   Boolean @default(false) @map("is_active")
+
+  createdBy String? @map("created_by") @db.Uuid
+  updatedBy String? @map("updated_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  createdByUser User? @relation("PaymentGatewaySettingsCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedByUser User? @relation("PaymentGatewaySettingsUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@map("firm_payment_gateway_settings")
+}
+
+model PaymentGatewayLink {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  invoiceId String                     @map("invoice_id") @db.Uuid
+  provider  PaymentGatewayProviderType
+
+  providerPaymentId String                   @unique @map("provider_payment_id") @db.VarChar(100)
+  url                String                   @db.Text
+  amountInPaise      Int                      @map("amount_in_paise")
+  currency           String                   @default("INR") @map("currency") @db.Char(3)
+  status             PaymentGatewayLinkStatus @default(CREATED)
+  expiresAt          DateTime?                @map("expires_at") @db.Timestamptz
+  /// Provider's own response payload, stored separately from this table's normalized columns (PRD §12).
+  providerMetadata   Json?                    @map("provider_metadata") @db.JsonB
+
+  /// Set once the webhook confirms payment and creates the corresponding `Payment` row.
+  paymentId String? @unique @map("payment_id") @db.Uuid
+
+  createdBy String? @map("created_by") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  /// Not exposed via any delete endpoint today — present because `BaseRepository`'s tenant-scoped
+  /// find/update/paginate helpers unconditionally filter on `deletedAt: null`, same reasoning as
+  /// every other `BaseRepository`-backed model in this schema.
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  payment       Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  createdByUser User?    @relation("PaymentGatewayLinkCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, invoiceId], name: "idx_payment_gateway_links_tenant_invoice")
+  @@index([tenantId, status], name: "idx_payment_gateway_links_tenant_status")
+  @@index([tenantId, deletedAt], name: "idx_payment_gateway_links_soft_delete")
+  @@map("payment_gateway_links")
+}
+
+enum PaymentGatewayProviderType {
+  DISABLED
+  RAZORPAY
+
+  @@map("payment_gateway_provider_type")
+}
+
+enum PaymentGatewayLinkStatus {
+  CREATED
+  PARTIALLY_PAID
+  PAID
+  EXPIRED
+  CANCELLED
+
+  @@map("payment_gateway_link_status")
 }
 
 enum InvoiceStatus {

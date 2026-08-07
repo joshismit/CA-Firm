@@ -25,7 +25,14 @@ import { roleRoutes } from '@modules/roles';
 import { permissionRoutes } from '@modules/permissions';
 import { createComplianceFilingRoutes } from '@modules/compliance';
 import { ComplianceCategory } from '@prisma/client';
-import { invoiceRoutes, expenseRoutes, paymentRoutes } from '@modules/client-billing';
+import {
+  invoiceRoutes,
+  expenseRoutes,
+  paymentRoutes,
+  paymentGatewaySettingsRoutes,
+  paymentLinkRoutes,
+  paymentGatewayWebhookRoutes,
+} from '@modules/client-billing';
 import {
   notificationRoutes,
   notificationTemplateRoutes,
@@ -162,6 +169,13 @@ app.use(`${API.PREFIX}/mca`, createComplianceFilingRoutes(ComplianceCategory.MCA
 app.use(`${API.PREFIX}/billing/invoices`, invoiceRoutes);
 app.use(`${API.PREFIX}/billing/expenses`, expenseRoutes);
 app.use(`${API.PREFIX}/billing/payments`, paymentRoutes);
+// PRD §12 — firm-owned client payment gateway (Client -> Firm). `/webhook` is
+// deliberately its own router mounted at a path completely separate from
+// `modules/billing`'s `/subscription/webhook` (Firm -> Platform) below — see
+// `modules/client-billing/routes/payment-gateway-webhook.routes.ts`'s header comment.
+app.use(`${API.PREFIX}/billing/payment-gateway/settings`, paymentGatewaySettingsRoutes);
+app.use(`${API.PREFIX}/billing/payment-gateway/webhook`, paymentGatewayWebhookRoutes);
+app.use(`${API.PREFIX}/billing/payment-links`, paymentLinkRoutes);
 app.use(`${API.PREFIX}/notifications`, notificationRoutes);
 app.use(`${API.PREFIX}/notification-templates`, notificationTemplateRoutes);
 app.use(`${API.PREFIX}/notification-settings`, notificationPreferenceRoutes);

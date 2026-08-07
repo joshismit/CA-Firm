@@ -79,4 +79,35 @@ export const CryptoUtils = {
     if (bufA.length !== bufB.length) return false;
     return crypto.timingSafeEqual(bufA, bufB);
   },
+
+  /**
+   * Encrypts a secret at rest with AES-256-GCM, keyed by a 32-byte hex key
+   * (`env.PAYMENT_GATEWAY_ENCRYPTION_KEY` — see `config/payment-gateway-encryption.ts`).
+   * Used by `modules/client-billing`'s `FirmPaymentGatewaySettings` to store each firm's
+   * own gateway `keySecret`/`webhookSecret` (PRD §12 "Encrypted secrets") — never plaintext,
+   * and never the platform's own `RAZORPAY_KEY_SECRET` (a separate, unrelated credential).
+   * Output is `iv:authTag:ciphertext`, each hex-encoded, so `decryptSecret` can split on `:`
+   * without needing a fixed-width format.
+   */
+  encryptSecret(plainText: string, keyHex: string): string {
+    const key = Buffer.from(keyHex, 'hex');
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const encrypted = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    return [iv.toString('hex'), authTag.toString('hex'), encrypted.toString('hex')].join(':');
+  },
+
+  /** Inverse of `encryptSecret`. Throws if `payload` is malformed or the auth tag doesn't verify (tampered/wrong key). */
+  decryptSecret(payload: string, keyHex: string): string {
+    const [ivHex, authTagHex, dataHex] = payload.split(':');
+    if (!ivHex || !authTagHex || !dataHex) {
+      throw new Error('Malformed encrypted payload');
+    }
+    const key = Buffer.from(keyHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    const decrypted = Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]);
+    return decrypted.toString('utf8');
+  },
 };

@@ -17,6 +17,12 @@
 export { default as invoiceRoutes } from './routes/invoice.routes';
 export { default as expenseRoutes } from './routes/expense.routes';
 export { default as paymentRoutes } from './routes/payment.routes';
+// PRD §12 — firm-owned client payment gateway (Client -> Firm), a provider-based
+// extension of the Payment CRUD above; see `providers/`'s header comment for why
+// this stays entirely separate from `modules/billing` (Firm -> Platform).
+export { default as paymentGatewaySettingsRoutes } from './routes/payment-gateway-settings.routes';
+export { default as paymentLinkRoutes } from './routes/payment-link.routes';
+export { default as paymentGatewayWebhookRoutes } from './routes/payment-gateway-webhook.routes';
 export { CLIENT_BILLING_PERMISSIONS } from './constants/client-billing.permissions';
 export { InvoiceService } from './service/invoice.service';
 export { BillingReminderService } from './service/billing-reminder.service';
@@ -29,3 +35,7 @@ export type { ExpenseResponseDto } from './dto/expense.res.dto';
 export type { CreateExpenseDto, UpdateExpenseDto, ListExpensesQueryDto } from './dto/expense.req.dto';
 export type { PaymentResponseDto } from './dto/payment.res.dto';
 export type { CreatePaymentDto, UpdatePaymentDto, ListPaymentsQueryDto } from './dto/payment.req.dto';
+export type { PaymentGatewaySettingsResponseDto } from './dto/payment-gateway-settings.res.dto';
+export type { UpdatePaymentGatewaySettingsDto } from './dto/payment-gateway-settings.req.dto';
+export type { PaymentLinkResponseDto } from './dto/payment-link.res.dto';
+export type { CreatePaymentLinkDto } from './dto/payment-link.req.dto';

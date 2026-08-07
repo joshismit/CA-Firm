@@ -84,6 +84,21 @@ const envSchema = z.object({
    *  on the client's own success callback (see modules/billing/service/billing.service.ts). */
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
 
+  // ─── Client Payment Gateway (PRD §12 — firm-owned client payment collection) ─
+  // Symmetric key used to encrypt each firm's OWN gateway credentials at rest
+  // (`CryptoUtils.encryptSecret`/`decryptSecret`, AES-256-GCM) — entirely
+  // distinct from RAZORPAY_KEY_SECRET/RAZORPAY_WEBHOOK_SECRET above, which
+  // belong to the platform's own account for SaaS subscription billing
+  // (modules/billing), never to a tenant's client-payment settings
+  // (modules/client-billing). 32 raw bytes, hex-encoded (64 hex chars).
+  // Optional: absent means `paymentGatewayEncryptionConfig.isConfigured` is
+  // false and `PaymentGatewaySettingsService` rejects saving secrets with a
+  // clear 503, mirroring `razorpayConfig.isConfigured`'s same pattern.
+  PAYMENT_GATEWAY_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/i, 'PAYMENT_GATEWAY_ENCRYPTION_KEY must be 64 hex characters (32 bytes)')
+    .optional(),
+
   // ─── Swagger ─────────────────────────────────────────────────────────────
   ENABLE_SWAGGER: z.coerce.boolean().default(true),
 
