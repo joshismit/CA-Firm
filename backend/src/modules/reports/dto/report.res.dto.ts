@@ -12,4 +12,11 @@ export interface ReportResultResponseDto {
   type: ReportType;
   generatedAt: string;
   rows: Array<Record<string, unknown>>;
+  /**
+   * PRD §13.2 report #2 (Converted Clients) — a scalar aggregate ("conversion
+   * ratio") that doesn't fit as a row. Additive and optional: every other
+   * report type omits it entirely, so existing consumers reading only
+   * `.rows` are unaffected.
+   */
+  meta?: Record<string, unknown>;
 }

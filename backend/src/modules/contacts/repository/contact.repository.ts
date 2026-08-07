@@ -62,4 +62,27 @@ export class ContactRepository extends BaseRepository<Prisma.ContactDelegate, Co
     const result = (await client.updateMany({ where, data: { deletedAt: new Date() } })) as { count: number };
     return result.count > 0;
   }
+
+  /**
+   * PRD §13.1 Global Search — Name/Phone/Email use `contains` (Name backed by
+   * the `firstName`/`lastName` trigram GIN index; Phone/Email match this
+   * class's own `search()` precedent above). PAN is a structured code
+   * (`startsWith`, backed by the existing `[tenantId, pan]` index).
+   * Deliberately separate from `search()` — see `BusinessRepository
+   * .findForGlobalSearch()`'s identical reasoning.
+   */
+  async findForGlobalSearch(search: string, limit: number, options: RepositoryOptions = {}): Promise<Contact[]> {
+    const where: Prisma.ContactWhereInput = {
+      OR: [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search, mode: 'insensitive' } },
+        { pan: { startsWith: search, mode: 'insensitive' } },
+      ],
+    };
+
+    const { data } = await this.paginate({ page: 1, limit, sortBy: 'createdAt', sortOrder: 'desc' }, where, options);
+    return data;
+  }
 }

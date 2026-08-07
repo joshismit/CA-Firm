@@ -1003,8 +1003,12 @@ model Business {
   @@index([tenantId, pan])
   @@index([tenantId, gstin])
   @@index([tenantId, cin])
+  /// PRD §13.1 — Global Search's DIN field, `startsWith` lookups, mirrors [tenantId, pan]/[tenantId, gstin] above.
+  @@index([tenantId, din])
   @@index([tenantId, deletedAt])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  /// PRD §13.1 — Global Search's Trade Name field, `contains` lookups.
+  @@index([tradeName(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("businesses")
 }
 
@@ -1387,6 +1391,8 @@ model Lead {
   @@index([tenantId, expectedCloseDate])
   @@index([tenantId, deletedAt])
   @@index([tenantId, priority])
+  /// PRD §13.1 — Global Search's Lead Name field, `contains` lookups.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("leads")
 }
 
@@ -1637,6 +1643,8 @@ model Task {
   @@index([tenantId, rejectedBy])
   @@index([tenantId, type])
   @@index([tenantId, priority])
+  /// PRD §13.1 — Global Search's Task title field, `contains` lookups.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("tasks")
 }
 

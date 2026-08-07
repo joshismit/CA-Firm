@@ -27,6 +27,18 @@ export const reportTypeValues = [
 
 export const reportExportFormatValues = ['CSV', 'PDF', 'XLSX'] as const;
 
+/**
+ * PRD §13.2 — the union of every `groupBy` value any report type supports
+ * (`ReportsRepository.ReportGroupBy`). Deliberately NOT cross-validated
+ * against `type` here — `validate()` (`middlewares/validation.middleware.ts`)
+ * validates `params`/`query` as two independent schemas, so there is no
+ * single-schema place to enforce "only SOURCE/OWNER is valid for NEW_LEADS".
+ * Each `ReportsRepository` finder instead only honors the `groupBy` values
+ * it recognizes and silently falls through to its flat (ungrouped) shape for
+ * any other value — a mismatched combination is a no-op, never a 422.
+ */
+export const reportGroupByValues = ['SOURCE', 'OWNER', 'STAFF', 'PRIORITY', 'STATUS', 'DUE_DATE', 'BUSINESS', 'DATE'] as const;
+
 export const reportTypeParamSchema = z.object({
   type: z.enum(reportTypeValues),
 });
@@ -35,6 +47,7 @@ export const reportFiltersQuerySchema = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   staffId: z.string().uuid().optional(),
+  groupBy: z.enum(reportGroupByValues).optional(),
 });
 
 export const reportExportQuerySchema = reportFiltersQuerySchema.extend({

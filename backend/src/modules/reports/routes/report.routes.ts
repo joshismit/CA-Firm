@@ -59,8 +59,9 @@ const router = Router();
  *     summary: Generate a report
  *     description: >
  *       Synchronous read-only projection over existing data — no report is
- *       persisted. Returns 501 for PENDING_DOCUMENTS (no document review/
- *       signature status exists in this backend).
+ *       persisted. STAFF callers always see only their own rows regardless of
+ *       `staffId` (server-enforced); MANAGER/TENANT_ADMIN/MASTER_ADMIN see the
+ *       whole tenant.
  *     security: [{ BearerAuth: [] }]
  *     x-permission: reports:read
  *     parameters:
@@ -73,13 +74,18 @@ const router = Router();
  *         schema: { type: string, format: date-time }
  *       - name: staffId
  *         in: query
+ *         description: Ignored for STAFF callers — their own user id is always enforced server-side.
  *         schema: { type: string, format: uuid }
+ *       - name: groupBy
+ *         in: query
+ *         description: Only honored by the report types it applies to; ignored (not a 422) otherwise.
+ *         schema: { type: string, enum: [SOURCE, OWNER, STAFF, PRIORITY, STATUS, DUE_DATE, BUSINESS, DATE] }
  *     responses:
  *       200: { description: Report generated. }
  *       401: { description: Missing or invalid access token. }
  *       403: { description: Caller lacks the `reports:read` permission. }
  *       422: { description: Invalid type or query parameters. }
- *       501: { description: This report type cannot be generated yet (e.g. PENDING_DOCUMENTS). }
+ *       501: { description: This export format is not implemented (PDF/XLSX). }
  */
 router.get(
   '/:type',
@@ -109,7 +115,12 @@ router.get(
  *         schema: { type: string, format: date-time }
  *       - name: staffId
  *         in: query
+ *         description: Ignored for STAFF callers — their own user id is always enforced server-side.
  *         schema: { type: string, format: uuid }
+ *       - name: groupBy
+ *         in: query
+ *         description: Only honored by the report types it applies to; ignored (not a 422) otherwise.
+ *         schema: { type: string, enum: [SOURCE, OWNER, STAFF, PRIORITY, STATUS, DUE_DATE, BUSINESS, DATE] }
  *       - name: format
  *         in: query
  *         required: true

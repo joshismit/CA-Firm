@@ -1,15 +1,21 @@
 // src/components/navigation/CommandPalette.tsx
 // Global Ctrl+K / Cmd+K command palette, wired to store/ui.store.ts's commandMenuOpen state and
 // the Header's search trigger button. Search categories:
-//   - Pages: every item in constants/navigation.ts (always available, no API)
-//   - Projects / Tasks: real results from the live backend (the only two modules with a real API)
-//   - Clients: architecture only - no Clients API exists yet, so this stays a placeholder
-//     (see backend status: only Projects/Tasks are implemented) rather than inventing one.
+//   - Pages: every item in constants/navigation.ts (always available, no API) — filtered by cmdk's
+//     own built-in fuzzy matching against the live (undebounced) input, unchanged from before.
+//   - Projects: a fixed first-8 batch, also cmdk-filtered locally — unchanged from before (Projects
+//     is outside PRD §13.1's scope, which only covers Businesses/Contacts/CRM/Documents/Tasks).
+//   - Businesses / Contacts / Leads / Documents / Tasks: real grouped results from the PRD §13.1
+//     Global Search endpoint (`GET /search`, `useGlobalSearchQuery`) — already tenant-scoped,
+//     permission-gated per category, and text-matched server-side, so each `CommandItem` is
+//     `forceMount`ed to opt out of cmdk's own (redundant, and sometimes wrong — e.g. a Lead matched
+//     on its linked Contact's email, which cmdk's local fuzzy scorer has no way to know about)
+//     client-side re-filtering. A group only renders once it has at least one result.
 //
-// Data queries only run while the palette is open: the outer <CommandPalette> mounts the keyboard
-// listener unconditionally, but only renders <CommandPaletteContent> (which calls the Projects/Tasks
-// query hooks) when open - so nothing is fetched in the background while the palette is closed.
-import { useEffect, useMemo } from 'react'
+// The search-endpoint groups only start fetching once the palette is open AND the (debounced) query
+// is non-empty (`useGlobalSearchQuery`'s own `enabled` check) - nothing is fetched in the background
+// while the palette is closed or the input is empty.
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   CommandDialog,
@@ -20,18 +26,58 @@ import {
   CommandList,
   CommandSeparator,
 } from 'cmdk'
-import { FileText, LayoutGrid, Users } from 'lucide-react'
+import { Building2, Contact as ContactIcon, File, FileText, LayoutGrid, Target } from 'lucide-react'
 import { useUiStore } from '@/store/ui.store'
 import { NAV_GROUPS } from '@/constants/navigation'
+import { useDebounce } from '@/hooks/use-debounce'
 import { useProjectsQuery } from '@/modules/projects/hooks'
-import { useTasksQuery } from '@/modules/tasks/hooks'
+import { useGlobalSearchQuery } from '@/modules/search/hooks'
+import type { SearchResultItem } from '@/modules/search/types'
 
 const itemClass =
   'flex items-center gap-2.5 rounded-[var(--radius-md)] px-3 py-2 text-[13px] text-[var(--color-text-body)] ' +
   'cursor-pointer data-[selected=true]:bg-[var(--color-hover)] outline-none'
 
+/** PRD §13.1 — one group per search-endpoint result category, rendered identically apart from icon/heading. */
+function SearchResultGroup({
+  heading,
+  icon: Icon,
+  items,
+  onSelect,
+}: {
+  heading: string
+  icon: typeof Building2
+  items: SearchResultItem[]
+  onSelect: (route: string) => void
+}) {
+  if (items.length === 0) return null
+
+  return (
+    <>
+      <CommandGroup heading={heading} className="text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-muted)] px-2 py-1.5">
+        {items.map((item) => (
+          <CommandItem
+            key={item.id}
+            value={item.id}
+            forceMount
+            onSelect={() => onSelect(item.route)}
+            className={itemClass}
+          >
+            <Icon className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
+            <span className="truncate">{item.title}</span>
+            {item.subtitle && <span className="ml-auto truncate text-[11px] text-[var(--color-text-muted)]">{item.subtitle}</span>}
+          </CommandItem>
+        ))}
+      </CommandGroup>
+      <CommandSeparator className="my-2 h-px bg-[var(--color-border)]" />
+    </>
+  )
+}
+
 function CommandPaletteContent({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate()
+  const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
 
   const pages = useMemo(
     () => NAV_GROUPS.flatMap((group) => group.items.map((item) => ({ ...item, group: group.label }))),
@@ -39,7 +85,7 @@ function CommandPaletteContent({ onOpenChange }: { onOpenChange: (open: boolean)
   )
 
   const { data: projectsData } = useProjectsQuery({ page: 1, limit: 8 })
-  const { data: tasksData } = useTasksQuery({ page: 1, limit: 8 })
+  const { data: searchResults } = useGlobalSearchQuery(debouncedSearch, 8)
 
   const go = (path: string) => {
     navigate(path)
@@ -49,10 +95,12 @@ function CommandPaletteContent({ onOpenChange }: { onOpenChange: (open: boolean)
   return (
     <>
       <CommandInput
-        placeholder="Search pages, projects, tasks…"
+        value={search}
+        onValueChange={setSearch}
+        placeholder="Search pages, businesses, contacts, leads, documents, tasks…"
         className="w-full h-12 px-4 text-[14px] bg-transparent outline-none border-b border-[var(--color-border)] text-[var(--color-text-body)] placeholder:text-[var(--color-text-disabled)]"
       />
-      <CommandList className="max-h-[360px] overflow-y-auto p-2">
+      <CommandList className="max-h-[400px] overflow-y-auto p-2">
         <CommandEmpty className="py-8 text-center text-[13px] text-[var(--color-text-muted)]">
           No results found.
         </CommandEmpty>
@@ -89,24 +137,11 @@ function CommandPaletteContent({ onOpenChange }: { onOpenChange: (open: boolean)
 
         <CommandSeparator className="my-2 h-px bg-[var(--color-border)]" />
 
-        <CommandGroup heading="Tasks" className="text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-muted)] px-2 py-1.5">
-          {(tasksData?.data ?? []).map((task) => (
-            <CommandItem key={task.id} value={task.title} onSelect={() => go(`/tasks/${task.id}`)} className={itemClass}>
-              <FileText className="w-4 h-4 text-[var(--color-text-muted)]" />
-              <span className="truncate">{task.title}</span>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-
-        <CommandSeparator className="my-2 h-px bg-[var(--color-border)]" />
-
-        <CommandGroup heading="Clients" className="text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-muted)] px-2 py-1.5">
-          <CommandItem disabled value="clients-unavailable" className={itemClass + ' opacity-50 cursor-not-allowed'}>
-            <Users className="w-4 h-4 text-[var(--color-text-muted)]" />
-            {/* TODO: replace with a real client search once a Clients API exists. */}
-            <span>Client search will be available once the Clients API is live</span>
-          </CommandItem>
-        </CommandGroup>
+        <SearchResultGroup heading="Businesses" icon={Building2} items={searchResults?.businesses ?? []} onSelect={go} />
+        <SearchResultGroup heading="Contacts" icon={ContactIcon} items={searchResults?.contacts ?? []} onSelect={go} />
+        <SearchResultGroup heading="Documents" icon={File} items={searchResults?.documents ?? []} onSelect={go} />
+        <SearchResultGroup heading="Tasks" icon={FileText} items={searchResults?.tasks ?? []} onSelect={go} />
+        <SearchResultGroup heading="Leads" icon={Target} items={searchResults?.leads ?? []} onSelect={go} />
       </CommandList>
     </>
   )

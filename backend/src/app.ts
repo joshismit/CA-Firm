@@ -41,6 +41,7 @@ import {
 } from '@modules/notifications';
 import { dashboardPreferenceRoutes, dashboardTenantDefaultRoutes, dashboardRoutes } from '@modules/dashboard';
 import { reportRoutes } from '@modules/reports';
+import { searchRoutes } from '@modules/search';
 import { masterAdminRoutes } from '@modules/master-admin';
 import { billingRoutes } from '@modules/billing';
 import { auditRoutes } from '@modules/audit';
@@ -188,6 +189,8 @@ app.use(`${API.PREFIX}/dashboard/preferences`, dashboardPreferenceRoutes);
 app.use(`${API.PREFIX}/dashboard/tenant-defaults`, dashboardTenantDefaultRoutes);
 app.use(`${API.PREFIX}/dashboard`, dashboardRoutes);
 app.use(`${API.PREFIX}/reports`, reportRoutes);
+// PRD §13.1 — cross-entity global search (Businesses/Contacts/Leads/Documents/Tasks).
+app.use(`${API.PREFIX}/search`, searchRoutes);
 
 // Platform-level admin panel (PRD §4.1 "Master Login") — cross-tenant, gated by
 // requireRole(MASTER_ADMIN) inside the router itself rather than tenantMiddleware.

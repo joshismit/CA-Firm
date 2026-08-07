@@ -1,4 +1,10 @@
-import { reportTypeValues, reportTypeParamSchema, reportFiltersQuerySchema, reportExportQuerySchema } from '@modules/reports/schemas/report.schema';
+import {
+  reportTypeValues,
+  reportGroupByValues,
+  reportTypeParamSchema,
+  reportFiltersQuerySchema,
+  reportExportQuerySchema,
+} from '@modules/reports/schemas/report.schema';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -47,6 +53,14 @@ describe('reportFiltersQuerySchema', () => {
 
   it('rejects a non-UUID staffId', () => {
     expect(reportFiltersQuerySchema.safeParse({ staffId: 'not-a-uuid' }).success).toBe(false);
+  });
+
+  it.each(reportGroupByValues)('accepts the valid groupBy value %s', (groupBy) => {
+    expect(reportFiltersQuerySchema.safeParse({ groupBy }).success).toBe(true);
+  });
+
+  it('rejects an unknown groupBy value', () => {
+    expect(reportFiltersQuerySchema.safeParse({ groupBy: 'REGION' }).success).toBe(false);
   });
 });
 

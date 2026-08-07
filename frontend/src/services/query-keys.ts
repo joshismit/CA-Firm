@@ -108,6 +108,9 @@ export const queryKeys = {
   reports: {
     report: (type: ReportType, filters: ReportFilters) => ['reports', type, filters] as const,
   },
+  search: {
+    results: (q: string, limit: number) => ['search', q, limit] as const,
+  },
   whiteLabel: {
     branding: ['white-label', 'branding'] as const,
     domain: ['white-label', 'domain'] as const,

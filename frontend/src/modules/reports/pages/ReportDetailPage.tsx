@@ -15,7 +15,7 @@ import { PERMISSIONS } from '@/config/permissions.config'
 import { normalizeApiError } from '@/services/api-error'
 import { useReportQuery, useExportReportMutation } from '../hooks'
 import { ReportFiltersForm } from '../components'
-import { REPORT_CATEGORY_LABELS, REPORT_TYPE_CATEGORY, REPORT_TYPE_DESCRIPTIONS, REPORT_TYPE_LABELS } from '../constants'
+import { REPORT_CATEGORY_LABELS, REPORT_TYPE_CATEGORY, REPORT_TYPE_DESCRIPTIONS, REPORT_TYPE_GROUP_BY_OPTIONS, REPORT_TYPE_LABELS } from '../constants'
 import type { ReportFilters, ReportType } from '../types'
 
 export function ReportDetailPage() {
@@ -88,8 +88,24 @@ export function ReportDetailPage() {
         <div className="space-y-4">
           <Card>
             <CardHeader title="Filters" action={<span className="text-[11px] text-[var(--color-text-muted)]">{REPORT_CATEGORY_LABELS[REPORT_TYPE_CATEGORY[reportType]]}</span>} />
-            <ReportFiltersForm onGenerate={handleGenerate} isGenerating={isLoading} />
+            <ReportFiltersForm onGenerate={handleGenerate} isGenerating={isLoading} groupByOptions={REPORT_TYPE_GROUP_BY_OPTIONS[reportType]} />
           </Card>
+
+          {data?.meta && Object.keys(data.meta).length > 0 && (
+            <Card>
+              <CardHeader title="Summary" />
+              <div className="flex flex-wrap gap-6 px-4 py-3">
+                {Object.entries(data.meta).map(([key, value]) => (
+                  <div key={key}>
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">{key}</div>
+                    <div className="text-[15px] font-medium text-[var(--color-text-body)]">
+                      {typeof value === 'number' && key.toLowerCase().includes('ratio') ? `${(value * 100).toFixed(1)}%` : String(value)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {exportMutation.isError && (
             <p className="text-[12px] text-[var(--color-danger)]">{normalizeApiError(exportMutation.error).message}</p>

@@ -61,6 +61,28 @@ export class DocumentRepository extends BaseRepository<Prisma.DocumentDelegate, 
   }
 
   /**
+   * PRD §13.1 Global Search — "Original filename" (`contains`, backed by the
+   * existing `fileName` trigram GIN index). `scopeWhere` is the caller's
+   * `DocumentAccessScopeService`-resolved restriction, ANDed on exactly like
+   * `search()` above — reused, not reinvented, since Documents is the one
+   * category with real per-record access scoping. Deliberately separate from
+   * `search()` — see `BusinessRepository.findForGlobalSearch()`'s identical
+   * reasoning.
+   */
+  async findForGlobalSearch(
+    search: string,
+    limit: number,
+    options: RepositoryOptions = {},
+    scopeWhere?: Prisma.DocumentWhereInput,
+  ): Promise<Document[]> {
+    const where: Prisma.DocumentWhereInput = { fileName: { contains: search, mode: 'insensitive' } };
+    const combinedWhere = scopeWhere && Object.keys(scopeWhere).length > 0 ? { AND: [where, scopeWhere] } : where;
+
+    const { data } = await this.paginate({ page: 1, limit, sortBy: 'createdAt', sortOrder: 'desc' }, combinedWhere, options);
+    return data;
+  }
+
+  /**
    * PRD §7.2 rule 6 — "replace candidate" detection. A conflict is the current
    * latest version of a document anchored to the exact same
    * Business + Contact + Folder + Category + filename. Deliberately an exact

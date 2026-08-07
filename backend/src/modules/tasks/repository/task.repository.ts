@@ -177,6 +177,17 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
   }
 
   /**
+   * PRD §13.1 Global Search — "Task title" (`contains`, backed by the
+   * `title` trigram GIN index). Deliberately separate from `search()` — see
+   * `BusinessRepository.findForGlobalSearch()`'s identical reasoning.
+   */
+  async findForGlobalSearch(search: string, limit: number, options: RepositoryOptions = {}): Promise<Task[]> {
+    const where: Prisma.TaskWhereInput = { title: { contains: search, mode: 'insensitive' } };
+    const { data } = await this.paginate({ page: 1, limit, sortBy: 'createdAt', sortOrder: 'desc' }, where, options);
+    return data;
+  }
+
+  /**
    * Counts tasks in a given status (e.g. for dashboard widgets).
    */
   async countByStatus(status: TaskStatus, options: RepositoryOptions = {}): Promise<number> {
