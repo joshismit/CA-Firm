@@ -5,7 +5,7 @@
 // already-wired Projects/Tasks modules - which are off-limits to modify - don't need touching.)
 
 import type { ProjectListFilters } from '@/modules/projects/types'
-import type { TaskListFilters } from '@/modules/tasks/types'
+import type { AssignableStaffQuery, TaskListFilters } from '@/modules/tasks/types'
 import type { BusinessListFilters } from '@/modules/business/types'
 import type { ContactListFilters } from '@/modules/contacts/types'
 import type { LeadListFilters } from '@/modules/crm/types'
@@ -51,6 +51,7 @@ export const queryKeys = {
     overdue: () => [...queryKeys.tasks.all, 'overdue'] as const,
     byProject: (projectId: string) => [...queryKeys.tasks.all, 'project', projectId] as const,
     byAssignee: (assigneeId: string) => [...queryKeys.tasks.all, 'assignee', assigneeId] as const,
+    assignableStaff: (query: AssignableStaffQuery) => [...queryKeys.tasks.all, 'assignable-staff', query] as const,
   },
 
   business: {

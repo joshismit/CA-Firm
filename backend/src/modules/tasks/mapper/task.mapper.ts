@@ -29,6 +29,7 @@ export class TaskMapper {
       projectId: task.projectId,
       leadId: task.leadId,
       assigneeId: task.assigneeId,
+      createdBy: task.createdBy,
       businessId: task.businessId,
       contactId: task.contactId,
       clientId: task.clientId,

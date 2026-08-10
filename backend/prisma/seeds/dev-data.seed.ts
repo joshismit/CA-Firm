@@ -25,9 +25,11 @@ import {
   ACCOUNTANT_ROLE_NAME,
   AUDITOR_ROLE_NAME,
   HR_ROLE_NAME,
+  CLIENT_ROLE_NAME,
   ACCOUNTANT_PERMISSION_CODES,
   AUDITOR_PERMISSION_CODES,
   HR_PERMISSION_CODES,
+  CLIENT_PERMISSION_CODES,
 } from '../../src/modules/roles/constants/extended-roles.constants';
 
 /**
@@ -59,6 +61,8 @@ const STAFF_EMAIL = 'staff@democafirm.test';
 const ACCOUNTANT_EMAIL = 'accountant@democafirm.test';
 const AUDITOR_EMAIL = 'auditor@democafirm.test';
 const HR_EMAIL = 'hr@democafirm.test';
+/** Client-portal login demo — linked to `contact1` (Rohit Sharma, Sharma & Sons) once `seedDemoEntities()` creates that Contact. */
+const CLIENT_EMAIL = 'client@democafirm.test';
 
 async function seedTenant() {
   const tenant = await prisma.tenant.upsert({
@@ -187,7 +191,28 @@ async function seedUsers(tenantId: string) {
     },
   });
 
-  return { owner, staff, accountant, auditor, hr };
+  // CLIENT-portal demo user — `resolveRole()` only resolves this to UserRole.CLIENT once
+  // `seedDemoEntities()` links `Contact.portalUserId` to this user's id (see below).
+  const client = await prisma.user.upsert({
+    where: { uq_users_tenant_email: { tenantId, email: CLIENT_EMAIL } },
+    update: {},
+    create: {
+      tenantId,
+      email: CLIENT_EMAIL,
+      passwordHash,
+      firstName: 'Rohit',
+      lastName: 'Sharma',
+      phone: '+919000011111',
+      status: UserStatus.ACTIVE,
+      isOwner: false,
+      jobTitle: 'Client (Sharma & Sons)',
+      emailVerifiedAt: new Date(),
+      passwordChangedAt: new Date(),
+      createdBy: owner.id,
+    },
+  });
+
+  return { owner, staff, accountant, auditor, hr, client };
 }
 
 async function seedRolesAndPermissions(
@@ -197,6 +222,7 @@ async function seedRolesAndPermissions(
   accountantId: string,
   auditorId: string,
   hrId: string,
+  clientId: string,
 ) {
   const ownerRole = await prisma.role.upsert({
     where: { uq_roles_tenant_name: { tenantId, name: 'Owner' } },
@@ -283,6 +309,12 @@ async function seedRolesAndPermissions(
       description: 'Manages staff users. No access to client documents.',
       userId: hrId,
       codes: HR_PERMISSION_CODES,
+    },
+    {
+      name: CLIENT_ROLE_NAME,
+      description: 'Client-portal user — can create and assign tasks for their own business only.',
+      userId: clientId,
+      codes: CLIENT_PERMISSION_CODES,
     },
   ];
 
@@ -376,6 +408,7 @@ async function seedDemoEntities(
   owner: { id: string },
   staff: { id: string },
   accountant: { id: string },
+  client: { id: string },
 ) {
   const refData = await seedCrmReferenceData(tenantId);
 
@@ -384,6 +417,9 @@ async function seedDemoEntities(
   );
 
   // ── Contacts ──────────────────────────────────────────────────────────────
+  // `portalUserId` links this Contact to the demo Client-portal user (`CLIENT_EMAIL`) — the
+  // one place this field is ever set outside `AuthService.acceptInvite()`'s invite flow, since
+  // this Contact and its business are created together in this same seed run.
   const contact1 = await prisma.contact.create({
     data: {
       tenantId,
@@ -392,6 +428,7 @@ async function seedDemoEntities(
       email: 'rohit.sharma@sharmasons.example',
       phone: '+919000011111',
       pan: 'ABCDE1234F',
+      portalUserId: client.id,
       addresses: {
         create: {
           tenantId,
@@ -848,17 +885,17 @@ async function main(): Promise<void> {
   await seedBusinessTypes(prisma);
 
   console.log('Seeding demo users...');
-  const { owner, staff, accountant, auditor, hr } = await seedUsers(tenant.id);
+  const { owner, staff, accountant, auditor, hr, client } = await seedUsers(tenant.id);
 
   console.log('Seeding roles & permission grants...');
-  await seedRolesAndPermissions(tenant.id, owner.id, staff.id, accountant.id, auditor.id, hr.id);
+  await seedRolesAndPermissions(tenant.id, owner.id, staff.id, accountant.id, auditor.id, hr.id, client.id);
 
   const existingBusinessCount = await prisma.business.count({ where: { tenantId: tenant.id } });
   if (existingBusinessCount > 0) {
     console.log('Demo business/CRM/project/task/document data already present — skipping.');
   } else {
     console.log('Seeding businesses, contacts, leads, clients, projects, tasks, documents...');
-    await seedDemoEntities(tenant.id, owner, staff, accountant);
+    await seedDemoEntities(tenant.id, owner, staff, accountant, client);
   }
 
   console.log('\nDone. Log in with:');
@@ -867,6 +904,7 @@ async function main(): Promise<void> {
   console.log(`  Accountant: ${ACCOUNTANT_EMAIL} / ${DEMO_PASSWORD}`);
   console.log(`  Auditor: ${AUDITOR_EMAIL} / ${DEMO_PASSWORD}`);
   console.log(`  HR: ${HR_EMAIL} / ${DEMO_PASSWORD}`);
+  console.log(`  Client (Sharma & Sons): ${CLIENT_EMAIL} / ${DEMO_PASSWORD}`);
 }
 
 main()

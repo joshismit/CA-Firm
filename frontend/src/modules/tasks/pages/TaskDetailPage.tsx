@@ -14,11 +14,13 @@ import { PERMISSIONS } from '@/config/permissions.config'
 import { normalizeApiError } from '@/services/api-error'
 import { formatDate } from '@/lib/utils'
 import {
+  useAssignTaskMutation,
   useDeleteTaskMutation,
   useTaskQuery,
   useUpdateTaskMutation,
   useUpdateTaskStatusMutation,
 } from '../hooks'
+import { StaffAssigneePicker } from '../components'
 import { taskStatusValues } from '../schemas'
 import type { TaskStatus } from '../types'
 
@@ -43,7 +45,8 @@ export function TaskDetailPage() {
   const { data: task, isLoading, isError, error } = useTaskQuery(id!)
 
   const statusMutation = useUpdateTaskStatusMutation(id!)
-  const reassignMutation = useUpdateTaskMutation(id!)
+  const moveMutation = useUpdateTaskMutation(id!)
+  const assignMutation = useAssignTaskMutation(id!)
   const deleteMutation = useDeleteTaskMutation()
 
   const [assigneeId, setAssigneeId] = useState('')
@@ -134,38 +137,51 @@ export function TaskDetailPage() {
         </dl>
       </Card>
 
+      {/* PRD §9 - a dedicated tasks:assign action, separate from tasks:update (the CLIENT role is
+          granted the former but not the latter, so this can't be folded into the "move" card below). */}
+      <Can permission={PERMISSIONS.TASKS_ASSIGN}>
+        <Card>
+          <CardHeader title="Assign" />
+          <div className="flex items-center gap-3">
+            <StaffAssigneePicker
+              value={assigneeId || undefined}
+              onChange={setAssigneeId}
+              placeholder="Select a staff member…"
+              className="max-w-[280px]"
+            />
+            <Button
+              size="sm"
+              onClick={() => assignMutation.mutate(assigneeId)}
+              loading={assignMutation.isPending}
+              disabled={!assigneeId}
+            >
+              Assign
+            </Button>
+          </div>
+          {assignMutation.isError && (
+            <p className="mt-2 text-[12px] text-[var(--color-danger)]">{normalizeApiError(assignMutation.error).message}</p>
+          )}
+        </Card>
+      </Can>
+
       <Can permission={PERMISSIONS.TASKS_UPDATE}>
         <Card>
-          <CardHeader title="Reassign / move" />
-          <p className="text-[12px] text-[var(--color-text-muted)] mb-3">
-            Unlike Projects, a Task's assignee and project can be changed after creation.
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>New assignee ID</Label>
-              <Input value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} placeholder="User UUID" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>New project ID</Label>
-              <Input value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="Project UUID" />
-            </div>
+          <CardHeader title="Move to project" />
+          <div className="space-y-1.5 max-w-[280px]">
+            <Label>New project ID</Label>
+            <Input value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="Project UUID" />
           </div>
           <div className="mt-3 flex items-center gap-2">
             <Button
               size="sm"
-              onClick={() =>
-                reassignMutation.mutate({
-                  assigneeId: assigneeId.trim() || undefined,
-                  projectId: projectId.trim() || undefined,
-                })
-              }
-              loading={reassignMutation.isPending}
-              disabled={!assigneeId.trim() && !projectId.trim()}
+              onClick={() => moveMutation.mutate({ projectId: projectId.trim() || undefined })}
+              loading={moveMutation.isPending}
+              disabled={!projectId.trim()}
             >
               Save
             </Button>
-            {reassignMutation.isError && (
-              <p className="text-[12px] text-[var(--color-danger)]">{normalizeApiError(reassignMutation.error).message}</p>
+            {moveMutation.isError && (
+              <p className="text-[12px] text-[var(--color-danger)]">{normalizeApiError(moveMutation.error).message}</p>
             )}
           </div>
         </Card>

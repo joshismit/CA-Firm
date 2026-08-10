@@ -10,6 +10,9 @@ export interface Task {
   status: TaskStatus
   projectId: string | null
   assigneeId: string | null
+  createdBy: string | null
+  /** The client this task belongs to - set server-side for client-portal-created tasks, never trust a client-supplied value. */
+  clientId: string | null
   startDate: string | null
   dueDate: string | null
   completedAt: string | null
@@ -28,6 +31,7 @@ export interface TaskListFilters {
   status?: TaskStatus
   projectId?: string
   assigneeId?: string
+  clientId?: string
   dueBefore?: string
   dueAfter?: string
 }
@@ -37,8 +41,23 @@ export interface CreateTaskPayload {
   description?: string
   projectId?: string
   assigneeId?: string
+  /** Only honored for a staff caller - a CLIENT caller's own client is always resolved server-side, this field is ignored for them. */
+  clientId?: string
   startDate?: string
   dueDate?: string
+}
+
+/** `GET /tasks/assignable-staff` - eligible assignees for a task, scoped to the caller's own client (for CLIENT users) or the given business/client (for staff). */
+export interface AssignableStaffQuery {
+  businessId?: string
+  clientId?: string
+}
+
+export interface AssignableStaffMember {
+  id: string
+  firstName: string
+  lastName: string | null
+  email: string
 }
 
 export interface UpdateTaskPayload {

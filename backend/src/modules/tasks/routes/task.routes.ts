@@ -12,6 +12,7 @@ import {
   assignTaskSchema,
   rejectTaskSchema,
   listTasksQuerySchema,
+  assignableStaffQuerySchema,
   taskIdParamSchema,
   projectIdParamSchema,
   leadIdParamSchema,
@@ -475,6 +476,69 @@ router.get(
   tenantMiddleware,
   requirePermission(TASK_PERMISSIONS.READ),
   TaskController.getOverdue,
+);
+
+/**
+ * @swagger
+ * /tasks/assignable-staff:
+ *   get:
+ *     tags: [Tasks]
+ *     summary: List staff eligible for task assignment
+ *     description: >
+ *       Returns the staff a caller may assign a task to. Sourced from
+ *       BusinessAssignment for the given/resolved Business, falling back to
+ *       all active tenant staff when that Business has no assignments yet.
+ *       A CLIENT caller's own Business is always used — businessId/clientId
+ *       query params are ignored for them. Gated on tasks:create (not
+ *       tasks:read) since the only reason to call this is to populate a
+ *       picker while creating/assigning a task.
+ *     security:
+ *       - BearerAuth: []
+ *     x-permission: tasks:create
+ *     parameters:
+ *       - name: businessId
+ *         in: query
+ *         schema: { type: string, format: uuid }
+ *       - name: clientId
+ *         in: query
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Eligible staff (id, firstName, lastName, email only).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 message: { type: string, example: Fetched successfully }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id: { type: string, format: uuid }
+ *                       firstName: { type: string }
+ *                       lastName: { type: string, nullable: true }
+ *                       email: { type: string }
+ *       401:
+ *         description: Missing or invalid access token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ *       403:
+ *         description: Caller lacks the `tasks:create` permission.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiErrorResponse' }
+ */
+router.get(
+  '/assignable-staff',
+  authMiddleware,
+  tenantMiddleware,
+  requirePermission(TASK_PERMISSIONS.CREATE),
+  validate({ query: assignableStaffQuerySchema }),
+  TaskController.getAssignableStaff,
 );
 
 /**

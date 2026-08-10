@@ -32,6 +32,7 @@ export const PERMISSION_ACTIONS = {
   IMPORT: 'import',
   APPROVE: 'approve',
   MANAGE: 'manage',
+  ASSIGN: 'assign',
 } as const
 
 export type PermissionResource = (typeof PERMISSION_RESOURCES)[keyof typeof PERMISSION_RESOURCES]
@@ -59,6 +60,7 @@ export const PERMISSIONS = {
   TASKS_MANAGE: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.MANAGE),
   TASKS_EXPORT: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.EXPORT),
   TASKS_APPROVE: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.APPROVE),
+  TASKS_ASSIGN: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.ASSIGN),
 
   // Business joined Projects/Tasks as a real, backend-verified resource once
   // backend/src/modules/business shipped (Phase 6 backend enablement) - matches

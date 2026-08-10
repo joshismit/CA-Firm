@@ -12,6 +12,9 @@ import {
   LoginEventStatus,
 } from '@prisma/client';
 
+/** `User` plus the reverse of `Contact.portalUserId` — non-null only for a CLIENT-portal user. */
+export type UserWithPortalContact = User & { portalContact: { id: string } | null };
+
 /**
  * ─────────────────────────────────────────────────────────────────────────────
  * Auth Repository
@@ -42,13 +45,23 @@ export class AuthRepository {
    * constrained per-tenant (`@@unique([tenantId, email])`), not globally, so
    * this assumes email is in practice not reused across tenants — the DB does
    * not enforce that assumption.
+   *
+   * Includes `portalContact` (the reverse of `Contact.portalUserId`) so
+   * `AuthService.resolveRole()` can detect a CLIENT-portal user without a
+   * second round trip.
    */
-  async findUserByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findFirst({ where: { email, deletedAt: null } });
+  async findUserByEmail(email: string): Promise<UserWithPortalContact | null> {
+    return this.prisma.user.findFirst({
+      where: { email, deletedAt: null },
+      include: { portalContact: { select: { id: true } } },
+    });
   }
 
-  async findUserById(id: string): Promise<User | null> {
-    return this.prisma.user.findFirst({ where: { id, deletedAt: null } });
+  async findUserById(id: string): Promise<UserWithPortalContact | null> {
+    return this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+      include: { portalContact: { select: { id: true } } },
+    });
   }
 
   async recordFailedLogin(userId: string, failedLoginCount: number, lockedUntil: Date | null): Promise<void> {

@@ -11,6 +11,7 @@ import {
   AssignTaskDto,
   RejectTaskDto,
   ListTasksQueryDto,
+  AssignableStaffQueryDto,
 } from '../dto/task.req.dto';
 
 /**
@@ -197,5 +198,14 @@ export class TaskController {
       .json(
         ApiResponseHelper.success(req, TaskMapper.toResponseDtoList(tasks), MESSAGES.FETCHED),
       );
+  });
+
+  static getAssignableStaff = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const service = new TaskService(req);
+    const staff = await service.getAssignableStaff(req.query as unknown as AssignableStaffQueryDto);
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(ApiResponseHelper.success(req, staff, MESSAGES.FETCHED));
   });
 }

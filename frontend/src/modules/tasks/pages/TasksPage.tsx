@@ -1,7 +1,7 @@
 // src/modules/tasks/pages/TasksPage.tsx
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { AlertCircle, Plus } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { AlertCircle } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader/PageHeader'
 import { Tabs } from '@/components/shared/Tabs/Tabs'
 import { Card } from '@/components/shared/Card/Card'
@@ -13,6 +13,7 @@ import { normalizeApiError } from '@/services/api-error'
 import { useAuthStore } from '@/store/auth.store'
 import { cn, formatDate } from '@/lib/utils'
 import { useTasksQuery } from '../hooks'
+import { CreateTaskDialog } from '../components'
 import type { TaskStatus } from '../types'
 
 type TabValue = 'all' | TaskStatus
@@ -30,15 +31,10 @@ const STATUS_CONFIG: Record<TaskStatus, { variant: 'default' | 'success' | 'warn
   CANCELLED: { variant: 'danger', label: 'Cancelled' },
 }
 
-const primaryBtn = cn(
-  'flex items-center gap-1.5 h-8 px-3 rounded-[var(--radius-md)]',
-  'text-[12px] font-medium text-white bg-[var(--color-primary-600)]',
-  'hover:bg-[var(--color-primary-700)] transition-colors shadow-[var(--shadow-xs)]'
-)
-
 export function TasksPage({ scope = 'team' }: TasksPageProps) {
   const [tab, setTab] = useState<TabValue>('all')
   const currentUserId = useAuthStore((s) => s.user?.id)
+  const navigate = useNavigate()
 
   const { data, isLoading, isError, error } = useTasksQuery({
     status: tab === 'all' ? undefined : tab,
@@ -57,10 +53,7 @@ export function TasksPage({ scope = 'team' }: TasksPageProps) {
         description={`${total} task${total === 1 ? '' : 's'}`}
         actions={
           <Can permission={PERMISSIONS.TASKS_CREATE}>
-            <button className={primaryBtn}>
-              <Plus className="w-3.5 h-3.5" />
-              New Task
-            </button>
+            <CreateTaskDialog onCreated={(taskId) => navigate(`/tasks/${taskId}`)} />
           </Can>
         }
       />

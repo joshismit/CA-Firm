@@ -63,6 +63,12 @@ export class UserRepository extends BaseRepository<Prisma.UserDelegate, User> {
     return this.findFirst({ email }, options);
   }
 
+  /** Used by `TaskService.getAssignableStaff()` to resolve `BusinessAssignment.userId`s into displayable staff records. */
+  async findByIds(ids: string[], options: RepositoryOptions = {}): Promise<User[]> {
+    if (ids.length === 0) return [];
+    return this.findMany({ id: { in: ids } }, options);
+  }
+
   /**
    * The tenant's designated primary contact — used as the notification
    * recipient for tenant-wide events (subscription/tenant-status changes,

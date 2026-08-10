@@ -3,9 +3,11 @@ import { TaskStatus, TaskType, TaskPriority } from '@prisma/client';
 /**
  * Response DTO — the shape returned to API clients.
  * Deliberately omits internal-only fields (`tenantId`, `deletedAt`,
- * `deletedBy`, `createdBy`) that have no value outside the server; dates are
- * serialised to ISO strings rather than leaking Prisma `Date` objects.
- * Mirrors `modules/projects/dto/project.res.dto.ts`.
+ * `deletedBy`) that have no value outside the server; dates are serialised
+ * to ISO strings rather than leaking Prisma `Date` objects. `createdBy` IS
+ * exposed (unlike the other internal fields) — a client viewing a list of
+ * their own firm's tasks needs to distinguish who created each one. Mirrors
+ * `modules/projects/dto/project.res.dto.ts`.
  *
  * TODO: once labels/milestones/subtasks/dependencies/time-tracking/comments/
  * attachments exist, this DTO gains corresponding fields (e.g. `labels: string[]`,
@@ -23,6 +25,7 @@ export interface TaskResponseDto {
   projectId: string | null;
   leadId: string | null;
   assigneeId: string | null;
+  createdBy: string | null;
   businessId: string | null;
   contactId: string | null;
   clientId: string | null;

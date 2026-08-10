@@ -725,6 +725,12 @@ model UserInvitation {
   isOwner                Boolean  @default(false) @map("is_owner")
   roleIds                String[] @map("role_ids")
 
+  /// Set only when a Tenant Admin invites a CLIENT-portal user via `UserService.inviteUser()`
+  /// with `contactId` in the request — links this invitation to a pre-existing `Contact` so
+  /// `AuthService.acceptInvite()` can stamp `Contact.portalUserId` onto the newly created `User`
+  /// inside the same transaction that creates it. Null for every ordinary staff invitation.
+  contactId String? @map("contact_id") @db.Uuid
+
   tokenHash String @unique @map("token_hash") @db.VarChar(64)
 
   status    InvitationStatus @default(PENDING) @map("status")
@@ -743,6 +749,7 @@ model UserInvitation {
   invitedBy            User?        @relation("InvitedByUser", fields: [invitedById], references: [id], onDelete: Restrict)
   invitedByMasterAdmin MasterAdmin? @relation(fields: [invitedByMasterAdminId], references: [id], onDelete: Restrict)
   acceptedBy           User?        @relation("AcceptedUser", fields: [acceptedById], references: [id], onDelete: SetNull)
+  contact              Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, email], name: "idx_invitations_tenant_email")
   @@index([expiresAt, status], name: "idx_invitations_expiry_status")
@@ -1151,14 +1158,15 @@ model Contact {
 
   portalUser User? @relation("UserPortalContact", fields: [portalUserId], references: [id], onDelete: SetNull)
 
-  roles      ContactRole[]
-  addresses  ContactAddress[]
-  comms      ContactCommunication?
-  relMain    ContactRelationship[] @relation("MainContact")
-  relRelated ContactRelationship[] @relation("RelatedContact")
-  leads      Lead[]
-  documents  Document[]
-  tasks      Task[]
+  roles       ContactRole[]
+  addresses   ContactAddress[]
+  comms       ContactCommunication?
+  relMain     ContactRelationship[] @relation("MainContact")
+  relRelated  ContactRelationship[] @relation("RelatedContact")
+  leads       Lead[]
+  documents   Document[]
+  tasks       Task[]
+  invitations UserInvitation[]
 
   @@index([tenantId, email])
   @@index([tenantId, phone])

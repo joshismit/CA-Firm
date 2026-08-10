@@ -17,6 +17,7 @@ import { AuditLogRecorder } from '@modules/audit';
 // cycle this avoids (that barrel also re-exports `notificationRoutes`,
 // which imports `tenantMiddleware`).
 import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
+import { ContactRepository } from '@modules/contacts/repository/contact.repository';
 import { UserRepository } from '../repository/user.repository';
 import { UserInvitationRepository } from '../repository/user-invitation.repository';
 import { RoleWithPermissions } from '../mapper/user.mapper';
@@ -49,6 +50,7 @@ export class UserService extends BaseService {
     private readonly userInvitationRepository: UserInvitationRepository = new UserInvitationRepository(prisma),
     private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
     private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
+    private readonly contactRepository: ContactRepository = new ContactRepository(prisma),
   ) {
     super(req);
   }
@@ -194,6 +196,17 @@ export class UserService extends BaseService {
       throw new NotFoundError('Role', ErrorCode.ROLE_NOT_FOUND);
     }
 
+    // Client-portal provisioning: `dto.contactId` links this invitation to a pre-existing
+    // Contact so `AuthService.acceptInvite()` can stamp `Contact.portalUserId` once the invitee
+    // creates their account. Omitted for ordinary staff invites.
+    if (dto.contactId) {
+      const contact = await this.contactRepository.findById(dto.contactId, { tenantId });
+      this.validateExists(contact, 'Contact');
+      if (contact.portalUserId) {
+        throw new ConflictError('This contact already has a linked portal user.');
+      }
+    }
+
     const rawToken = CryptoUtils.generateRandomToken(TOKEN.SECURE_BYTES);
     const expiresAt = new Date(Date.now() + TOKEN.INVITATION_EXPIRY_HOURS * 60 * 60 * 1000);
 
@@ -207,6 +220,7 @@ export class UserService extends BaseService {
       tokenHash: CryptoUtils.sha256(rawToken),
       expiresAt,
       message: dto.message ?? null,
+      contactId: dto.contactId ?? null,
     });
 
     this.logger.info({ invitationId: invitation.id }, 'User invitation created');

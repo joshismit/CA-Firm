@@ -22,6 +22,11 @@ import { TaskService } from '@modules/tasks/service/task.service';
 import { TaskRepository } from '@modules/tasks/repository/task.repository';
 import type { AuditLogRecorder } from '@modules/audit';
 import type { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
+import type { ContactRepository } from '@modules/contacts/repository/contact.repository';
+import type { ContactRoleRepository } from '@modules/contacts/repository/contact-role.repository';
+import type { ClientRepository } from '@modules/crm/repository/client.repository';
+import type { UserRepository } from '@modules/users/repository/user.repository';
+import type { BusinessAssignmentRepository } from '@modules/business/repository/business-assignment.repository';
 import {
   CreateTaskDto,
   ListTasksQueryDto,
@@ -137,17 +142,56 @@ function createMockAuditLogRecorder(): { record: jest.Mock } {
   return { record: jest.fn().mockResolvedValue(undefined) };
 }
 
+/**
+ * Defaults model the common (non-CLIENT) caller: `assertAssigneeEligible()` calls
+ * `userRepository.findById()` unconditionally for every caller (tenant-membership check), so it
+ * must resolve truthy or `createTask`/`updateTask` throw `ValidationError` in tests that never
+ * meant to exercise assignee-eligibility at all. `contactRepository.findFirst` resolving `null`
+ * means "not a CLIENT caller, not a portal-user assignee" — the right default for every test that
+ * isn't specifically about the CLIENT-assignment feature.
+ */
+function createMockUserRepository(): { findById: jest.Mock } {
+  return { findById: jest.fn().mockResolvedValue({ id: 'assignee-default', tenantId: TENANT_ID }) };
+}
+
+function createMockContactRepository(): { findFirst: jest.Mock } {
+  return { findFirst: jest.fn().mockResolvedValue(null) };
+}
+
+function createMockContactRoleRepository(): { findByContact: jest.Mock } {
+  return { findByContact: jest.fn().mockResolvedValue([]) };
+}
+
+function createMockClientRepository(): { findByBusiness: jest.Mock } {
+  return { findByBusiness: jest.fn().mockResolvedValue(null) };
+}
+
+function createMockBusinessAssignmentRepository(): { findByBusiness: jest.Mock } {
+  return { findByBusiness: jest.fn().mockResolvedValue([]) };
+}
+
 function createService(
   repository: MockedTaskRepository,
   notificationDispatchService: { send: jest.Mock } = createMockNotificationDispatchService(),
   auditLogRecorder: { record: jest.Mock } = createMockAuditLogRecorder(),
   req: Request = createFakeRequest(),
+  contactRepository: { findFirst: jest.Mock } = createMockContactRepository(),
+  contactRoleRepository: { findByContact: jest.Mock } = createMockContactRoleRepository(),
+  clientRepository: { findByBusiness: jest.Mock } = createMockClientRepository(),
+  userRepository: { findById: jest.Mock } = createMockUserRepository(),
+  businessAssignmentRepository: { findByBusiness: jest.Mock } = createMockBusinessAssignmentRepository(),
 ): TaskService {
   return new TaskService(
     req,
     repository as unknown as TaskRepository,
     auditLogRecorder as unknown as AuditLogRecorder,
     notificationDispatchService as unknown as NotificationDispatchService,
+    undefined,
+    contactRepository as unknown as ContactRepository,
+    contactRoleRepository as unknown as ContactRoleRepository,
+    clientRepository as unknown as ClientRepository,
+    userRepository as unknown as UserRepository,
+    businessAssignmentRepository as unknown as BusinessAssignmentRepository,
   );
 }
 

@@ -567,6 +567,14 @@ export class AuthService extends BaseService {
         tx,
       );
 
+      // Client-portal provisioning: link the now-created User back to the Contact this
+      // invitation was issued for, inside the same transaction, so `resolveRole()` can detect
+      // this User as CLIENT on their very first login — see `UserService.inviteUser()`'s
+      // `contactId` handling for where this link starts.
+      if (invitation.contactId) {
+        await tx.contact.update({ where: { id: invitation.contactId }, data: { portalUserId: createdUser.id } });
+      }
+
       return createdUser;
     });
 
@@ -642,7 +650,14 @@ export class AuthService extends BaseService {
     return this.userId;
   }
 
-  private resolveRole(user: User): UserRole {
+  /**
+   * `portalContact` (set only when `Contact.portalUserId` points back at this
+   * user — see `AuthRepository.findUserByEmail`/`findUserById`) takes priority
+   * over `isOwner`/`isManager`: a CLIENT-provisioned user should never resolve
+   * to a staff tier even if those flags were somehow also set.
+   */
+  private resolveRole(user: User & { portalContact?: { id: string } | null }): UserRole {
+    if (user.portalContact) return UserRole.CLIENT;
     if (user.isOwner) return UserRole.TENANT_ADMIN;
     if (user.isManager) return UserRole.MANAGER;
     return UserRole.STAFF;

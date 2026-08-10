@@ -8,6 +8,8 @@
 import { apiClient } from '@/services/axios'
 import type { ApiResponse, PaginatedResponse } from '@/types/api.types'
 import type {
+  AssignableStaffMember,
+  AssignableStaffQuery,
   CreateTaskPayload,
   Task,
   TaskListFilters,
@@ -52,6 +54,22 @@ export async function updateTask(id: string, payload: UpdateTaskPayload): Promis
 
 export async function updateTaskStatus(id: string, payload: UpdateTaskStatusPayload): Promise<Task> {
   const { data } = await apiClient.patch<ApiResponse<Task>>(`/tasks/${id}/status`, payload)
+  return data.data
+}
+
+/**
+ * Assign/reassign via the dedicated PRD §9 endpoint (permission tasks:assign), distinct from
+ * `updateTask({ assigneeId })` (permission tasks:update) - the CLIENT role is granted the former
+ * but not the latter, so the client-portal assignee picker must call this, not updateTask().
+ */
+export async function assignTask(id: string, assigneeId: string): Promise<Task> {
+  const { data } = await apiClient.post<ApiResponse<Task>>(`/tasks/${id}/assign`, { assigneeId })
+  return data.data
+}
+
+/** Staff eligible to be assigned a task, scoped to the caller's own client (CLIENT users) or the given business/client (staff). */
+export async function getAssignableStaff(query: AssignableStaffQuery = {}): Promise<AssignableStaffMember[]> {
+  const { data } = await apiClient.get<ApiResponse<AssignableStaffMember[]>>('/tasks/assignable-staff', { params: query })
   return data.data
 }
 

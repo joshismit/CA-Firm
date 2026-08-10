@@ -32,6 +32,8 @@ export const inviteUserSchema = z.object({
   lastName: lastName.optional(),
   roleIds: z.array(uuid).min(1, 'Assign at least one role'),
   message: z.string().trim().max(500, 'Message cannot exceed 500 characters').optional(),
+  /** Links this invitation to an existing Contact (client-portal provisioning) — see `UserService.inviteUser()`. Omitted for ordinary staff invites. */
+  contactId: uuid.optional(),
 });
 
 // ─── Update ───────────────────────────────────────────────────────────────────

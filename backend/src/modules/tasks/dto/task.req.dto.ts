@@ -6,6 +6,7 @@ import {
   assignTaskSchema,
   rejectTaskSchema,
   listTasksQuerySchema,
+  assignableStaffQuerySchema,
 } from '../schemas/task.schema';
 
 /**
@@ -19,3 +20,4 @@ export type UpdateTaskStatusDto = z.infer<typeof updateTaskStatusSchema>;
 export type AssignTaskDto = z.infer<typeof assignTaskSchema>;
 export type RejectTaskDto = z.infer<typeof rejectTaskSchema>;
 export type ListTasksQueryDto = z.infer<typeof listTasksQuerySchema>;
+export type AssignableStaffQueryDto = z.infer<typeof assignableStaffQuerySchema>;

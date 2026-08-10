@@ -1,13 +1,19 @@
 import { Request } from 'express';
-import { Task, TaskStatus, AuditEventType, NotificationChannel } from '@prisma/client';
+import { Task, TaskStatus, AuditEventType, NotificationChannel, User, UserStatus } from '@prisma/client';
 import { prisma } from '@config/database';
 import { BaseService } from '@shared/base';
 import { ConflictError, ForbiddenError, UnauthorizedError, ValidationError } from '@shared/errors';
 import { PaginationMeta, PaginationQuery } from '@shared/types';
+import { UserRole } from '@shared/enums';
 import { AuditLogRecorder } from '@modules/audit';
 // Concrete path, not the `@modules/notifications` barrel — see
 // `middlewares/tenant.middleware.ts`'s header comment for why.
 import { NotificationDispatchService } from '@modules/notifications/service/notification-dispatch.service';
+import { ContactRepository } from '@modules/contacts/repository/contact.repository';
+import { ContactRoleRepository } from '@modules/contacts/repository/contact-role.repository';
+import { ClientRepository } from '@modules/crm/repository/client.repository';
+import { UserRepository } from '@modules/users/repository/user.repository';
+import { BusinessAssignmentRepository } from '@modules/business/repository/business-assignment.repository';
 import { TaskRepository, TaskSearchFilters } from '../repository/task.repository';
 import { TaskAccessScope, TaskAccessScopeService } from './task-access-scope.service';
 import {
@@ -15,6 +21,7 @@ import {
   UpdateTaskDto,
   UpdateTaskStatusDto,
   ListTasksQueryDto,
+  AssignableStaffQueryDto,
 } from '../dto/task.req.dto';
 
 /**
@@ -126,6 +133,11 @@ export class TaskService extends BaseService {
     private readonly auditLogRecorder: AuditLogRecorder = new AuditLogRecorder(),
     private readonly notificationDispatchService: NotificationDispatchService = new NotificationDispatchService(),
     private readonly accessScopeService: TaskAccessScopeService = new TaskAccessScopeService(),
+    private readonly contactRepository: ContactRepository = new ContactRepository(prisma),
+    private readonly contactRoleRepository: ContactRoleRepository = new ContactRoleRepository(prisma),
+    private readonly clientRepository: ClientRepository = new ClientRepository(prisma),
+    private readonly userRepository: UserRepository = new UserRepository(prisma),
+    private readonly businessAssignmentRepository: BusinessAssignmentRepository = new BusinessAssignmentRepository(prisma),
   ) {
     super(req);
   }
@@ -135,7 +147,7 @@ export class TaskService extends BaseService {
   // ────────────────────────────────────────────────────────────────────────────
 
   /** PRD §14.6 — resolves the caller's task access scope once per request. Mirrors `DocumentFolderService.getAccessScope()`. */
-  private getAccessScope(): TaskAccessScope {
+  private async getAccessScope(): Promise<TaskAccessScope> {
     if (!this.req.user) {
       throw new UnauthorizedError();
     }
@@ -162,12 +174,98 @@ export class TaskService extends BaseService {
     }
   }
 
+  /**
+   * CLIENT-only: resolves the caller's own Business/Client server-side via
+   * `Contact.portalUserId -> ContactRole -> businessId` — never trusts a
+   * client-supplied `businessId`/`clientId`/`contactId`. A request body value
+   * is honored only when it names one of the caller's *own* Businesses;
+   * otherwise it's silently overridden, not merely rejected, since the
+   * request may simply have omitted it. Mirrors
+   * `DocumentAccessScopeService.resolveClientScope()`'s traversal.
+   */
+  private async resolveClientTaskContext(dto: {
+    businessId?: string | null;
+  }): Promise<{ businessId: string; clientId: string; contactId: string }> {
+    const contact = await this.contactRepository.findFirst({ portalUserId: this.userId }, { tenantId: this.tenantId });
+    if (!contact) {
+      throw new ForbiddenError('Your account is not linked to a client record.');
+    }
+
+    const roles = await this.contactRoleRepository.findByContact(contact.id, { tenantId: this.tenantId });
+    const businessIds = [...new Set(roles.map((role) => role.businessId))];
+    if (businessIds.length === 0) {
+      throw new ForbiddenError('Your account has no linked business.');
+    }
+    if (businessIds.length > 1 && !dto.businessId) {
+      throw new ValidationError('businessId is required — you are linked to more than one business.');
+    }
+
+    const businessId = dto.businessId && businessIds.includes(dto.businessId) ? dto.businessId : businessIds[0];
+
+    const client = await this.clientRepository.findByBusiness(businessId, { tenantId: this.tenantId });
+    if (!client) {
+      throw new ForbiddenError('No client record for your business.');
+    }
+
+    return { businessId, clientId: client.id, contactId: contact.id };
+  }
+
+  /**
+   * Validates `assigneeId` before it's ever written to a `Task` row:
+   *  - Must belong to the caller's own tenant (every caller — closes a
+   *    pre-existing gap where staff could assign cross-tenant).
+   *  - For a CLIENT caller only: must not itself be another client-portal
+   *    user, and must be a staff member `BusinessAssignment`-eligible for
+   *    `businessId` — unless that Business has zero assignments yet, in
+   *    which case any active tenant staff member is allowed (confirmed
+   *    product decision — a client isn't blocked by an admin never having
+   *    set up staff assignments).
+   */
+  private async assertAssigneeEligible(assigneeId: string, businessId: string | null): Promise<void> {
+    const assignee = await this.userRepository.findById(assigneeId, { tenantId: this.tenantId });
+    if (!assignee) {
+      throw new ValidationError('assigneeId must belong to your tenant.');
+    }
+
+    if (this.req.user?.role !== UserRole.CLIENT) return;
+
+    const assigneeIsPortalUser = await this.contactRepository.findFirst(
+      { portalUserId: assigneeId },
+      { tenantId: this.tenantId },
+    );
+    if (assigneeIsPortalUser) {
+      throw new ForbiddenError('You cannot assign a task to a client.');
+    }
+
+    if (businessId) {
+      const assignments = await this.businessAssignmentRepository.findByBusiness(businessId, { tenantId: this.tenantId });
+      if (assignments.length > 0 && !assignments.some((assignment) => assignment.userId === assigneeId)) {
+        throw new ForbiddenError('This staff member is not eligible for your business.');
+      }
+    }
+  }
+
   // ────────────────────────────────────────────────────────────────────────────
   // Create / Update
   // ────────────────────────────────────────────────────────────────────────────
 
   async createTask(dto: CreateTaskDto): Promise<Task> {
     this.assertValidDateRange(dto.startDate, dto.dueDate);
+
+    // CLIENT-created task: the caller's own Business/Client is resolved server-side and
+    // overwrites whatever businessId/clientId/contactId (if any) the request body carried —
+    // a client can never point a task at another client's Business by supplying its id.
+    let { businessId, clientId, contactId } = dto;
+    if (this.req.user?.role === UserRole.CLIENT) {
+      const ctx = await this.resolveClientTaskContext(dto);
+      businessId = ctx.businessId;
+      clientId = ctx.clientId;
+      contactId = ctx.contactId;
+    }
+
+    if (dto.assigneeId) {
+      await this.assertAssigneeEligible(dto.assigneeId, businessId ?? null);
+    }
 
     // PRD §9 — a typed task enters the approval workflow (starts REQUESTED);
     // an untyped task stays on the pre-existing simple flow (starts TODO).
@@ -183,9 +281,9 @@ export class TaskService extends BaseService {
         projectId: dto.projectId ?? null,
         leadId: dto.leadId ?? null,
         assigneeId: dto.assigneeId ?? null,
-        businessId: dto.businessId ?? null,
-        contactId: dto.contactId ?? null,
-        clientId: dto.clientId ?? null,
+        businessId: businessId ?? null,
+        contactId: contactId ?? null,
+        clientId: clientId ?? null,
         documentId: dto.documentId ?? null,
         folderId: dto.folderId ?? null,
         type: dto.type ?? null,
@@ -209,6 +307,12 @@ export class TaskService extends BaseService {
         targetType: 'Task',
         targetId: task.id,
         ipAddress: this.req.ip ?? null,
+        metadata: {
+          businessId: task.businessId,
+          clientId: task.clientId,
+          assigneeId: task.assigneeId,
+          createdViaClientPortal: this.req.user?.role === UserRole.CLIENT,
+        },
       });
     }
 
@@ -227,6 +331,17 @@ export class TaskService extends BaseService {
     const nextDueDate = dto.dueDate !== undefined ? dto.dueDate : existing.dueDate;
     this.assertValidDateRange(nextStartDate, nextDueDate);
 
+    // Reassignment only — a genuine change of assignee, not merely "assigneeId
+    // was present in the request body" (naturally idempotent: re-submitting
+    // the same assigneeId a second time is a no-op here, no duplicate fires).
+    // Validated BEFORE the write (tenant match for every caller, plus
+    // CLIENT-only BusinessAssignment eligibility) so an ineligible assignee
+    // never lands on the row even transiently.
+    const reassigned = dto.assigneeId !== undefined && dto.assigneeId !== existing.assigneeId;
+    if (reassigned && dto.assigneeId) {
+      await this.assertAssigneeEligible(dto.assigneeId, existing.businessId);
+    }
+
     this.logger.info({ taskId: id }, 'Updating task');
 
     // TODO: once TaskActivity/Comments/TimeLogs/Notifications/Attachments exist,
@@ -234,10 +349,6 @@ export class TaskService extends BaseService {
     // atomically.
     const updated = await this.taskRepository.update(id, dto, { tenantId: this.tenantId });
 
-    // Reassignment only — a genuine change of assignee, not merely "assigneeId
-    // was present in the request body" (naturally idempotent: re-submitting
-    // the same assigneeId a second time is a no-op here, no duplicate fires).
-    const reassigned = dto.assigneeId !== undefined && dto.assigneeId !== existing.assigneeId;
     if (reassigned) {
       if (this.userId && this.tenantId) {
         await this.auditLogRecorder.record({
@@ -248,6 +359,13 @@ export class TaskService extends BaseService {
           targetType: 'Task',
           targetId: updated.id,
           ipAddress: this.req.ip ?? null,
+          metadata: {
+            businessId: updated.businessId,
+            clientId: updated.clientId,
+            assigneeId: updated.assigneeId,
+            previousAssigneeId: existing.assigneeId,
+            createdViaClientPortal: this.req.user?.role === UserRole.CLIENT,
+          },
         });
       }
       if (updated.assigneeId && updated.assigneeId !== this.userId) {
@@ -439,7 +557,7 @@ export class TaskService extends BaseService {
   async getTaskById(id: string): Promise<Task> {
     const task = await this.taskRepository.findById(id, { tenantId: this.tenantId });
     this.validateExists(task, 'Task');
-    TaskAccessScopeService.assertAllowed(task, this.getAccessScope());
+    TaskAccessScopeService.assertAllowed(task, await this.getAccessScope());
     return task;
   }
 
@@ -450,6 +568,9 @@ export class TaskService extends BaseService {
         projectId: query.projectId,
         leadId: query.leadId,
         assigneeId: query.assigneeId,
+        businessId: query.businessId,
+        clientId: query.clientId,
+        contactId: query.contactId,
         type: query.type,
         priority: query.priority,
         dueBefore: query.dueBefore,
@@ -463,35 +584,98 @@ export class TaskService extends BaseService {
         sortOrder: query.sortOrder,
       },
       { tenantId: this.tenantId },
-      TaskAccessScopeService.toWhereInput(this.getAccessScope()),
+      TaskAccessScopeService.toWhereInput(await this.getAccessScope()),
     );
   }
 
+  /**
+   * `findByProject`/`findByLead`/`findByAssignee` (below) don't accept a scope `where` fragment
+   * the way `search()`/`findOverdue()`/`findPendingReview()` do, so a CLIENT's `businessIds`
+   * scope can't be applied to them — rather than silently leaking another client's tasks through
+   * these three endpoints, a CLIENT-scoped caller is redirected to the scope-respecting
+   * `GET /tasks?projectId=`/`?leadId=`/`?assigneeId=` filters instead, which already AND in
+   * `TaskAccessScopeService.toWhereInput()` via `search()`.
+   */
+  private assertNotClientScoped(scope: TaskAccessScope, alternative: string): void {
+    if (scope.businessIds) {
+      throw new ForbiddenError(`Use ${alternative} instead.`);
+    }
+  }
+
   async getTasksByProject(projectId: string): Promise<Task[]> {
+    this.assertNotClientScoped(await this.getAccessScope(), 'GET /tasks?projectId=');
     return this.taskRepository.findByProject(projectId, { tenantId: this.tenantId });
   }
 
   /** PRD §8.7 — follow-up tasks linked to a CRM Lead. */
   async getTasksByLead(leadId: string): Promise<Task[]> {
+    this.assertNotClientScoped(await this.getAccessScope(), 'GET /tasks?leadId=');
     return this.taskRepository.findByLead(leadId, { tenantId: this.tenantId });
   }
 
   /** PRD §14.6 — `assigneeId` must be the caller's own id unless they hold unrestricted task access; otherwise this endpoint lets anyone enumerate anyone else's task list. */
   async getTasksByAssignee(assigneeId: string): Promise<Task[]> {
-    const scope = this.getAccessScope();
+    const scope = await this.getAccessScope();
+    this.assertNotClientScoped(scope, 'GET /tasks?assigneeId=');
     if (scope.userId && scope.userId !== assigneeId) {
       throw new ForbiddenError('You can only view your own assigned tasks.');
     }
     return this.taskRepository.findByAssignee(assigneeId, { tenantId: this.tenantId });
   }
 
+  /**
+   * `GET /tasks/assignable-staff` — staff eligible to be assigned a task for a given
+   * Business/Client, sourced from the existing `BusinessAssignment` relationship (confirmed
+   * product decision: reuse it rather than the unimplemented `ClientAssignment` table). Falls
+   * back to all active tenant staff when the Business has no assignments yet, so a client isn't
+   * blocked from assigning a task just because nobody has set up staff assignments for them.
+   * A CLIENT caller's own Business is always used — `query` is ignored for them, exactly like
+   * `resolveClientTaskContext()` ignores a client-supplied businessId that isn't their own.
+   */
+  async getAssignableStaff(query: AssignableStaffQueryDto): Promise<Pick<User, 'id' | 'firstName' | 'lastName' | 'email'>[]> {
+    let businessId = query.businessId ?? null;
+
+    if (this.req.user?.role === UserRole.CLIENT) {
+      const ctx = await this.resolveClientTaskContext({});
+      businessId = ctx.businessId;
+    } else if (!businessId && query.clientId) {
+      const client = await this.clientRepository.findById(query.clientId, { tenantId: this.tenantId });
+      businessId = client?.businessId ?? null;
+    }
+
+    const assignments = businessId
+      ? await this.businessAssignmentRepository.findByBusiness(businessId, { tenantId: this.tenantId })
+      : [];
+
+    const staff =
+      assignments.length > 0
+        ? await this.userRepository.findByIds(assignments.map((assignment) => assignment.userId), { tenantId: this.tenantId })
+        : (
+            await this.userRepository.search(
+              { status: UserStatus.ACTIVE },
+              { page: 1, limit: 200, sortBy: 'firstName', sortOrder: 'asc' },
+              { tenantId: this.tenantId },
+            )
+          ).data;
+
+    // Never surface a client-portal user as an "assignable staff" option, whichever branch
+    // produced the list — the `Contact.portalUserId` reverse-lookup is the same one
+    // `assertAssigneeEligible()` uses to reject an actual assignment attempt.
+    const portalContacts = await this.contactRepository.findMany({ portalUserId: { not: null } }, { tenantId: this.tenantId });
+    const portalUserIds = new Set(portalContacts.map((contact) => contact.portalUserId).filter((id): id is string => !!id));
+
+    return staff
+      .filter((user) => !portalUserIds.has(user.id))
+      .map((user) => ({ id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email }));
+  }
+
   async getOverdueTasks(): Promise<Task[]> {
-    return this.taskRepository.findOverdue({ tenantId: this.tenantId }, TaskAccessScopeService.toWhereInput(this.getAccessScope()));
+    return this.taskRepository.findOverdue({ tenantId: this.tenantId }, TaskAccessScopeService.toWhereInput(await this.getAccessScope()));
   }
 
   /** PRD §9 — tasks awaiting a reviewer's decision (SUBMITTED or UNDER_REVIEW). */
   async getPendingReviewTasks(): Promise<Task[]> {
-    return this.taskRepository.findPendingReview({ tenantId: this.tenantId }, TaskAccessScopeService.toWhereInput(this.getAccessScope()));
+    return this.taskRepository.findPendingReview({ tenantId: this.tenantId }, TaskAccessScopeService.toWhereInput(await this.getAccessScope()));
   }
 
   async countByStatus(status: TaskStatus): Promise<number> {

@@ -1,10 +1,16 @@
 import { randomUUID } from 'crypto';
-import { PrismaClient, TenantStatus, BusinessStatus, ClientStatus } from '@prisma/client';
+import { PrismaClient, TenantStatus, BusinessStatus, ClientStatus, UserStatus, ContactRoleType } from '@prisma/client';
 
 export interface TenantFixture {
   tenantId: string;
+  businessId: string;
   clientId: string;
   userId: string;
+  /** A second, distinct staff user in the same tenant — e.g. exercising "does Amit see Rahul's task" visibility scenarios. */
+  staffUserId: string;
+  /** A CLIENT-portal user linked via `Contact.portalUserId` to `contactId`, which in turn has a `ContactRole` on `businessId`. */
+  clientPortalUserId: string;
+  contactId: string;
 }
 
 export interface TestFixtures {
@@ -37,6 +43,20 @@ async function createTenantFixture(prisma: PrismaClient, label: string): Promise
       email: `test.${label}.${suffix}@example.test`,
       firstName: 'Integration',
       lastName: `Test ${label.toUpperCase()}`,
+      status: UserStatus.ACTIVE,
+    },
+  });
+
+  // A second, distinct staff user — needed so "does staff member X see a task assigned to/
+  // created by staff member Y" scenarios exercise genuinely different identities, not the same
+  // `userId` wearing a different JWT permission set.
+  const staffUser = await prisma.user.create({
+    data: {
+      tenantId: tenant.id,
+      email: `test.${label}.staff2.${suffix}@example.test`,
+      firstName: 'Integration',
+      lastName: `Staff2 ${label.toUpperCase()}`,
+      status: UserStatus.ACTIVE,
     },
   });
 
@@ -64,7 +84,49 @@ async function createTenantFixture(prisma: PrismaClient, label: string): Promise
     },
   });
 
-  return { tenantId: tenant.id, clientId: client.id, userId: user.id };
+  // CLIENT-portal identity: a User with no staff role, linked to a Contact via
+  // `portalUserId`, and that Contact holds a `ContactRole` on `business` — the same
+  // `Contact.portalUserId -> ContactRole -> businessId` chain
+  // `TaskAccessScopeService.resolveClientScope()`/`TaskService.resolveClientTaskContext()`
+  // resolve at request time.
+  const clientPortalUser = await prisma.user.create({
+    data: {
+      tenantId: tenant.id,
+      email: `test.${label}.client.${suffix}@example.test`,
+      firstName: 'Integration',
+      lastName: `ClientPortal ${label.toUpperCase()}`,
+      status: UserStatus.ACTIVE,
+    },
+  });
+
+  const contact = await prisma.contact.create({
+    data: {
+      tenantId: tenant.id,
+      firstName: 'Integration',
+      lastName: `Contact ${label.toUpperCase()}`,
+      portalUserId: clientPortalUser.id,
+    },
+  });
+
+  await prisma.contactRole.create({
+    data: {
+      tenantId: tenant.id,
+      businessId: business.id,
+      contactId: contact.id,
+      roleType: ContactRoleType.DIRECTOR,
+      isPrimary: true,
+    },
+  });
+
+  return {
+    tenantId: tenant.id,
+    businessId: business.id,
+    clientId: client.id,
+    userId: user.id,
+    staffUserId: staffUser.id,
+    clientPortalUserId: clientPortalUser.id,
+    contactId: contact.id,
+  };
 }
 
 export async function seedFixtures(prisma: PrismaClient): Promise<TestFixtures> {
@@ -85,6 +147,9 @@ export async function cleanupFixtures(prisma: PrismaClient, fixtures: TestFixtur
   const tenantIds = [fixtures.tenantA.tenantId, fixtures.tenantB.tenantId];
 
   await prisma.project.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  // ContactRole cascades from either side (Contact or Business) being deleted — no separate
+  // cleanup needed for it. BusinessAssignment likewise cascades from Business.
+  await prisma.contact.deleteMany({ where: { tenantId: { in: tenantIds } } });
   await prisma.client.deleteMany({ where: { tenantId: { in: tenantIds } } });
 
   const businesses = await prisma.business.findMany({

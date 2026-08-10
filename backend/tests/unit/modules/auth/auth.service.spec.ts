@@ -316,6 +316,7 @@ function createMockInvitation(overrides: Partial<UserInvitation> = {}): UserInvi
     invitedByMasterAdminId: null,
     isOwner: false,
     roleIds: [ROLE_ID],
+    contactId: null,
     tokenHash: CryptoUtils.sha256('raw-invite-token'),
     status: InvitationStatus.PENDING,
     // Relative to the real clock — see createMockSession's identical comment.

@@ -134,6 +134,7 @@ function createMockInvitation(overrides: Partial<UserInvitation> = {}): UserInvi
     invitedByMasterAdminId: null,
     isOwner: false,
     roleIds: ['role-55555555-5555-5555-5555-555555555555'],
+    contactId: null,
     tokenHash: 'hash',
     status: InvitationStatus.PENDING,
     expiresAt: new Date('2026-01-04T00:00:00.000Z'),

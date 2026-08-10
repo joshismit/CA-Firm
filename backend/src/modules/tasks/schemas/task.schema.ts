@@ -103,8 +103,22 @@ export const listTasksQuerySchema = searchPaginationSchema.extend({
   projectId: uuid.optional(),
   leadId: uuid.optional(),
   assigneeId: uuid.optional(),
+  businessId: uuid.optional(),
+  clientId: uuid.optional(),
+  contactId: uuid.optional(),
   type: z.nativeEnum(TaskType).optional(),
   priority: z.nativeEnum(TaskPriority).optional(),
   dueBefore: z.coerce.date().optional(),
   dueAfter: z.coerce.date().optional(),
+});
+
+/**
+ * `GET /tasks/assignable-staff` — a CLIENT caller ignores both fields (their own Business is
+ * resolved server-side, see `TaskService.getAssignableStaff()`); a staff caller may pass either
+ * to scope the picker to a specific Business/Client, or omit both to fall back to all active
+ * tenant staff.
+ */
+export const assignableStaffQuerySchema = z.object({
+  businessId: uuid.optional(),
+  clientId: uuid.optional(),
 });

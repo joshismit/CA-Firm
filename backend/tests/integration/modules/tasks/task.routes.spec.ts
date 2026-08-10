@@ -1,12 +1,14 @@
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { Application } from 'express';
-import { ProjectStatus, TaskStatus } from '@prisma/client';
+import { ProjectStatus, TaskStatus, BusinessStatus, ClientStatus, ContactRoleType } from '@prisma/client';
 import { prisma } from '@config/database';
 import { createTaskTestApp } from '../../helpers/task-test-app';
 import { signAccessToken } from '../../helpers/jwt';
 import { seedFixtures, cleanupFixtures, TestFixtures } from '../../helpers/fixtures';
 import { TASK_PERMISSIONS } from '@modules/tasks/constants/task.permissions';
+import { UserRole } from '@shared/enums';
+import { CLIENT_PERMISSION_CODES } from '@modules/roles/constants/extended-roles.constants';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -66,6 +68,16 @@ describe('Tasks API — integration', () => {
     return signAccessToken({
       userId: fixtures.tenantB.userId,
       tenantId: fixtures.tenantB.tenantId,
+      permissions,
+    });
+  }
+
+  /** `fixtures.tenantA.clientPortalUserId` — linked via Contact.portalUserId to a ContactRole on `fixtures.tenantA.businessId`. */
+  function clientTokenForTenantA(permissions: string[] = CLIENT_PERMISSION_CODES): string {
+    return signAccessToken({
+      userId: fixtures.tenantA.clientPortalUserId,
+      tenantId: fixtures.tenantA.tenantId,
+      role: UserRole.CLIENT,
       permissions,
     });
   }
@@ -550,6 +562,261 @@ describe('Tasks API — integration', () => {
         .set('Authorization', `Bearer ${tokenForTenantA()}`);
 
       expect(res.status).toBe(200);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Client-created tasks & firm-wide staff visibility
+  //
+  // Acceptance scenario: Client A creates a task and assigns it to a CA
+  // (fixtures.tenantA.userId, playing "Rahul"). Every staff member of the
+  // same firm who holds tasks:read (Amit/Priya/Manager/Admin — represented
+  // here by fixtures.tenantA.staffUserId under varying permission sets, plus
+  // the existing full-permission tokenForTenantA()) must be able to see that
+  // task; a different client in the same tenant, and staff of another
+  // tenant, must not; and seeing the task must never imply permission to
+  // modify it.
+  // ────────────────────────────────────────────────────────────────────────
+  describe('CLIENT task creation & firm-wide staff visibility', () => {
+    // A second Business/Client/Contact/portal-user in tenant A — "Client B" of the same firm,
+    // distinct from fixtures.tenantA's own client — needed to prove one client can't see
+    // another client's task even within the same tenant.
+    let clientB: { businessTypeId: string; businessId: string; clientId: string; contactId: string; portalUserId: string };
+
+    beforeAll(async () => {
+      const businessType = await prisma.businessType.create({
+        data: { code: `TEST-TYPE-CB-${randomUUID().slice(0, 8)}`, name: 'Test Business Type Client B' },
+      });
+      const business = await prisma.business.create({
+        data: {
+          tenantId: fixtures.tenantA.tenantId,
+          typeId: businessType.id,
+          name: 'Client B Business',
+          status: BusinessStatus.ACTIVE,
+        },
+      });
+      const client = await prisma.client.create({
+        data: { tenantId: fixtures.tenantA.tenantId, businessId: business.id, status: ClientStatus.ACTIVE },
+      });
+      const portalUser = await prisma.user.create({
+        data: {
+          tenantId: fixtures.tenantA.tenantId,
+          email: `test.a.clientb.${randomUUID().slice(0, 8)}@example.test`,
+          firstName: 'Integration',
+          lastName: 'ClientB',
+        },
+      });
+      const contact = await prisma.contact.create({
+        data: { tenantId: fixtures.tenantA.tenantId, firstName: 'Integration', lastName: 'ClientB Contact', portalUserId: portalUser.id },
+      });
+      await prisma.contactRole.create({
+        data: { tenantId: fixtures.tenantA.tenantId, businessId: business.id, contactId: contact.id, roleType: ContactRoleType.DIRECTOR, isPrimary: true },
+      });
+
+      clientB = { businessTypeId: businessType.id, businessId: business.id, clientId: client.id, contactId: contact.id, portalUserId: portalUser.id };
+    });
+
+    afterAll(async () => {
+      await prisma.contact.delete({ where: { id: clientB.contactId } });
+      await prisma.client.delete({ where: { id: clientB.clientId } });
+      await prisma.business.delete({ where: { id: clientB.businessId } });
+      await prisma.businessType.delete({ where: { id: clientB.businessTypeId } });
+      await prisma.user.delete({ where: { id: clientB.portalUserId } });
+    });
+
+    it('CLIENT creates a task: businessId/clientId are resolved server-side, overriding a malicious clientId in the body', async () => {
+      const res = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+        .send({ title: "Client A's task", clientId: clientB.clientId, assigneeId: fixtures.tenantA.userId });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.businessId).toBe(fixtures.tenantA.businessId);
+      expect(res.body.data.clientId).toBe(fixtures.tenantA.clientId);
+      expect(res.body.data.assigneeId).toBe(fixtures.tenantA.userId);
+    });
+
+    it('CLIENT assigns an existing task to an eligible staff member via POST /tasks/:id/assign', async () => {
+      const createRes = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+        .send({ title: 'Assign later' });
+      const taskId = createRes.body.data.id;
+
+      const res = await request(app)
+        .post(`/api/v1/tasks/${taskId}/assign`)
+        .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+        .send({ assigneeId: fixtures.tenantA.userId });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.assigneeId).toBe(fixtures.tenantA.userId);
+    });
+
+    it('CLIENT cannot assign a task to a staff member of another tenant', async () => {
+      const createRes = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+        .send({ title: 'Cross-tenant assign attempt' });
+      const taskId = createRes.body.data.id;
+
+      const res = await request(app)
+        .post(`/api/v1/tasks/${taskId}/assign`)
+        .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+        .send({ assigneeId: fixtures.tenantB.userId });
+
+      expect(res.status).toBe(422);
+    });
+
+    it('CLIENT cannot assign to a staff member outside BusinessAssignment once one exists for the business, but can assign to the eligible one', async () => {
+      const assignment = await prisma.businessAssignment.create({
+        data: { tenantId: fixtures.tenantA.tenantId, businessId: fixtures.tenantA.businessId, userId: fixtures.tenantA.staffUserId, role: 'ACCOUNTANT' },
+      });
+
+      try {
+        const createRes = await request(app)
+          .post('/api/v1/tasks')
+          .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+          .send({ title: 'Ineligible assignment attempt' });
+        const taskId = createRes.body.data.id;
+
+        const ineligibleRes = await request(app)
+          .post(`/api/v1/tasks/${taskId}/assign`)
+          .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+          .send({ assigneeId: fixtures.tenantA.userId }); // not in the BusinessAssignment set
+
+        expect(ineligibleRes.status).toBe(403);
+
+        const eligibleRes = await request(app)
+          .post(`/api/v1/tasks/${taskId}/assign`)
+          .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+          .send({ assigneeId: fixtures.tenantA.staffUserId }); // the assigned staff member
+
+        expect(eligibleRes.status).toBe(200);
+      } finally {
+        await prisma.businessAssignment.delete({ where: { id: assignment.id } });
+      }
+    });
+
+    it('CLIENT cannot assign a task to another client-portal user', async () => {
+      const createRes = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+        .send({ title: 'Assign to client attempt' });
+      const taskId = createRes.body.data.id;
+
+      const res = await request(app)
+        .post(`/api/v1/tasks/${taskId}/assign`)
+        .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+        .send({ assigneeId: fixtures.tenantA.clientPortalUserId });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('a staff member holding only tasks:read can see (but not modify) a task neither created by nor assigned to them', async () => {
+      const createRes = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${tokenForTenantA()}`)
+        .send({ title: "Rahul's task", type: 'APPROVAL', assigneeId: fixtures.tenantA.userId });
+      const taskId = createRes.body.data.id;
+      await request(app).post(`/api/v1/tasks/${taskId}/submit`).set('Authorization', `Bearer ${tokenForTenantA()}`);
+
+      // "Amit" — a distinct staff member, neither the task's creator nor its assignee, holding
+      // only tasks:read. This is the core regression test for firm-wide staff visibility.
+      const readOnlyToken = signAccessToken({
+        userId: fixtures.tenantA.staffUserId,
+        tenantId: fixtures.tenantA.tenantId,
+        permissions: [TASK_PERMISSIONS.READ],
+      });
+
+      const getRes = await request(app).get(`/api/v1/tasks/${taskId}`).set('Authorization', `Bearer ${readOnlyToken}`);
+      expect(getRes.status).toBe(200);
+
+      const listRes = await request(app).get('/api/v1/tasks').set('Authorization', `Bearer ${readOnlyToken}`);
+      expect(listRes.status).toBe(200);
+      expect(listRes.body.data.map((t: { id: string }) => t.id)).toContain(taskId);
+
+      // Visibility does not imply modification rights — every mutation still needs its own permission.
+      const approveRes = await request(app).post(`/api/v1/tasks/${taskId}/approve`).set('Authorization', `Bearer ${readOnlyToken}`);
+      expect(approveRes.status).toBe(403);
+
+      const rejectRes = await request(app)
+        .post(`/api/v1/tasks/${taskId}/reject`)
+        .set('Authorization', `Bearer ${readOnlyToken}`)
+        .send({ reason: 'no permission' });
+      expect(rejectRes.status).toBe(403);
+
+      const completeRes = await request(app).post(`/api/v1/tasks/${taskId}/complete`).set('Authorization', `Bearer ${readOnlyToken}`);
+      expect(completeRes.status).toBe(403);
+
+      const assignRes = await request(app)
+        .post(`/api/v1/tasks/${taskId}/assign`)
+        .set('Authorization', `Bearer ${readOnlyToken}`)
+        .send({ assigneeId: fixtures.tenantA.staffUserId });
+      expect(assignRes.status).toBe(403);
+
+      const updateRes = await request(app)
+        .patch(`/api/v1/tasks/${taskId}`)
+        .set('Authorization', `Bearer ${readOnlyToken}`)
+        .send({ title: 'hacked' });
+      expect(updateRes.status).toBe(403);
+    });
+
+    it("a different client in the same tenant cannot see this client's task (direct GET and list)", async () => {
+      const createRes = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+        .send({ title: "Client A's private task" });
+      const taskId = createRes.body.data.id;
+
+      const clientBToken = signAccessToken({
+        userId: clientB.portalUserId,
+        tenantId: fixtures.tenantA.tenantId,
+        role: UserRole.CLIENT,
+        permissions: CLIENT_PERMISSION_CODES,
+      });
+
+      const getRes = await request(app).get(`/api/v1/tasks/${taskId}`).set('Authorization', `Bearer ${clientBToken}`);
+      expect(getRes.status).toBe(403);
+
+      const listRes = await request(app).get('/api/v1/tasks').set('Authorization', `Bearer ${clientBToken}`);
+      expect(listRes.status).toBe(200);
+      expect(listRes.body.data.map((t: { id: string }) => t.id)).not.toContain(taskId);
+    });
+
+    it("staff of another tenant cannot see this client's task (tenant isolation)", async () => {
+      const createRes = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${clientTokenForTenantA()}`)
+        .send({ title: 'Firm A client task for isolation check' });
+      const taskId = createRes.body.data.id;
+
+      const res = await request(app).get(`/api/v1/tasks/${taskId}`).set('Authorization', `Bearer ${tokenForTenantB()}`);
+      expect(res.status).toBe(404);
+    });
+
+    it('GET /tasks/assignable-staff falls back to all active tenant staff with no BusinessAssignment, and narrows once one exists', async () => {
+      const fallbackRes = await request(app)
+        .get('/api/v1/tasks/assignable-staff')
+        .set('Authorization', `Bearer ${clientTokenForTenantA()}`);
+      expect(fallbackRes.status).toBe(200);
+      const fallbackIds = fallbackRes.body.data.map((u: { id: string }) => u.id);
+      expect(fallbackIds).toContain(fixtures.tenantA.userId);
+      expect(fallbackIds).toContain(fixtures.tenantA.staffUserId);
+      expect(fallbackIds).not.toContain(fixtures.tenantA.clientPortalUserId);
+
+      const assignment = await prisma.businessAssignment.create({
+        data: { tenantId: fixtures.tenantA.tenantId, businessId: fixtures.tenantA.businessId, userId: fixtures.tenantA.staffUserId, role: 'ACCOUNTANT' },
+      });
+
+      try {
+        const scopedRes = await request(app)
+          .get('/api/v1/tasks/assignable-staff')
+          .set('Authorization', `Bearer ${clientTokenForTenantA()}`);
+        expect(scopedRes.status).toBe(200);
+        expect(scopedRes.body.data.map((u: { id: string }) => u.id)).toEqual([fixtures.tenantA.staffUserId]);
+      } finally {
+        await prisma.businessAssignment.delete({ where: { id: assignment.id } });
+      }
     });
   });
 

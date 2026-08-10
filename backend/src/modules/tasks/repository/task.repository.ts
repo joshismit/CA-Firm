@@ -22,6 +22,9 @@ export interface TaskSearchFilters {
   projectId?: string;
   leadId?: string;
   assigneeId?: string;
+  businessId?: string;
+  clientId?: string;
+  contactId?: string;
   /** PRD §9 */
   type?: TaskType;
   priority?: TaskPriority;
@@ -155,6 +158,9 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
     if (filters.projectId) where.projectId = filters.projectId;
     if (filters.leadId) where.leadId = filters.leadId;
     if (filters.assigneeId) where.assigneeId = filters.assigneeId;
+    if (filters.businessId) where.businessId = filters.businessId;
+    if (filters.clientId) where.clientId = filters.clientId;
+    if (filters.contactId) where.contactId = filters.contactId;
     if (filters.type) where.type = filters.type;
     if (filters.priority) where.priority = filters.priority;
 

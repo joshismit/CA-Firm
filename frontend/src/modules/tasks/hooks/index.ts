@@ -3,8 +3,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/services/query-keys'
 import {
+  assignTask,
   createTask,
   deleteTask,
+  getAssignableStaff,
   getOverdueTasks,
   getTask,
   getTasksByAssignee,
@@ -14,7 +16,13 @@ import {
   updateTask,
   updateTaskStatus,
 } from '../api'
-import type { CreateTaskPayload, TaskListFilters, UpdateTaskPayload, UpdateTaskStatusPayload } from '../types'
+import type {
+  AssignableStaffQuery,
+  CreateTaskPayload,
+  TaskListFilters,
+  UpdateTaskPayload,
+  UpdateTaskStatusPayload,
+} from '../types'
 
 export function useTasksQuery(filters: TaskListFilters) {
   return useQuery({
@@ -71,6 +79,25 @@ export function useUpdateTaskMutation(id: string) {
       qc.setQueryData(queryKeys.tasks.detail(id), updated)
       qc.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
     },
+  })
+}
+
+/** PRD §9 - assigns/reassigns via the dedicated tasks:assign endpoint, not updateTask() (tasks:update). */
+export function useAssignTaskMutation(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (assigneeId: string) => assignTask(id, assigneeId),
+    onSuccess: (updated) => {
+      qc.setQueryData(queryKeys.tasks.detail(id), updated)
+      qc.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
+    },
+  })
+}
+
+export function useAssignableStaffQuery(query: AssignableStaffQuery = {}) {
+  return useQuery({
+    queryKey: queryKeys.tasks.assignableStaff(query),
+    queryFn: () => getAssignableStaff(query),
   })
 }
 
