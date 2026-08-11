@@ -284,6 +284,9 @@ model Tenant {
   planCode              String?            @map("plan_code") @db.VarChar(50)
   maxUsers              Int?               @map("max_users")
   maxClients            Int?               @map("max_clients")
+  /// Total storage quota in GB, copied from `Plan.maxStorageGb` on subscribe, master-admin
+  /// overridable via `PATCH /master-admin/tenants/:id/limits`. Every tenant must have at
+  /// least 1 GB — enforced by `updateTenantLimitsSchema` (`min(1)`); NULL means unlimited.
   maxStorageGb          Int?               @map("max_storage_gb")
   maxDocuments          Int?               @map("max_documents")
   /// PRD §7.4 — per-file upload size ceiling in MB, copied from `Plan.maxUploadSizeMb` on subscribe
@@ -2729,6 +2732,9 @@ model Plan {
 
   maxUsers        Int? @map("max_users")
   maxClients      Int? @map("max_clients")
+  /// Total storage quota in GB. Every plan must guarantee at least 1 GB — enforced by
+  /// `createPlanSchema`/`updatePlanSchema` (`min(1)`); NULL means unlimited, which
+  /// trivially satisfies the floor.
   maxStorageGb    Int? @map("max_storage_gb")
   maxDocuments    Int? @map("max_documents")
   /// PRD §7.4 — per-file upload size ceiling in MB for tenants on this plan (e.g. Starter 100,

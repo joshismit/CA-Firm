@@ -304,6 +304,23 @@ describe('Master Admin API — integration', () => {
       expect(res.body.data.maxUsers).toBe(100);
     });
 
+    it('PATCH /master-admin/tenants/:id/limits returns 422 when maxStorageGb is below the 1 GB minimum', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/master-admin/tenants/${fixtures.tenantA.tenantId}/limits`)
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({ maxStorageGb: 0 });
+      expect(res.status).toBe(422);
+    });
+
+    it('PATCH /master-admin/tenants/:id/limits accepts exactly 1 GB for maxStorageGb', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/master-admin/tenants/${fixtures.tenantA.tenantId}/limits`)
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({ maxStorageGb: 1 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.maxStorageGb).toBe(1);
+    });
+
     it('PATCH /master-admin/tenants/:id/limits returns 404 for a well-formed but unknown id', async () => {
       const res = await request(app)
         .patch(`/api/v1/master-admin/tenants/${randomUUID()}/limits`)

@@ -74,6 +74,40 @@ describe('Master Admin — Plan Management API — integration', () => {
       planId = res.body.data.id;
     });
 
+    it('POST /master-admin/plans returns 422 when maxStorageGb is below the 1 GB minimum', async () => {
+      const res = await request(app)
+        .post('/api/v1/master-admin/plans')
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({
+          code: `BELOWMIN_${randomUUID().slice(0, 8).toUpperCase()}`,
+          name: 'Below Minimum',
+          billingCycle: BillingCycle.MONTHLY,
+          priceInPaise: 1,
+          maxStorageGb: 0,
+        });
+      expect(res.status).toBe(422);
+    });
+
+    it('POST /master-admin/plans accepts exactly 1 GB and null (unlimited) for maxStorageGb', async () => {
+      const oneGbCode = `ONEGB_${randomUUID().slice(0, 8).toUpperCase()}`;
+      const oneGbRes = await request(app)
+        .post('/api/v1/master-admin/plans')
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({ code: oneGbCode, name: 'One GB', billingCycle: BillingCycle.MONTHLY, priceInPaise: 1, maxStorageGb: 1 });
+      expect(oneGbRes.status).toBe(201);
+      expect(oneGbRes.body.data.maxStorageGb).toBe(1);
+
+      const unlimitedCode = `UNLIMITED_${randomUUID().slice(0, 8).toUpperCase()}`;
+      const unlimitedRes = await request(app)
+        .post('/api/v1/master-admin/plans')
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({ code: unlimitedCode, name: 'Unlimited', billingCycle: BillingCycle.MONTHLY, priceInPaise: 1, maxStorageGb: null });
+      expect(unlimitedRes.status).toBe(201);
+      expect(unlimitedRes.body.data.maxStorageGb).toBeNull();
+
+      await prisma.plan.deleteMany({ where: { code: { in: [oneGbCode, unlimitedCode] } } });
+    });
+
     it('POST /master-admin/plans returns 409 for a duplicate code', async () => {
       const res = await request(app)
         .post('/api/v1/master-admin/plans')
@@ -97,6 +131,23 @@ describe('Master Admin — Plan Management API — integration', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toMatchObject({ priceInPaise: 75_000, isActive: false });
+    });
+
+    it('PATCH /master-admin/plans/:id returns 422 when maxStorageGb is below the 1 GB minimum', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/master-admin/plans/${planId}`)
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({ maxStorageGb: 0 });
+      expect(res.status).toBe(422);
+    });
+
+    it('PATCH /master-admin/plans/:id accepts a value above 1 GB', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/master-admin/plans/${planId}`)
+        .set('Authorization', `Bearer ${masterAdminToken()}`)
+        .send({ maxStorageGb: 10 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.maxStorageGb).toBe(10);
     });
 
     it('PATCH /master-admin/plans/:id returns 404 for a well-formed but unknown id', async () => {

@@ -34,8 +34,8 @@ jest.mock('@storage/s3-storage.service', () => ({
 jest.setTimeout(30000);
 
 const PDF_BYTES = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]); // "%PDF-1.4"
-const ZIP_BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00]);
 const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00]);
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00, 0x00, 0x00]);
 const EXE_BYTES = Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]); // real "MZ" PE header
 
 describe('Documents API — file-type validation integration (PRD §7.5)', () => {
@@ -71,17 +71,30 @@ describe('Documents API — file-type validation integration (PRD §7.5)', () =>
       .field('businessId', businessId);
   }
 
-  describe('accepted uploads (requirement 11 — allowed types)', () => {
+  describe('accepted uploads (PRD §7.5 — PDF, JPG, JPEG, PNG only)', () => {
     it.each([
       ['report.pdf', 'application/pdf', PDF_BYTES],
-      ['bundle.zip', 'application/zip', ZIP_BYTES],
+      ['photo.jpg', 'image/jpeg', JPEG_BYTES],
       ['image.jpeg', 'image/jpeg', JPEG_BYTES],
+      ['scan.png', 'image/png', PNG_BYTES],
     ])('returns 201 for a supported %s upload', async (fileName, mimetype, bytes) => {
       const res = await uploadRequest().attach('file', bytes, { filename: fileName, contentType: mimetype });
 
       expect(res.status).toBe(201);
       expect(res.body.data.fileName).toBe(fileName);
       expect(res.body.data.mimeType).toBe(mimetype);
+    });
+
+    it.each([
+      ['report.PDF', 'application/pdf', PDF_BYTES],
+      ['photo.JPG', 'image/jpeg', JPEG_BYTES],
+      ['image.JPEG', 'image/jpeg', JPEG_BYTES],
+      ['scan.PNG', 'image/png', PNG_BYTES],
+    ])('returns 201 for an uppercase extension %s upload', async (fileName, mimetype, bytes) => {
+      const res = await uploadRequest().attach('file', bytes, { filename: fileName, contentType: mimetype });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.fileName).toBe(fileName);
     });
   });
 
@@ -113,6 +126,38 @@ describe('Documents API — file-type validation integration (PRD §7.5)', () =>
 
       expect(res.status).toBe(415);
     });
+
+    it.each([
+      ['agreement.doc', 'application/msword'],
+      ['agreement.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      ['ledger.xls', 'application/vnd.ms-excel'],
+      ['ledger.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+      ['data.csv', 'text/csv'],
+      ['bundle.zip', 'application/zip'],
+      ['archive.rar', 'application/x-rar-compressed'],
+      ['slides.ppt', 'application/vnd.ms-powerpoint'],
+      ['slides.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+      ['icon.svg', 'image/svg+xml'],
+      ['photo.webp', 'image/webp'],
+      ['photo.gif', 'image/gif'],
+      ['clip.mp4', 'video/mp4'],
+      ['song.mp3', 'audio/mpeg'],
+    ])('rejects a %s upload with 415 — no longer a supported type', async (fileName, mimetype) => {
+      const res = await uploadRequest().attach('file', Buffer.from('some file content'), { filename: fileName, contentType: mimetype });
+
+      expect(res.status).toBe(415);
+      expect(res.body.data).toBeUndefined();
+    });
+
+    it('rejects a .jpg extension declared with the application/pdf MIME type', async () => {
+      const res = await uploadRequest().attach('file', JPEG_BYTES, { filename: 'photo.jpg', contentType: 'application/pdf' });
+      expect(res.status).toBe(415);
+    });
+
+    it('rejects a .pdf extension declared with an image MIME type', async () => {
+      const res = await uploadRequest().attach('file', PDF_BYTES, { filename: 'document.pdf', contentType: 'image/png' });
+      expect(res.status).toBe(415);
+    });
   });
 
   describe('rejected uploads — DocumentService content-signature layer (415, real bytes checked)', () => {
@@ -122,6 +167,24 @@ describe('Documents API — file-type validation integration (PRD §7.5)', () =>
         contentType: 'application/pdf',
       });
 
+      expect(res.status).toBe(415);
+      expect(res.body.data).toBeUndefined();
+    });
+
+    it('rejects a malware.exe renamed to document.pdf with a spoofed MIME type and invalid magic bytes', async () => {
+      const res = await uploadRequest().attach('file', EXE_BYTES, { filename: 'document.pdf', contentType: 'application/pdf' });
+      expect(res.status).toBe(415);
+      expect(res.body.data).toBeUndefined();
+    });
+
+    it('rejects an invalid binary renamed to image.jpg with a spoofed image/jpeg MIME type', async () => {
+      const res = await uploadRequest().attach('file', EXE_BYTES, { filename: 'image.jpg', contentType: 'image/jpeg' });
+      expect(res.status).toBe(415);
+      expect(res.body.data).toBeUndefined();
+    });
+
+    it('rejects a .pdf whose content is not actually a PDF (invalid magic bytes)', async () => {
+      const res = await uploadRequest().attach('file', Buffer.from('this is not a pdf'), { filename: 'document.pdf', contentType: 'application/pdf' });
       expect(res.status).toBe(415);
       expect(res.body.data).toBeUndefined();
     });

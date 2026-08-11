@@ -45,22 +45,12 @@ export const DEFAULT_CLIENT_STORAGE_TARGET_BYTES = 500 * 1024 * 1024
 // SUPPORTED_DOCUMENT_TYPES exactly. This is UX only (an upfront friendly rejection before the
 // network round trip) - the backend remains the source of truth and re-validates extension, MIME
 // type, and file content regardless of what passes here.
-export const SUPPORTED_MIME_TYPES = [
-  'application/pdf',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'image/jpeg',
-  'image/png',
-  'application/zip',
-  'application/x-zip-compressed',
-]
+export const SUPPORTED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png']
 
-export const SUPPORTED_FILE_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'zip']
+export const SUPPORTED_FILE_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png']
 
 /** Friendly, human-readable summary of supported types - shown in upload hints and error copy. */
-export const SUPPORTED_FILE_TYPES_HINT = 'PDF, Word (.doc, .docx), Excel (.xls, .xlsx), JPG, JPEG, PNG, or ZIP'
+export const SUPPORTED_FILE_TYPES_HINT = 'JPG, JPEG, PNG, or PDF'
 
 /** For the native `<input accept>` attribute - extensions catch OS file pickers that filter by name, MIME types catch those that filter by declared type. */
 export const SUPPORTED_FILE_TYPES_ACCEPT = [

@@ -361,32 +361,12 @@ describe('DocumentService', () => {
     const PNG_MAGIC_BYTES = Buffer.from('89504E47', 'hex');
     const OLE2_MAGIC_BYTES = Buffer.from('D0CF11E0A1B11AE1', 'hex');
 
-    // ── Allowed types (PRD §7.5 requirement 11) ──────────────────────────
+    // ── Allowed types (PRD §7.5 — PDF, JPG, JPEG, PNG only) ──────────────
     const allowedCases: Array<{ label: string; fileName: string; mimetype: string; buffer: Buffer }> = [
       { label: 'pdf', fileName: 'report.pdf', mimetype: 'application/pdf', buffer: PDF_MAGIC_BYTES },
-      {
-        label: 'xlsx',
-        fileName: 'ledger.xlsx',
-        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        buffer: ZIP_MAGIC_BYTES,
-      },
-      {
-        label: 'xls',
-        fileName: 'ledger.xls',
-        mimetype: 'application/vnd.ms-excel',
-        buffer: OLE2_MAGIC_BYTES,
-      },
-      {
-        label: 'docx',
-        fileName: 'agreement.docx',
-        mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        buffer: ZIP_MAGIC_BYTES,
-      },
-      { label: 'doc', fileName: 'agreement.doc', mimetype: 'application/msword', buffer: OLE2_MAGIC_BYTES },
       { label: 'jpg', fileName: 'photo.jpg', mimetype: 'image/jpeg', buffer: JPEG_MAGIC_BYTES },
       { label: 'jpeg', fileName: 'image.jpeg', mimetype: 'image/jpeg', buffer: JPEG_MAGIC_BYTES },
       { label: 'png', fileName: 'scan.png', mimetype: 'image/png', buffer: PNG_MAGIC_BYTES },
-      { label: 'zip', fileName: 'bundle.zip', mimetype: 'application/zip', buffer: ZIP_MAGIC_BYTES },
     ];
 
     it.each(allowedCases)('accepts a supported $label file (correct extension, MIME, and content)', async ({ fileName, mimetype, buffer }) => {
@@ -397,6 +377,35 @@ describe('DocumentService', () => {
 
       await expect(service.uploadDocument(dto, file)).resolves.toBeDefined();
       expect(mocks.storageService.upload).toHaveBeenCalled();
+    });
+
+    // ── Rejected — file types no longer supported (PRD §7.5 narrowed to PDF/JPG/JPEG/PNG) ───
+    const noLongerSupportedCases: Array<{ label: string; fileName: string; mimetype: string; buffer: Buffer }> = [
+      {
+        label: 'xlsx',
+        fileName: 'ledger.xlsx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        buffer: ZIP_MAGIC_BYTES,
+      },
+      { label: 'xls', fileName: 'ledger.xls', mimetype: 'application/vnd.ms-excel', buffer: OLE2_MAGIC_BYTES },
+      {
+        label: 'docx',
+        fileName: 'agreement.docx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        buffer: ZIP_MAGIC_BYTES,
+      },
+      { label: 'doc', fileName: 'agreement.doc', mimetype: 'application/msword', buffer: OLE2_MAGIC_BYTES },
+      { label: 'zip', fileName: 'bundle.zip', mimetype: 'application/zip', buffer: ZIP_MAGIC_BYTES },
+      { label: 'csv', fileName: 'data.csv', mimetype: 'text/csv', buffer: Buffer.from('a,b,c') },
+    ];
+
+    it.each(noLongerSupportedCases)('rejects a $label file — no longer a supported type', async ({ fileName, mimetype, buffer }) => {
+      const mocks = createMocks();
+      const service = createService(mocks);
+      const file = createMockFile({ originalname: fileName, mimetype, buffer });
+
+      await expect(service.uploadDocument(dto, file)).rejects.toThrow(UnsupportedMediaTypeError);
+      expect(mocks.storageService.upload).not.toHaveBeenCalled();
     });
 
     // ── Rejected — blocked executable/script extensions (PRD §7.5 requirement 4) ────────────

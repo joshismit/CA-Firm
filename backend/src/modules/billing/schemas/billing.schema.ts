@@ -25,7 +25,8 @@ export const createPlanSchema = z.object({
   priceInPaise: z.coerce.number().int().min(0),
   maxUsers: z.coerce.number().int().min(0).nullable().optional(),
   maxClients: z.coerce.number().int().min(0).nullable().optional(),
-  maxStorageGb: z.coerce.number().int().min(0).nullable().optional(),
+  // Every plan must guarantee at least 1 GB of total storage; null still means unlimited.
+  maxStorageGb: z.coerce.number().int().min(1, 'maxStorageGb must be at least 1 GB').nullable().optional(),
   maxDocuments: z.coerce.number().int().min(0).nullable().optional(),
   // PRD §7.4 — per-file upload size ceiling in MB for tenants on this plan.
   maxUploadSizeMb: z.coerce.number().int().min(0).nullable().optional(),
@@ -37,7 +38,7 @@ export const updatePlanSchema = z.object({
   priceInPaise: z.coerce.number().int().min(0).optional(),
   maxUsers: z.coerce.number().int().min(0).nullable().optional(),
   maxClients: z.coerce.number().int().min(0).nullable().optional(),
-  maxStorageGb: z.coerce.number().int().min(0).nullable().optional(),
+  maxStorageGb: z.coerce.number().int().min(1, 'maxStorageGb must be at least 1 GB').nullable().optional(),
   maxDocuments: z.coerce.number().int().min(0).nullable().optional(),
   maxUploadSizeMb: z.coerce.number().int().min(0).nullable().optional(),
   displayOrder: z.coerce.number().int().min(0).optional(),

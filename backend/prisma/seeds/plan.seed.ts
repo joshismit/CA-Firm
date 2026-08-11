@@ -31,7 +31,7 @@ interface PlanDefinition {
   displayOrder: number;
 }
 
-const PLAN_DEFINITIONS: PlanDefinition[] = [
+export const PLAN_DEFINITIONS: PlanDefinition[] = [
   // ─── Starter ────────────────────────────────────────────────────────────
   { code: 'STARTER_MONTHLY', name: 'Starter', billingCycle: BillingCycle.MONTHLY, priceInPaise: 99_900, maxUsers: 3, maxClients: 50, maxStorageGb: 5, maxDocuments: 1_000, maxUploadSizeMb: 100, displayOrder: 1 },
   { code: 'STARTER_QUARTERLY', name: 'Starter', billingCycle: BillingCycle.QUARTERLY, priceInPaise: 269_900, maxUsers: 3, maxClients: 50, maxStorageGb: 5, maxDocuments: 1_000, maxUploadSizeMb: 100, displayOrder: 1 },

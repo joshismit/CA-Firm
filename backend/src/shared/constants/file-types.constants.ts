@@ -18,11 +18,7 @@
  *   actual content must start with. The signature is what makes "reject an
  *   executable renamed to .pdf" possible — extension and declared MIME type
  *   are both attacker-controlled request metadata; the file's own leading
- *   bytes are not. `.doc`/`.xls` share the legacy OLE2 compound-file
- *   signature, and `.docx`/`.xlsx`/`.zip` share the Zip signature (they *are*
- *   Zip containers) — the signature check only confirms the file is
- *   genuinely some member of that format family, never used to distinguish
- *   between them (that's the extension+MIME pair's job).
+ *   bytes are not.
  *
  * USAGE:
  *   import { SUPPORTED_DOCUMENT_TYPES } from '@shared/constants';
@@ -43,37 +39,12 @@ export interface SupportedDocumentType {
   signatures: readonly string[];
 }
 
-const ZIP_SIGNATURES = ['504B0304', '504B0506', '504B0708'] as const;
-const OLE2_SIGNATURE = ['D0CF11E0A1B11AE1'] as const;
-
+// PRD §7.5 — uploads are restricted to PDF, JPG/JPEG, and PNG only.
 export const SUPPORTED_DOCUMENT_TYPES: readonly SupportedDocumentType[] = [
   { extension: 'pdf', label: 'PDF', mimeTypes: ['application/pdf'], signatures: ['25504446'] },
-  { extension: 'doc', label: 'Word (.doc)', mimeTypes: ['application/msword'], signatures: OLE2_SIGNATURE },
-  {
-    extension: 'docx',
-    label: 'Word (.docx)',
-    mimeTypes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-    signatures: ZIP_SIGNATURES,
-  },
-  { extension: 'xls', label: 'Excel (.xls)', mimeTypes: ['application/vnd.ms-excel'], signatures: OLE2_SIGNATURE },
-  {
-    extension: 'xlsx',
-    label: 'Excel (.xlsx)',
-    mimeTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
-    signatures: ZIP_SIGNATURES,
-  },
   { extension: 'jpg', label: 'JPG', mimeTypes: ['image/jpeg'], signatures: ['FFD8FF'] },
   { extension: 'jpeg', label: 'JPEG', mimeTypes: ['image/jpeg'], signatures: ['FFD8FF'] },
   { extension: 'png', label: 'PNG', mimeTypes: ['image/png'], signatures: ['89504E47'] },
-  {
-    extension: 'zip',
-    label: 'ZIP',
-    // `application/x-zip-compressed` is the de-facto alias Windows/older browsers send for .zip —
-    // accepted alongside the canonical `application/zip` so a genuinely-zip upload isn't rejected
-    // on a client MIME-sniffing quirk. Matches the frontend's existing SUPPORTED_MIME_TYPES list.
-    mimeTypes: ['application/zip', 'application/x-zip-compressed'],
-    signatures: ZIP_SIGNATURES,
-  },
 ] as const;
 
 export const SUPPORTED_DOCUMENT_EXTENSIONS: readonly string[] = SUPPORTED_DOCUMENT_TYPES.map((t) => t.extension);

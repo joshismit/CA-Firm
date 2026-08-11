@@ -152,13 +152,9 @@ const upload = multer({
  *       Uploads the file to the configured bucket and creates its metadata record.
  *
  *       PRD §7.5 — supported file types (extension AND MIME type must both match): PDF
- *       (application/pdf), Word (.doc application/msword, .docx
- *       application/vnd.openxmlformats-officedocument.wordprocessingml.document), Excel (.xls
- *       application/vnd.ms-excel, .xlsx
- *       application/vnd.openxmlformats-officedocument.spreadsheetml.sheet), JPG/JPEG
- *       (image/jpeg), PNG (image/png), and ZIP (application/zip). Executable/script files
- *       (.exe, .dll, .bat, .cmd, .sh, .js, .ts, .php, .py, .jar, .apk, .ipa) are always rejected,
- *       even if renamed to a supported extension.
+ *       (application/pdf), JPG/JPEG (image/jpeg), and PNG (image/png). Every other file type,
+ *       including executable/script files (.exe, .dll, .bat, .cmd, .sh, .js, .ts, .php, .py,
+ *       .jar, .apk, .ipa), is always rejected, even if renamed to a supported extension.
  *     security: [{ BearerAuth: [] }]
  *     x-permission: documents:create
  *     requestBody:
@@ -169,7 +165,7 @@ const upload = multer({
  *             type: object
  *             required: [file, category]
  *             properties:
- *               file: { type: string, format: binary, description: 'Supported types: PDF, Word (.doc/.docx), Excel (.xls/.xlsx), JPG, JPEG, PNG, ZIP.' }
+ *               file: { type: string, format: binary, description: 'Supported types: PDF, JPG, JPEG, PNG.' }
  *               category: { $ref: '#/components/schemas/DocumentCategory' }
  *               businessId: { type: string, format: uuid }
  *               contactId: { type: string, format: uuid }
@@ -465,7 +461,7 @@ router.get(
  *       never overwritten or deleted.
  *
  *       PRD §7.5 — the replacement file must be one of the same supported types as a fresh
- *       upload: PDF, Word (.doc/.docx), Excel (.xls/.xlsx), JPG, JPEG, PNG, or ZIP.
+ *       upload: PDF, JPG, JPEG, or PNG.
  *     security: [{ BearerAuth: [] }]
  *     x-permission: documents:create
  *     parameters: [{ $ref: '#/components/parameters/DocumentIdParam' }]
@@ -477,7 +473,7 @@ router.get(
  *             type: object
  *             required: [file]
  *             properties:
- *               file: { type: string, format: binary, description: 'Supported types: PDF, Word (.doc/.docx), Excel (.xls/.xlsx), JPG, JPEG, PNG, ZIP.' }
+ *               file: { type: string, format: binary, description: 'Supported types: PDF, JPG, JPEG, PNG.' }
  *     responses:
  *       201: { description: New version created., content: { application/json: { schema: { $ref: '#/components/schemas/DocumentEnvelope' } } } }
  *       400: { description: No file, or file exceeds the tenant's effective maximum upload size (PRD §7.4)., content: { application/json: { schema: { $ref: '#/components/schemas/ApiErrorResponse' } } } }
