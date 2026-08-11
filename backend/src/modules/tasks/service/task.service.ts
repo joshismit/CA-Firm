@@ -85,6 +85,14 @@ const DELETABLE_STATUSES: TaskStatus[] = [
   TaskStatus.CANCELLED,
 ];
 
+/** `Task` with its `business`/`assignee` relations eager-loaded — the shape `searchForCalendar()`
+ *  always returns (it always requests that include). Mirrors `InvoiceWithBusiness`
+ *  (`modules/client-billing/service/invoice.service.ts`) exactly. */
+export interface TaskWithCalendarRelations extends Task {
+  business: { id: string; name: string } | null;
+  assignee: { id: string; firstName: string; lastName: string } | null;
+}
+
 /**
  * Resolves the `AuditEventType` for a status transition — dedicated events for
  * the approval-workflow milestones and reopen, `TASK_UPDATE` as the fallback
@@ -697,6 +705,31 @@ export class TaskService extends BaseService {
     pagination: PaginationQuery,
   ): Promise<{ data: Task[]; meta: PaginationMeta }> {
     return this.taskRepository.search(filters, pagination, { tenantId: this.tenantId });
+  }
+
+  /**
+   * Work Calendar — thin, tenant-scoped passthrough to `TaskRepository.search()`,
+   * identical to `searchForDashboard()` above except it also requests the
+   * `business`/`assignee` names the calendar UI needs to display (PRD §16)
+   * and nothing else selects today. `CalendarAggregationService` composes via
+   * this Service, never the repository directly — same rule every other
+   * dashboard/calendar composition layer in this codebase already follows.
+   */
+  async searchForCalendar(
+    filters: TaskSearchFilters,
+    pagination: PaginationQuery,
+  ): Promise<{ data: TaskWithCalendarRelations[]; meta: PaginationMeta }> {
+    const { data, meta } = await this.taskRepository.search(
+      filters,
+      pagination,
+      { tenantId: this.tenantId },
+      undefined,
+      {
+        business: { select: { id: true, name: true } },
+        assignee: { select: { id: true, firstName: true, lastName: true } },
+      },
+    );
+    return { data: data as unknown as TaskWithCalendarRelations[], meta };
   }
 
   /**

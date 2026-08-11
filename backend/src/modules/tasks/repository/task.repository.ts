@@ -144,12 +144,18 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
    * Paginated search combining the standard list filters. Builds the Prisma
    * `where` clause internally so callers only ever deal with
    * `TaskSearchFilters`.
+   *
+   * `include` is optional and unused by every existing caller (dashboard
+   * widgets only ever need scalar fields) — added for `TaskService
+   * .searchForCalendar()` (Work Calendar), which needs `business`/`assignee`
+   * names the way nothing else on this repository selects today.
    */
   async search(
     filters: TaskSearchFilters,
     pagination: PaginationQuery,
     options: RepositoryOptions = {},
     scopeWhere?: Prisma.TaskWhereInput,
+    include?: Prisma.TaskInclude,
   ): Promise<{ data: Task[]; meta: PaginationMeta }> {
     const where: Prisma.TaskWhereInput = {};
 
@@ -180,7 +186,7 @@ export class TaskRepository extends BaseRepository<Prisma.TaskDelegate, Task> {
 
     const combinedWhere = scopeWhere && Object.keys(scopeWhere).length > 0 ? { AND: [where, scopeWhere] } : where;
 
-    return this.paginate(pagination, combinedWhere, options);
+    return this.paginate(pagination, combinedWhere, options, include);
   }
 
   /**

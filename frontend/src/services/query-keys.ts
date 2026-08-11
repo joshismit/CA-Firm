@@ -25,6 +25,7 @@ import type {
 import type { TenantListFilters, MasterAdminAuditLogFilters } from '@/modules/master-admin/types'
 import type { SharedDocumentListFilters } from '@/modules/client-portal/types'
 import type { AnalyticsFilters } from '@/modules/dashboard/types'
+import type { CalendarQueryFilters } from '@/modules/calendar/types'
 
 export const queryKeys = {
   auth: {
@@ -207,5 +208,11 @@ export const queryKeys = {
     activity: (limit: number) => ['dashboard', 'activity', limit] as const,
     performance: (from?: string, to?: string) => ['dashboard', 'performance', from, to] as const,
     tenantDefaults: ['dashboard', 'tenant-defaults'] as const,
+  },
+  calendar: {
+    all: ['calendar'] as const,
+    items: (filters: CalendarQueryFilters) => [...queryKeys.calendar.all, 'items', filters] as const,
+    events: () => [...queryKeys.calendar.all, 'event'] as const,
+    eventDetail: (id: string) => [...queryKeys.calendar.events(), id] as const,
   },
 } as const

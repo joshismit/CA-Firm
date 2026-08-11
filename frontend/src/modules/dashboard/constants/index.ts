@@ -24,6 +24,7 @@ import { RecentDocumentsWidget } from '../components/RecentDocumentsWidget'
 import { NotificationsPreviewWidget } from '../components/NotificationsPreviewWidget'
 import { RevenueWidget, TrendsWidget } from '../components/ComingSoonWidgets'
 import { CalendarWidget } from '../components/CalendarWidget'
+import { TodayWorkWidget } from '../components/TodayWorkWidget'
 import { PerformanceWidget } from '../components/PerformanceWidget'
 import { PendingWorksWidget } from '../components/PendingWorksWidget'
 import { DueDatesWidget } from '../components/DueDatesWidget'
@@ -144,6 +145,18 @@ export const WIDGET_REGISTRY: Widget[] = [
     description: 'Unified feed of task due dates, compliance deadlines, and invoice due dates.',
     size: 'half',
     component: CalendarWidget,
+  },
+  // Work Calendar summary - backend-gated by role (requireRole(TENANT_ADMIN, MANAGER, STAFF),
+  // same as the 6 widgets below), so it likewise carries no `permission` field. Reuses
+  // GET /calendar (modules/calendar) - a distinct, dedicated aggregation from the `calendar`
+  // widget above's GET /dashboard/calendar (see modules/calendar/index.ts's header comment for
+  // why both exist).
+  {
+    id: 'today-work',
+    label: "Today's Work",
+    description: 'Overdue/pending/in-progress/upcoming counts and schedule for today.',
+    size: 'half',
+    component: TodayWorkWidget,
   },
   // PRD §10.1 - backend-gated by role (requireRole(TENANT_ADMIN, MANAGER, STAFF), not a
   // fine-grained permission - see backend/src/modules/dashboard/routes/dashboard.routes.ts's

@@ -35,6 +35,7 @@ import { RolesPage, RoleDetailPage, RoleCreatePage, RoleEditPage } from '@/modul
 import { PermissionsPage, PermissionDetailPage } from '@/modules/permissions/pages'
 import { TasksPage } from '@/modules/tasks/pages/TasksPage'
 import { TaskDetailPage } from '@/modules/tasks/pages/TaskDetailPage'
+import { WorkCalendarPage } from '@/modules/calendar/pages/WorkCalendarPage'
 import {
   BusinessListPage,
   BusinessDetailPage,
@@ -118,6 +119,7 @@ export const protectedRoutes: RouteObject = {
         { path: 'tasks/my', element: <TasksPage scope="my" /> },
         { path: 'tasks/team', element: <TasksPage scope="team" /> },
         { path: 'tasks/:id', element: <TaskDetailPage /> },
+        { path: 'calendar', element: <WorkCalendarPage /> },
         { path: 'documents', element: <DocumentListPage /> },
         { path: 'documents/upload', element: <DocumentUploadPage /> },
         { path: 'documents/templates', element: <DocumentTemplatesPage /> },

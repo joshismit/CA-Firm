@@ -27,6 +27,9 @@ export type { TaskResponseDto } from './dto/task.res.dto';
 // header comment). `DashboardAggregationService` needs the filter shape to
 // call `TaskService.searchForDashboard()` (PRD §10.5).
 export type { TaskSearchFilters } from './repository/task.repository';
+// Work Calendar — `CalendarAggregationService` needs this shape to consume
+// `TaskService.searchForCalendar()`'s output, same reasoning as `TaskSearchFilters` above.
+export type { TaskWithCalendarRelations } from './service/task.service';
 // `DashboardAggregationService` reuses this exact "open task" status list for
 // its "Pending Works"/"Due Dates" widgets, rather than inventing a third
 // definition alongside this and `ReportsRepository`'s own `OPEN_TASK_STATUSES`.

@@ -40,6 +40,7 @@ import {
   notificationProviderRoutes,
 } from '@modules/notifications';
 import { dashboardPreferenceRoutes, dashboardTenantDefaultRoutes, dashboardRoutes } from '@modules/dashboard';
+import { calendarRoutes } from '@modules/calendar';
 import { reportRoutes } from '@modules/reports';
 import { searchRoutes } from '@modules/search';
 import { masterAdminRoutes } from '@modules/master-admin';
@@ -189,6 +190,9 @@ app.use(`${API.PREFIX}/notification-providers`, notificationProviderRoutes);
 app.use(`${API.PREFIX}/dashboard/preferences`, dashboardPreferenceRoutes);
 app.use(`${API.PREFIX}/dashboard/tenant-defaults`, dashboardTenantDefaultRoutes);
 app.use(`${API.PREFIX}/dashboard`, dashboardRoutes);
+// Work Calendar — a separate, dedicated aggregation module from `/dashboard/calendar`
+// above (see `modules/calendar/index.ts`'s header comment for why both exist).
+app.use(`${API.PREFIX}/calendar`, calendarRoutes);
 app.use(`${API.PREFIX}/reports`, reportRoutes);
 // PRD §13.1 — cross-entity global search (Businesses/Contacts/Leads/Documents/Tasks).
 app.use(`${API.PREFIX}/search`, searchRoutes);

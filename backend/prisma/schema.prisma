@@ -534,6 +534,11 @@ model User {
   dashboardPreference      DashboardPreference?
   updatedDashboardDefaults DashboardTenantDefault[] @relation("DashboardTenantDefaultUpdatedBy")
 
+  // ── Relations: Work Calendar ────────────────────────────────────────────
+  createdCalendarEvents    CalendarEvent[]         @relation("CalendarEventCreatedBy")
+  deletedCalendarEvents    CalendarEvent[]         @relation("CalendarEventDeletedBy")
+  calendarEventAttendances CalendarEventAttendee[] @relation("CalendarEventAttendee")
+
   // ── Relations: Client Billing Payment Gateway ───────────────────────────
   createdPaymentGatewaySettings FirmPaymentGatewaySettings[] @relation("PaymentGatewaySettingsCreatedBy")
   updatedPaymentGatewaySettings FirmPaymentGatewaySettings[] @relation("PaymentGatewaySettingsUpdatedBy")
@@ -1015,6 +1020,7 @@ model Business {
   documentFolders   DocumentFolder[]
   invoices          Invoice[]
   tasks             Task[]
+  calendarEvents    CalendarEvent[]
   /// PRD §8.6 — internal notes on the Business itself (post-conversion / always-was-a-client),
   /// distinct from `LeadNote` (pre-conversion only). Never visible to the Client portal.
   notes             BusinessNote[]
@@ -1759,6 +1765,78 @@ model TaskReminder {
   @@index([tenantId, taskId])
   @@index([tenantId, userId])
   @@map("task_reminders")
+}
+
+/// Work Calendar — a minimal appointment/meeting record. Deliberately NOT a
+/// second task system: `Task.dueDate`/`Task.status` remain the only source of
+/// truth for work items; `CalendarEvent` only models things that have no Task
+/// equivalent (a meeting has a start/end time-of-day, a Task's `dueDate` is a
+/// date-only column). No recurrence, no room/resource booking — out of scope.
+model CalendarEvent {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  title       String            @db.VarChar(255)
+  description String?           @db.Text
+  startAt     DateTime          @map("start_at") @db.Timestamptz
+  endAt       DateTime?         @map("end_at") @db.Timestamptz
+  allDay      Boolean           @default(false) @map("all_day")
+  eventType   CalendarEventType @default(OTHER) @map("event_type")
+  location    String?           @db.VarChar(255)
+  meetingUrl  String?           @map("meeting_url") @db.VarChar(500)
+
+  businessId String? @map("business_id") @db.Uuid
+  createdById String @map("created_by_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  business      Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  createdByUser User      @relation("CalendarEventCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  deletedByUser User?     @relation("CalendarEventDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  attendees CalendarEventAttendee[]
+
+  @@index([tenantId, startAt])
+  @@index([tenantId, businessId])
+  @@index([tenantId, createdById])
+  @@index([tenantId, deletedAt])
+  @@map("calendar_events")
+}
+
+/// PRD Work Calendar — who else, besides the creator, an event involves. Exists
+/// only so "My Work" can include events a staff member is invited to, not just
+/// ones they created (mirrors `TaskReminder`'s "why a join table and not a
+/// scalar column" reasoning: a `Notification` isn't the right fit here either,
+/// since this answers "who is on this event," not "who was messaged about it").
+model CalendarEventAttendee {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  eventId  String @map("event_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User          @relation("CalendarEventAttendee", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId], name: "uq_calendar_event_attendee_once")
+  @@index([tenantId, userId])
+  @@map("calendar_event_attendees")
+}
+
+enum CalendarEventType {
+  CLIENT_MEETING
+  INTERNAL_MEETING
+  CALL
+  APPOINTMENT
+  AUDIT
+  REVIEW
+  OTHER
+
+  @@map("calendar_event_type")
 }
 
 /// PRD §9 — reusable blueprints for instantiating a real `Task` (GST Filing, IT
@@ -2975,6 +3053,13 @@ enum AuditEventType {
   /// PRD §9 — a terminal/near-terminal Task was reopened: COMPLETED→IN_PROGRESS
   /// (existing reopen path) or REJECTED→REQUESTED (approval-workflow resubmit path).
   TASK_REOPENED
+
+  /// Work Calendar — a `CalendarEvent` was created (`CalendarEventService.createEvent`).
+  CALENDAR_EVENT_CREATED
+  /// Work Calendar — a `CalendarEvent` was updated.
+  CALENDAR_EVENT_UPDATED
+  /// Work Calendar — a `CalendarEvent` was soft-deleted.
+  CALENDAR_EVENT_DELETED
 
   /// PRD §11.13 — a `Notification` row was created by `NotificationDispatchService.send()`,
   /// one event per channel/row (not per `send()` call — a 3-channel send writes 3 of these).

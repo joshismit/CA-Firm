@@ -17,6 +17,7 @@ import {
   Wallet,
   CheckSquare,
   ClipboardList,
+  CalendarDays,
   FolderOpen,
   LayoutTemplate,
   UsersRound,
@@ -83,6 +84,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Tasks',
     items: [
+      { label: 'Work Calendar', path: '/calendar', icon: CalendarDays },
       { label: 'My Tasks', path: '/tasks/my', icon: CheckSquare },
       { label: 'Team Tasks', path: '/tasks/team', icon: ClipboardList },
     ],
