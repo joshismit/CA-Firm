@@ -1,0 +1,1 @@
+export { WhiteLabelSettingsPage } from './WhiteLabelSettingsPage'

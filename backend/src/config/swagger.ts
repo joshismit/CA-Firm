@@ -49,6 +49,7 @@ const swaggerDefinition: swaggerJSDoc.OAS3Definition = {
     { name: 'Clients', description: 'Client management' },
     { name: 'Documents', description: 'Document management' },
     { name: 'Tasks', description: 'Task management' },
+    { name: 'Projects', description: 'Project (engagement) management' },
     { name: 'Reports', description: 'Reports & Analytics' },
     { name: 'Master Admin', description: 'Master admin operations' },
     { name: 'Health', description: 'Health & readiness checks' },

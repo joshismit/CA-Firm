@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
+import { MulterError } from 'multer';
 import { Prisma } from '@prisma/client';
 import { logger } from '@config/logger';
 import { AppError } from '@shared/errors';
@@ -80,6 +81,16 @@ export function errorMiddleware(
           details,
         ),
       );
+    return;
+  }
+
+  // 3b. Handle Multer Upload Errors (file too large, unexpected field, etc.)
+  if (err instanceof MulterError) {
+    log.warn({ err, code: err.code }, 'File Upload Error');
+
+    res
+      .status(HTTP_STATUS.BAD_REQUEST)
+      .json(ApiResponseHelper.error(req, err.message, ErrorCode.VALIDATION_ERROR));
     return;
   }
 

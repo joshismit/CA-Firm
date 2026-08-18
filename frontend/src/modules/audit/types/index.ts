@@ -1,2 +1,69 @@
 // TypeScript types and interfaces scoped to audit.
-export {};
+// Field-for-field match with the backend's AuditLogResponseDto
+// (backend/src/modules/audit/dto/audit.res.dto.ts), which itself follows the PRD's
+// section 14.1 tracked-event list.
+
+export type AuditEventType =
+  | 'UPLOAD'
+  | 'DOWNLOAD'
+  | 'SHARE'
+  | 'SHARE_REVOKED'
+  | 'DOCUMENT_DELETE'
+  | 'LOGIN'
+  | 'LOGOUT'
+  | 'FAILED_LOGIN'
+  | 'SESSION_REVOKED'
+  | 'ROLE_CHANGE'
+  | 'TASK_UPDATE'
+  | 'PAYMENT_ACTION'
+  | 'PERMISSION_CHANGE'
+  | 'PASSWORD_RESET'
+  | 'INVITATION_ACCEPTED'
+  | 'TASK_REMINDER_SENT'
+  | 'SETTINGS_UPDATE'
+  | 'UPLOAD_REJECTED'
+  | 'INVOICE_CREATED'
+  | 'INVOICE_UPDATED'
+  | 'INVOICE_DELETED'
+  | 'PAYMENT_COMPLETED'
+  | 'SUBSCRIPTION_UPDATED'
+  | 'FOLDER_CREATED'
+  | 'FOLDER_RENAMED'
+  | 'FOLDER_DELETED'
+  | 'DASHBOARD_PREFERENCES_CHANGED'
+  | 'DASHBOARD_LAYOUT_RESET'
+  | 'DASHBOARD_DEFAULTS_UPDATED'
+  | 'NOTIFICATION_TEMPLATE_CREATED'
+  | 'NOTIFICATION_TEMPLATE_UPDATED'
+  | 'NOTIFICATION_TEMPLATE_DELETED'
+  | 'DOCUMENT_APPROVED'
+  | 'DOCUMENT_REJECTED'
+
+export interface AuditLogEntry {
+  id: string
+  eventType: AuditEventType
+  actorId: string
+  actorName: string
+  targetType: string | null
+  targetId: string | null
+  description: string
+  ipAddress: string | null
+  userAgent: string | null
+  oldValue: Record<string, unknown> | null
+  newValue: Record<string, unknown> | null
+  metadata: Record<string, unknown> | null
+  createdAt: string
+}
+
+export interface AuditLogFilters {
+  page?: number
+  limit?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+  search?: string
+  eventType?: AuditEventType
+  actorId?: string
+  targetType?: string
+  from?: string
+  to?: string
+}

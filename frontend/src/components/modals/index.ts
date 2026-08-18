@@ -1,2 +1,2 @@
 // Reusable dialog/drawer primitives (ConfirmDialog, ModalProvider, useModal, Drawer).
-export {};
+export * from './Dialog'

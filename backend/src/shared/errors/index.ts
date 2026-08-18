@@ -10,8 +10,10 @@ export {
   NotFoundError,
   ConflictError,
   GoneError,
+  UnsupportedMediaTypeError,
   ValidationError,
   TooManyRequestsError,
+  NotImplementedError,
   InternalServerError,
   ServiceUnavailableError,
 } from './http.errors';

@@ -1,2 +1,133 @@
-// Canonical registry of resource.action permission strings used by the ACL layer, usePermission, and <Can>.
-export {};
+// Canonical registry of resource:action permission strings used by the ACL layer, usePermission, and <Can>.
+// Mirrors backend/src/shared/enums/permission.enum.ts exactly - keep both lists in sync by hand since
+// the frontend can't import the backend's TS enum across the workspace boundary.
+
+export const PERMISSION_RESOURCES = {
+  USERS: 'users',
+  ROLES: 'roles',
+  CLIENTS: 'clients',
+  CONTACTS: 'contacts',
+  DOCUMENTS: 'documents',
+  TASKS: 'tasks',
+  PROJECTS: 'projects',
+  CRM: 'crm',
+  /** SaaS subscription billing (tenant -> ERP vendor) - NOT the firm's client-facing billing. */
+  BILLING: 'billing',
+  /** The firm's client-facing billing (Invoices/Expenses/Payments to its own clients) - a separate domain from BILLING above. */
+  CLIENT_BILLING: 'client_billing',
+  REPORTS: 'reports',
+  AUDIT_LOGS: 'audit_logs',
+  SETTINGS: 'settings',
+  NOTIFICATIONS: 'notifications',
+  BUSINESS: 'business',
+  SUBSCRIPTIONS: 'subscriptions',
+} as const
+
+export const PERMISSION_ACTIONS = {
+  CREATE: 'create',
+  READ: 'read',
+  UPDATE: 'update',
+  DELETE: 'delete',
+  EXPORT: 'export',
+  IMPORT: 'import',
+  APPROVE: 'approve',
+  MANAGE: 'manage',
+  ASSIGN: 'assign',
+} as const
+
+export type PermissionResource = (typeof PERMISSION_RESOURCES)[keyof typeof PERMISSION_RESOURCES]
+export type PermissionAction = (typeof PERMISSION_ACTIONS)[keyof typeof PERMISSION_ACTIONS]
+
+/** Builds a `resource:action` permission string - the same shape backend's requirePermission() checks. */
+export function perm(resource: PermissionResource, action: PermissionAction): string {
+  return `${resource}:${action}`
+}
+
+export const PERMISSIONS = {
+  // Real, backend-verified resources (Projects & Tasks REST APIs exist today)
+  PROJECTS_CREATE: perm(PERMISSION_RESOURCES.PROJECTS, PERMISSION_ACTIONS.CREATE),
+  PROJECTS_READ: perm(PERMISSION_RESOURCES.PROJECTS, PERMISSION_ACTIONS.READ),
+  PROJECTS_UPDATE: perm(PERMISSION_RESOURCES.PROJECTS, PERMISSION_ACTIONS.UPDATE),
+  PROJECTS_DELETE: perm(PERMISSION_RESOURCES.PROJECTS, PERMISSION_ACTIONS.DELETE),
+  PROJECTS_MANAGE: perm(PERMISSION_RESOURCES.PROJECTS, PERMISSION_ACTIONS.MANAGE),
+  PROJECTS_EXPORT: perm(PERMISSION_RESOURCES.PROJECTS, PERMISSION_ACTIONS.EXPORT),
+  PROJECTS_APPROVE: perm(PERMISSION_RESOURCES.PROJECTS, PERMISSION_ACTIONS.APPROVE),
+
+  TASKS_CREATE: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.CREATE),
+  TASKS_READ: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.READ),
+  TASKS_UPDATE: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.UPDATE),
+  TASKS_DELETE: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.DELETE),
+  TASKS_MANAGE: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.MANAGE),
+  TASKS_EXPORT: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.EXPORT),
+  TASKS_APPROVE: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.APPROVE),
+  TASKS_ASSIGN: perm(PERMISSION_RESOURCES.TASKS, PERMISSION_ACTIONS.ASSIGN),
+
+  // Business joined Projects/Tasks as a real, backend-verified resource once
+  // backend/src/modules/business shipped (Phase 6 backend enablement) - matches
+  // backend/src/modules/business/constants/business.permissions.ts exactly.
+  BUSINESS_CREATE: perm(PERMISSION_RESOURCES.BUSINESS, PERMISSION_ACTIONS.CREATE),
+  BUSINESS_READ: perm(PERMISSION_RESOURCES.BUSINESS, PERMISSION_ACTIONS.READ),
+  BUSINESS_UPDATE: perm(PERMISSION_RESOURCES.BUSINESS, PERMISSION_ACTIONS.UPDATE),
+  BUSINESS_DELETE: perm(PERMISSION_RESOURCES.BUSINESS, PERMISSION_ACTIONS.DELETE),
+
+  // Contacts joined as a real, backend-verified resource once backend/src/modules/contacts
+  // shipped (Phase 6 backend enablement, Day 2) - matches
+  // backend/src/modules/contacts/constants/contact.permissions.ts exactly.
+  CONTACTS_CREATE: perm(PERMISSION_RESOURCES.CONTACTS, PERMISSION_ACTIONS.CREATE),
+  CONTACTS_READ: perm(PERMISSION_RESOURCES.CONTACTS, PERMISSION_ACTIONS.READ),
+  CONTACTS_UPDATE: perm(PERMISSION_RESOURCES.CONTACTS, PERMISSION_ACTIONS.UPDATE),
+  CONTACTS_DELETE: perm(PERMISSION_RESOURCES.CONTACTS, PERMISSION_ACTIONS.DELETE),
+
+  // Placeholder resources - no backend routes yet, but the Prisma schema and PRD already scope
+  // these modules, and mock-data pages need real permission strings for their <Can> gates.
+  CLIENTS_READ: perm(PERMISSION_RESOURCES.CLIENTS, PERMISSION_ACTIONS.READ),
+  CLIENTS_CREATE: perm(PERMISSION_RESOURCES.CLIENTS, PERMISSION_ACTIONS.CREATE),
+  CLIENTS_UPDATE: perm(PERMISSION_RESOURCES.CLIENTS, PERMISSION_ACTIONS.UPDATE),
+
+  CRM_READ: perm(PERMISSION_RESOURCES.CRM, PERMISSION_ACTIONS.READ),
+  CRM_CREATE: perm(PERMISSION_RESOURCES.CRM, PERMISSION_ACTIONS.CREATE),
+  CRM_UPDATE: perm(PERMISSION_RESOURCES.CRM, PERMISSION_ACTIONS.UPDATE),
+  // Added alongside the real backend/src/modules/crm/routes/lead.routes.ts wiring - that router
+  // already gates DELETE /crm/:id on crm:delete, this registry just didn't mirror it yet.
+  CRM_DELETE: perm(PERMISSION_RESOURCES.CRM, PERMISSION_ACTIONS.DELETE),
+  CRM_MANAGE: perm(PERMISSION_RESOURCES.CRM, PERMISSION_ACTIONS.MANAGE),
+
+  DOCUMENTS_READ: perm(PERMISSION_RESOURCES.DOCUMENTS, PERMISSION_ACTIONS.READ),
+  DOCUMENTS_CREATE: perm(PERMISSION_RESOURCES.DOCUMENTS, PERMISSION_ACTIONS.CREATE),
+  // Added alongside the real backend/src/modules/documents/routes/document.routes.ts wiring -
+  // that router already gates PATCH /documents/:id on documents:update, this registry just
+  // didn't mirror it yet.
+  DOCUMENTS_UPDATE: perm(PERMISSION_RESOURCES.DOCUMENTS, PERMISSION_ACTIONS.UPDATE),
+  DOCUMENTS_DELETE: perm(PERMISSION_RESOURCES.DOCUMENTS, PERMISSION_ACTIONS.DELETE),
+  DOCUMENTS_APPROVE: perm(PERMISSION_RESOURCES.DOCUMENTS, PERMISSION_ACTIONS.APPROVE),
+  DOCUMENTS_EXPORT: perm(PERMISSION_RESOURCES.DOCUMENTS, PERMISSION_ACTIONS.EXPORT),
+
+  USERS_READ: perm(PERMISSION_RESOURCES.USERS, PERMISSION_ACTIONS.READ),
+  USERS_MANAGE: perm(PERMISSION_RESOURCES.USERS, PERMISSION_ACTIONS.MANAGE),
+
+  ROLES_READ: perm(PERMISSION_RESOURCES.ROLES, PERMISSION_ACTIONS.READ),
+  ROLES_MANAGE: perm(PERMISSION_RESOURCES.ROLES, PERMISSION_ACTIONS.MANAGE),
+
+  BILLING_READ: perm(PERMISSION_RESOURCES.BILLING, PERMISSION_ACTIONS.READ),
+  BILLING_MANAGE: perm(PERMISSION_RESOURCES.BILLING, PERMISSION_ACTIONS.MANAGE),
+
+  CLIENT_BILLING_READ: perm(PERMISSION_RESOURCES.CLIENT_BILLING, PERMISSION_ACTIONS.READ),
+  CLIENT_BILLING_MANAGE: perm(PERMISSION_RESOURCES.CLIENT_BILLING, PERMISSION_ACTIONS.MANAGE),
+
+  NOTIFICATIONS_READ: perm(PERMISSION_RESOURCES.NOTIFICATIONS, PERMISSION_ACTIONS.READ),
+  NOTIFICATIONS_MANAGE: perm(PERMISSION_RESOURCES.NOTIFICATIONS, PERMISSION_ACTIONS.MANAGE),
+
+  REPORTS_READ: perm(PERMISSION_RESOURCES.REPORTS, PERMISSION_ACTIONS.READ),
+  REPORTS_EXPORT: perm(PERMISSION_RESOURCES.REPORTS, PERMISSION_ACTIONS.EXPORT),
+
+  AUDIT_LOGS_READ: perm(PERMISSION_RESOURCES.AUDIT_LOGS, PERMISSION_ACTIONS.READ),
+
+  SETTINGS_READ: perm(PERMISSION_RESOURCES.SETTINGS, PERMISSION_ACTIONS.READ),
+  SETTINGS_MANAGE: perm(PERMISSION_RESOURCES.SETTINGS, PERMISSION_ACTIONS.MANAGE),
+
+  SUBSCRIPTIONS_READ: perm(PERMISSION_RESOURCES.SUBSCRIPTIONS, PERMISSION_ACTIONS.READ),
+  SUBSCRIPTIONS_MANAGE: perm(PERMISSION_RESOURCES.SUBSCRIPTIONS, PERMISSION_ACTIONS.MANAGE),
+} as const
+
+export type PermissionKey = keyof typeof PERMISSIONS
+export type PermissionValue = (typeof PERMISSIONS)[PermissionKey]

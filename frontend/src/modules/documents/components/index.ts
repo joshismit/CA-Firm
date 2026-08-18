@@ -1,2 +1,22 @@
 // documents feature-specific components - not reused outside this module. Promote to src/components if reuse emerges.
-export {};
+
+export * from './DocumentStatusBadge'
+export * from './DocumentTableColumns'
+export * from './DocumentTemplateTableColumns'
+export * from './DocumentFilters'
+export * from './DocumentForm'
+export * from './DocumentQuickActions'
+export * from './DocumentHeader'
+export * from './DocumentOverviewCard'
+export * from './DocumentPreviewCard'
+export * from './DocumentBusinessCard'
+export * from './DocumentMetadataCard'
+export * from './DocumentVersionCard'
+export * from './ReplaceFileDialog'
+export * from './DocumentActivityCard'
+export * from './CategoryNav'
+export * from './FolderTree'
+export * from './FolderBreadcrumbs'
+export * from './CreateFolderDialog'
+export * from './RenameFolderDialog'
+export * from './DeleteFolderDialog'

@@ -1,6 +1,14 @@
 import pino from 'pino';
 import { env } from './environment';
 import type { Request } from 'express';
+// Type-only (erased at emit — no runtime require, `.d.ts` files have no JS to load anyway) import
+// so ts-node's lazy per-file compilation actually loads this ambient `declare global` module when
+// this file is required from an entry point whose own dependency graph never otherwise touches it
+// (e.g. `src/workers/index.ts` — no controller/middleware in its chain references
+// `RequestUser`/`RequestTenant`). Without it, `req.correlationId`/`req.tenant`/`req.user` below fail
+// to type-check under `ts-node` (though not under a full `tsc` build, which always includes every
+// file matching `tsconfig.json`'s `include` glob regardless).
+import type {} from '@shared/types/express';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────

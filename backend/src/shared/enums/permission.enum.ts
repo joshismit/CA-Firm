@@ -10,7 +10,11 @@ export enum PermissionAction {
   EXPORT = 'export',
   IMPORT = 'import',
   APPROVE = 'approve',
+  SHARE = 'share',
   MANAGE = 'manage',     // Full control (admin only)
+  ASSIGN = 'assign',
+  REVIEW = 'review',
+  COMPLETE = 'complete',
 }
 
 /**
@@ -24,12 +28,21 @@ export enum PermissionResource {
   CONTACTS = 'contacts',
   DOCUMENTS = 'documents',
   TASKS = 'tasks',
+  PROJECTS = 'projects',
   CRM = 'crm',
+  /** SaaS subscription billing (tenant → ERP vendor) — NOT the firm's client-facing billing. */
   BILLING = 'billing',
+  /** The firm's client-facing billing (Invoices/Expenses/Payments to its own clients) — a separate domain from BILLING above. */
+  CLIENT_BILLING = 'client_billing',
   REPORTS = 'reports',
   AUDIT_LOGS = 'audit_logs',
   SETTINGS = 'settings',
   NOTIFICATIONS = 'notifications',
   BUSINESS = 'business',
   SUBSCRIPTIONS = 'subscriptions',
+  TASK_TEMPLATES = 'task_templates',
+  /** PRD §17 — Integration Framework (`modules/integrations`): connecting/disconnecting/syncing
+   *  third-party providers. Distinct from every existing provider-backed resource
+   *  (NOTIFICATIONS/CLIENT_BILLING) since it governs the generic framework, not one feature. */
+  INTEGRATIONS = 'integrations',
 }

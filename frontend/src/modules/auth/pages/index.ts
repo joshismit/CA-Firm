@@ -1,2 +1,5 @@
-// Route-level page components for auth, wired up in routes/protected.routes.tsx (or the relevant route group).
-export {};
+// Route-level page components for auth, wired up in routes/public.routes.tsx.
+export * from './LoginPage'
+export * from './ForgotPasswordPage'
+export * from './ResetPasswordPage'
+export * from './AcceptInvitePage'

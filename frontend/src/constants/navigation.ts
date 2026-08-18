@@ -4,6 +4,10 @@ import {
   BarChart3,
   Users,
   UserPlus,
+  Briefcase,
+  Landmark,
+  IdCard,
+  Handshake,
   FileText,
   Calculator,
   Receipt,
@@ -13,12 +17,17 @@ import {
   Wallet,
   CheckSquare,
   ClipboardList,
+  CalendarDays,
   FolderOpen,
   LayoutTemplate,
   UsersRound,
   Shield,
+  KeyRound,
   Settings,
   Bell,
+  FileBarChart,
+  History,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -32,6 +41,8 @@ export interface NavItem {
 export interface NavGroup {
   label: string
   items: NavItem[]
+  /** Restricts this entire group to users whose `role` is one of these - omit to show to everyone. */
+  roles?: string[]
 }
 
 export const NAV_GROUPS: NavGroup[] = [
@@ -45,14 +56,18 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Clients',
     items: [
+      { label: 'Businesses', path: '/business', icon: Landmark },
+      { label: 'Contacts', path: '/contacts', icon: IdCard },
+      { label: 'CRM', path: '/crm', icon: Handshake },
       { label: 'All Clients', path: '/clients', icon: Users },
       { label: 'Add Client', path: '/clients/new', icon: UserPlus },
+      { label: 'Projects', path: '/projects', icon: Briefcase },
     ],
   },
   {
     label: 'Compliance',
     items: [
-      { label: 'GST Returns', path: '/gst', icon: FileText, badge: 3 },
+      { label: 'GST Returns', path: '/gst', icon: FileText },
       { label: 'Income Tax (ITR)', path: '/itr', icon: Calculator },
       { label: 'TDS / 26Q', path: '/tds', icon: Receipt },
       { label: 'MCA / ROC', path: '/mca', icon: Building2 },
@@ -69,7 +84,8 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Tasks',
     items: [
-      { label: 'My Tasks', path: '/tasks/my', icon: CheckSquare, badge: 5 },
+      { label: 'Work Calendar', path: '/calendar', icon: CalendarDays },
+      { label: 'My Tasks', path: '/tasks/my', icon: CheckSquare },
       { label: 'Team Tasks', path: '/tasks/team', icon: ClipboardList },
     ],
   },
@@ -81,17 +97,28 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'Staff',
+    label: 'Administration',
     items: [
-      { label: 'Team', path: '/staff', icon: UsersRound },
-      { label: 'Roles & Permissions', path: '/staff/roles', icon: Shield },
+      { label: 'Administration', path: '/staff', icon: UsersRound },
+      { label: 'Users', path: '/staff/users', icon: Users },
+      { label: 'Roles', path: '/staff/roles', icon: Shield },
+      { label: 'Permissions', path: '/staff/permissions', icon: KeyRound },
     ],
   },
   {
     label: 'System',
     items: [
-      { label: 'Notifications', path: '/notifications', icon: Bell, badge: 2 },
+      { label: 'Reports', path: '/reports', icon: FileBarChart },
+      { label: 'Audit Logs', path: '/audit', icon: History },
+      { label: 'Notifications', path: '/notifications', icon: Bell },
       { label: 'Settings', path: '/settings', icon: Settings },
     ],
+  },
+  {
+    label: 'Platform',
+    // Same 'MASTER_ADMIN' role literal MasterAdminGuard (routes/master-admin.routes.tsx) already
+    // gates on - a tenant user would just hit /403 if this were visible without the filter.
+    roles: ['MASTER_ADMIN'],
+    items: [{ label: 'Master Admin', path: '/master-admin', icon: ShieldCheck }],
   },
 ]

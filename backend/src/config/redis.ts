@@ -49,9 +49,26 @@ redis.on('reconnecting', () => {
 
 /**
  * Connect to Redis. Called during server startup.
+ *
+ * `lazyConnect: true` above means this client only actually connects on its
+ * first command — but the BullMQ `Queue` instances in `config/queue.ts` (all
+ * constructed at module-load time, sharing this same client) issue commands
+ * of their own during construction, which can already have kicked off the
+ * connection by the time this runs. Calling `redis.connect()` a second time
+ * on a client that's already connecting throws `"Redis is already
+ * connecting/connected"` — so this checks status first, and waits for the
+ * in-flight connection to finish rather than starting a redundant one.
  */
 export async function connectRedis(): Promise<void> {
-  await redis.connect();
+  if (redis.status === 'ready') return;
+  if (redis.status === 'wait') {
+    await redis.connect();
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    redis.once('ready', resolve);
+    redis.once('error', reject);
+  });
 }
 
 /**

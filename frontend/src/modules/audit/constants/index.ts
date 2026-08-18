@@ -1,2 +1,41 @@
 // audit-scoped constants (enums, option lists, default values).
-export {};
+// Matches PRD section 14.1's tracked-event list exactly.
+
+export const AUDIT_EVENT_LABELS: Record<string, string> = {
+  UPLOAD: 'Upload',
+  DOWNLOAD: 'Download',
+  SHARE: 'Share',
+  SHARE_REVOKED: 'Share Revoked',
+  DOCUMENT_DELETE: 'Document Deleted',
+  LOGIN: 'Login',
+  LOGOUT: 'Logout',
+  FAILED_LOGIN: 'Failed Login',
+  SESSION_REVOKED: 'Session Revoked',
+  ROLE_CHANGE: 'Role Change',
+  TASK_UPDATE: 'Task Update',
+  PAYMENT_ACTION: 'Payment Action',
+  PERMISSION_CHANGE: 'Permission Change',
+  PASSWORD_RESET: 'Password Reset',
+  INVITATION_ACCEPTED: 'Invitation Accepted',
+  TASK_REMINDER_SENT: 'Task Reminder Sent',
+  SETTINGS_UPDATE: 'Settings Update',
+  UPLOAD_REJECTED: 'Upload Rejected',
+  INVOICE_CREATED: 'Invoice Created',
+  INVOICE_UPDATED: 'Invoice Updated',
+  INVOICE_DELETED: 'Invoice Deleted',
+  PAYMENT_COMPLETED: 'Payment Completed',
+  SUBSCRIPTION_UPDATED: 'Subscription Updated',
+  FOLDER_CREATED: 'Folder Created',
+  FOLDER_RENAMED: 'Folder Renamed',
+  FOLDER_DELETED: 'Folder Deleted',
+  DASHBOARD_PREFERENCES_CHANGED: 'Dashboard Preferences Changed',
+  DASHBOARD_LAYOUT_RESET: 'Dashboard Layout Reset',
+  DASHBOARD_DEFAULTS_UPDATED: 'Dashboard Defaults Updated',
+  NOTIFICATION_TEMPLATE_CREATED: 'Notification Template Created',
+  NOTIFICATION_TEMPLATE_UPDATED: 'Notification Template Updated',
+  NOTIFICATION_TEMPLATE_DELETED: 'Notification Template Deleted',
+  DOCUMENT_APPROVED: 'Document Approved',
+  DOCUMENT_REJECTED: 'Document Rejected',
+}
+
+export const AUDIT_EVENT_OPTIONS = Object.entries(AUDIT_EVENT_LABELS).map(([value, label]) => ({ value, label }))

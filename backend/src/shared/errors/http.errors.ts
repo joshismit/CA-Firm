@@ -84,8 +84,9 @@ export class ConflictError extends AppError {
   constructor(
     message = 'Conflict',
     code: ErrorCode = ErrorCode.CONFLICT,
+    details?: unknown,
   ) {
-    super(message, HTTP_STATUS.CONFLICT, code, true);
+    super(message, HTTP_STATUS.CONFLICT, code, true, details);
   }
 }
 
@@ -97,6 +98,24 @@ export class GoneError extends AppError {
     code: ErrorCode = ErrorCode.GONE,
   ) {
     super(`${resource} no longer exists`, HTTP_STATUS.GONE, code, true);
+  }
+}
+
+// ─── 415 Unsupported Media Type ──────────────────────────────────────────────
+
+/**
+ * PRD §7.5 — an uploaded file's extension, declared MIME type, or actual
+ * content signature didn't match a supported document type (or matched a
+ * blocked executable/script extension). Distinct from `BadRequestError`
+ * (used when no file was provided at all) so clients can branch on the
+ * correct HTTP semantics for "wrong kind of body" vs. "missing body".
+ */
+export class UnsupportedMediaTypeError extends AppError {
+  constructor(
+    message = 'This file type is not permitted',
+    code: ErrorCode = ErrorCode.FILE_TYPE_NOT_ALLOWED,
+  ) {
+    super(message, HTTP_STATUS.UNSUPPORTED_MEDIA_TYPE, code, true);
   }
 }
 
@@ -120,6 +139,23 @@ export class TooManyRequestsError extends AppError {
     code: ErrorCode = ErrorCode.TOO_MANY_REQUESTS,
   ) {
     super(message, HTTP_STATUS.TOO_MANY_REQUESTS, code, true);
+  }
+}
+
+// ─── 501 Not Implemented ─────────────────────────────────────────────────────
+
+/**
+ * A genuinely valid request for a feature that does not exist yet in this
+ * backend — distinct from `InternalServerError` (an unexpected crash).
+ * Always operational: the client should treat the message as authoritative,
+ * not retry expecting a transient failure to resolve itself.
+ */
+export class NotImplementedError extends AppError {
+  constructor(
+    message = 'This feature is not yet available',
+    code: ErrorCode = ErrorCode.NOT_IMPLEMENTED,
+  ) {
+    super(message, HTTP_STATUS.NOT_IMPLEMENTED, code, true);
   }
 }
 

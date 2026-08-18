@@ -1,0 +1,34 @@
+// src/modules/contacts/components/ContactTimelineCard.tsx
+// Derived only from Contact's own real fields (createdAt/updatedAt) - no invented activity feed
+// or audit-log API call (Audit module is separate and out of scope for Contacts).
+import { Card, CardHeader } from '@/components/shared/Card/Card'
+import { formatDateLong } from '@/lib/utils'
+import type { Contact } from '../types'
+
+export interface ContactTimelineCardProps {
+  contact: Contact
+}
+
+export function ContactTimelineCard({ contact }: ContactTimelineCardProps) {
+  const events = [
+    { label: 'Contact added', date: contact.createdAt },
+    ...(contact.updatedAt !== contact.createdAt ? [{ label: 'Last updated', date: contact.updatedAt }] : []),
+  ]
+
+  return (
+    <Card>
+      <CardHeader title="Timeline" />
+      <div className="space-y-3">
+        {events.map((event) => (
+          <div key={event.label} className="flex items-center gap-3">
+            <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-primary-500)] shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-medium text-[var(--color-text-body)]">{event.label}</p>
+              <p className="text-[11px] text-[var(--color-text-muted)]">{formatDateLong(event.date)}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}

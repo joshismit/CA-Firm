@@ -31,6 +31,20 @@ export function formatIndianNumber(num: number): string {
 }
 
 /**
+ * Format a number as compact Indian-notation currency (K/L/Cr), e.g. ₹48.2L, ₹1.3Cr.
+ * Used for large headline figures (KPI cards) where the full grouped amount is too wide.
+ */
+export function formatCompactINR(amount: number, decimals = 1): string {
+  const abs = Math.abs(amount)
+  const sign = amount < 0 ? '-' : ''
+
+  if (abs >= 1_00_00_000) return `${sign}₹${(abs / 1_00_00_000).toFixed(decimals)}Cr`
+  if (abs >= 1_00_000) return `${sign}₹${(abs / 1_00_000).toFixed(decimals)}L`
+  if (abs >= 1_000) return `${sign}₹${(abs / 1_000).toFixed(decimals)}K`
+  return `${sign}₹${abs.toLocaleString('en-IN')}`
+}
+
+/**
  * Format date in Indian format DD/MM/YYYY
  */
 export function formatDate(date: string | Date): string {
@@ -82,6 +96,19 @@ export function getColorIndex(str: string, max = 8): number {
  */
 export function truncate(str: string, length = 40): string {
   return str.length > length ? str.slice(0, length) + '…' : str
+}
+
+/** Formats a byte count as a human-readable size (B/KB/MB/GB) - shared by Documents and the generic upload components. */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unitIndex]}`
 }
 
 /**

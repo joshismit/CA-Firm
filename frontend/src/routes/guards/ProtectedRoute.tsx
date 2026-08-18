@@ -1,2 +1,17 @@
 // Redirects to /login when there is no authenticated session.
-export {};
+
+import { Navigate, Outlet } from 'react-router-dom'
+import { useAuthStore } from '@/store/auth.store'
+
+export function ProtectedRoute() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const hydrated = useAuthStore((s) => s.hydrated)
+
+  // Still reading persisted auth state from localStorage - render nothing rather than
+  // bouncing to /login and flashing it before hydration completes.
+  if (!hydrated) return null
+
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+
+  return <Outlet />
+}

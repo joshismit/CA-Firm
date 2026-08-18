@@ -171,6 +171,17 @@
   --text-xs:      0.6875rem;
   --text-2xs:     0.625rem;
 
+  /* ─── Font Weights ────────────────────────────── */
+  --font-weight-normal:   400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  /* ─── Heading / Body Rhythm ───────────────────── */
+  --heading-tracking: -0.015em;
+  --heading-line:     1.25;
+  --body-line:        1.5;
+
   /* ─── Transitions ────────────────────────────── */
   --transition-fast:   100ms ease-out;
   --transition-base:   150ms ease-out;

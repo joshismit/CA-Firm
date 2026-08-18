@@ -11,7 +11,8 @@ export interface JwtPayload {
   sub: string;      // userId
   email: string;
   role: UserRole;
-  tenantId: string;
+  /** Absent for MASTER_ADMIN — see `RequestUser.tenantId`'s comment (shared/types/express.d.ts). */
+  tenantId?: string;
   permissions: string[];
   iat?: number;
   exp?: number;

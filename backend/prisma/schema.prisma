@@ -1,11 +1,12 @@
 // =============================================================================
 // CA Firm ERP — Prisma Schema
-// Modules: Foundation + Business + Contacts + Clients + CRM
+// Modules: Foundation + Business + Contacts + Clients + CRM + Projects + Tasks + Documents
 // =============================================================================
 
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
+  engineType      = "library"
 }
 
 datasource db {
@@ -23,6 +24,7 @@ enum TenantStatus {
   TRIAL
   SUSPENDED
   DEACTIVATED
+
   @@map("tenant_status")
 }
 
@@ -34,6 +36,7 @@ enum SubscriptionStatus {
   SUSPENDED
   CANCELLED
   EXPIRED
+
   @@map("subscription_status")
 }
 
@@ -44,6 +47,7 @@ enum UserStatus {
   INVITED
   SUSPENDED
   DELETED
+
   @@map("user_status")
 }
 
@@ -54,6 +58,7 @@ enum SessionDeviceType {
   MOBILE_ANDROID
   DESKTOP
   API_KEY
+
   @@map("session_device_type")
 }
 
@@ -68,6 +73,11 @@ enum SessionRevokeReason {
   SESSION_EXPIRED
   SUSPICIOUS_ACTIVITY
   DEVICE_REMOVED
+  /// PRD §14.5 — this session was evicted at login because the user already had
+  /// `SESSION.MAX_CONCURRENT` other active sessions; the oldest (by `lastActiveAt`)
+  /// is revoked to make room for the new one.
+  CONCURRENT_LIMIT_EXCEEDED
+
   @@map("session_revoke_reason")
 }
 
@@ -77,6 +87,7 @@ enum OtpPurpose {
   PHONE_VERIFY
   TWO_FACTOR
   PASSWORD_RESET
+
   @@map("otp_purpose")
 }
 
@@ -88,6 +99,10 @@ enum RefreshTokenRevokeReason {
   SESSION_REVOKED
   ADMIN_REVOKE
   EXPIRED
+  /// Mirrors `SessionRevokeReason.CONCURRENT_LIMIT_EXCEEDED` — the token's
+  /// session was evicted to enforce `SESSION.MAX_CONCURRENT`.
+  CONCURRENT_LIMIT_EXCEEDED
+
   @@map("refresh_token_revoke_reason")
 }
 
@@ -97,6 +112,7 @@ enum InvitationStatus {
   ACCEPTED
   EXPIRED
   REVOKED
+
   @@map("invitation_status")
 }
 
@@ -111,6 +127,9 @@ enum PermissionAction {
   APPROVE
   ASSIGN
   MANAGE
+  REVIEW
+  COMPLETE
+
   @@map("permission_action")
 }
 
@@ -128,6 +147,7 @@ enum LoginEventType {
   ACCOUNT_UNLOCKED
   SESSION_REVOKED
   EMAIL_CHANGED
+
   @@map("login_event_type")
 }
 
@@ -135,6 +155,7 @@ enum LoginEventType {
 enum LoginEventStatus {
   SUCCESS
   FAILURE
+
   @@map("login_event_status")
 }
 
@@ -142,6 +163,7 @@ enum LoginEventStatus {
 enum RoleType {
   SYSTEM
   CUSTOM
+
   @@map("role_type")
 }
 
@@ -150,6 +172,7 @@ enum SessionStatus {
   ACTIVE
   EXPIRED
   REVOKED
+
   @@map("session_status")
 }
 
@@ -158,6 +181,7 @@ enum OtpType {
   TOTP
   SMS
   EMAIL
+
   @@map("otp_type")
 }
 
@@ -167,6 +191,7 @@ enum ResourceAccessLevel {
   READ
   WRITE
   ADMIN
+
   @@map("resource_access_level")
 }
 
@@ -176,6 +201,7 @@ enum DomainSslStatus {
   PROVISIONED
   FAILED
   EXPIRING
+
   @@map("domain_ssl_status")
 }
 
@@ -185,6 +211,7 @@ enum BusinessStatus {
   DORMANT
   STRUCK_OFF
   DISSOLVED
+
   @@map("business_status")
 }
 
@@ -195,6 +222,7 @@ enum AddressType {
   FACTORY
   RESIDENTIAL
   OTHER
+
   @@map("address_type")
 }
 
@@ -208,7 +236,11 @@ enum ContactRoleType {
   EMPLOYEE
   CLIENT_REPRESENTATIVE
   EMERGENCY_CONTACT
+  /// PRD §8.3 — a contact who is not necessarily an officer/signatory but has purchasing/decision
+  /// authority for the business. Distinct from AUTHORIZED_SIGNATORY (a legal-document role).
+  DECISION_MAKER
   OTHER
+
   @@map("contact_role_type")
 }
 
@@ -217,6 +249,7 @@ enum ClientStatus {
   INACTIVE
   SUSPENDED
   FORMER
+
   @@map("client_status")
 }
 
@@ -226,9 +259,9 @@ enum ActivityType {
   EMAIL
   WHATSAPP
   SYSTEM_LOG
+
   @@map("activity_type")
 }
-
 
 // =============================================================================
 // SECTION 2 — TENANT MODULE
@@ -239,26 +272,34 @@ model Tenant {
   slug String @unique @db.VarChar(100)
   name String @db.VarChar(255)
 
-  country         String @default("IN")           @db.Char(2)      @map("country")
-  timezone        String @default("Asia/Kolkata")  @db.VarChar(100) @map("timezone")
-  locale          String @default("en-IN")         @db.VarChar(20)  @map("locale")
-  defaultCurrency String @default("INR")           @db.Char(3)      @map("default_currency")
+  country         String @default("IN") @map("country") @db.Char(2)
+  timezone        String @default("Asia/Kolkata") @map("timezone") @db.VarChar(100)
+  locale          String @default("en-IN") @map("locale") @db.VarChar(20)
+  defaultCurrency String @default("INR") @map("default_currency") @db.Char(3)
 
   status TenantStatus @default(TRIAL) @map("status")
 
   subscriptionStatus    SubscriptionStatus @default(TRIAL) @map("subscription_status")
-  subscriptionExpiresAt DateTime?          @db.Timestamptz @map("subscription_expires_at")
-  planCode              String?            @db.VarChar(50) @map("plan_code")
+  subscriptionExpiresAt DateTime?          @map("subscription_expires_at") @db.Timestamptz
+  planCode              String?            @map("plan_code") @db.VarChar(50)
   maxUsers              Int?               @map("max_users")
   maxClients            Int?               @map("max_clients")
+  /// Total storage quota in GB, copied from `Plan.maxStorageGb` on subscribe, master-admin
+  /// overridable via `PATCH /master-admin/tenants/:id/limits`. Every tenant must have at
+  /// least 1 GB — enforced by `updateTenantLimitsSchema` (`min(1)`); NULL means unlimited.
   maxStorageGb          Int?               @map("max_storage_gb")
   maxDocuments          Int?               @map("max_documents")
+  /// PRD §7.4 — per-file upload size ceiling in MB, copied from `Plan.maxUploadSizeMb` on subscribe
+  /// (mirrors `maxStorageGb`'s flow via `TenantBillingRepository.applyPlan()`), master-admin
+  /// overridable via `PATCH /master-admin/tenants/:id/limits`. Null = fall back to
+  /// `UPLOAD.DEFAULT_MAX_FILE_SIZE_BYTES` (100 MB).
+  maxUploadSizeMb       Int?               @map("max_upload_size_mb")
 
-  onboardingCompletedAt DateTime? @db.Timestamptz @map("onboarding_completed_at")
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at") @db.Timestamptz
 
-  createdAt DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt DateTime?                 @db.Timestamptz @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
   settings     TenantSettings?
   branding     TenantBranding?
@@ -268,32 +309,34 @@ model Tenant {
   roles           Role[]
   userInvitations UserInvitation[]
 
-  @@index([status],            name: "idx_tenants_status")
+  dashboardTenantDefaults DashboardTenantDefault[]
+
+  @@index([status], name: "idx_tenants_status")
   @@index([subscriptionStatus], name: "idx_tenants_subscription_status")
-  @@index([planCode],          name: "idx_tenants_plan_code")
-  @@index([deletedAt],         name: "idx_tenants_soft_delete")
+  @@index([planCode], name: "idx_tenants_plan_code")
+  @@index([deletedAt], name: "idx_tenants_soft_delete")
   @@map("tenants")
 }
 
 model TenantSettings {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @unique @db.Uuid @map("tenant_id")
+  tenantId String @unique @map("tenant_id") @db.Uuid
 
-  timezone        String @default("Asia/Kolkata") @db.VarChar(100) @map("timezone")
-  dateFormat      String @default("DD/MM/YYYY")   @db.VarChar(30)  @map("date_format")
-  currency        String @default("INR")           @db.Char(3)      @map("currency")
-  fiscalYearStart Int    @default(4)                                @map("fiscal_year_start")
-  language        String @default("en")            @db.VarChar(10)  @map("language")
+  timezone        String @default("Asia/Kolkata") @map("timezone") @db.VarChar(100)
+  dateFormat      String @default("DD/MM/YYYY") @map("date_format") @db.VarChar(30)
+  currency        String @default("INR") @map("currency") @db.Char(3)
+  fiscalYearStart Int    @default(4) @map("fiscal_year_start")
+  language        String @default("en") @map("language") @db.VarChar(10)
 
-  maxLoginAttempts   Int @default(5)   @map("max_login_attempts")
+  maxLoginAttempts   Int @default(5) @map("max_login_attempts")
   sessionTimeoutMins Int @default(480) @map("session_timeout_mins")
 
   requireMfa               Boolean @default(false) @map("require_mfa")
-  requireEmailVerification Boolean @default(true)  @map("require_email_verification")
+  requireEmailVerification Boolean @default(true) @map("require_email_verification")
 
-  passwordMinLength     Int     @default(8)     @map("password_min_length")
-  passwordRequireUpper  Boolean @default(true)  @map("password_require_upper")
-  passwordRequireNumber Boolean @default(true)  @map("password_require_number")
+  passwordMinLength     Int     @default(8) @map("password_min_length")
+  passwordRequireUpper  Boolean @default(true) @map("password_require_upper")
+  passwordRequireNumber Boolean @default(true) @map("password_require_number")
   passwordRequireSymbol Boolean @default(false) @map("password_require_symbol")
   passwordExpiryDays    Int?    @map("password_expiry_days")
 
@@ -303,12 +346,16 @@ model TenantSettings {
   enableApiAccess    Boolean @default(false) @map("enable_api_access")
   enableOcr          Boolean @default(false) @map("enable_ocr")
 
-  defaultNotificationEmail String? @db.VarChar(255) @map("default_notification_email")
+  defaultNotificationEmail String? @map("default_notification_email") @db.VarChar(255)
 
-  extraSettings Json? @db.JsonB @map("extra_settings")
+  /// PRD §7.4 — firm-admin-editable default `Business.storageQuotaMb` for businesses that don't set
+  /// their own override. Null = fall back to `UPLOAD.DEFAULT_BUSINESS_STORAGE_QUOTA_BYTES` (500 MB).
+  defaultBusinessStorageQuotaMb Int? @map("default_business_storage_quota_mb")
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  extraSettings Json? @map("extra_settings") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
@@ -317,32 +364,32 @@ model TenantSettings {
 
 model TenantBranding {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @unique @db.Uuid @map("tenant_id")
+  tenantId String @unique @map("tenant_id") @db.Uuid
 
-  firmName String? @db.VarChar(255) @map("firm_name")
+  firmName String? @map("firm_name") @db.VarChar(255)
 
-  logoStorageKey     String? @db.VarChar(500) @map("logo_storage_key")
-  logoDarkStorageKey String? @db.VarChar(500) @map("logo_dark_storage_key")
-  faviconStorageKey  String? @db.VarChar(500) @map("favicon_storage_key")
-  loginBgStorageKey  String? @db.VarChar(500) @map("login_bg_storage_key")
+  logoStorageKey     String? @map("logo_storage_key") @db.VarChar(500)
+  logoDarkStorageKey String? @map("logo_dark_storage_key") @db.VarChar(500)
+  faviconStorageKey  String? @map("favicon_storage_key") @db.VarChar(500)
+  loginBgStorageKey  String? @map("login_bg_storage_key") @db.VarChar(500)
 
-  primaryColor     String? @default("#1a73e8") @db.Char(7) @map("primary_color")
-  secondaryColor   String? @db.Char(7)                     @map("secondary_color")
-  accentColor      String? @db.Char(7)                     @map("accent_color")
-  backgroundColor  String? @db.Char(7)                     @map("background_color")
-  emailHeaderColor String? @db.Char(7)                     @map("email_header_color")
+  primaryColor     String? @default("#1a73e8") @map("primary_color") @db.Char(7)
+  secondaryColor   String? @map("secondary_color") @db.Char(7)
+  accentColor      String? @map("accent_color") @db.Char(7)
+  backgroundColor  String? @map("background_color") @db.Char(7)
+  emailHeaderColor String? @map("email_header_color") @db.Char(7)
 
-  fontFamily String? @default("Inter") @db.VarChar(100) @map("font_family")
-  customCss  String? @db.Text @map("custom_css")
+  fontFamily String? @default("Inter") @map("font_family") @db.VarChar(100)
+  customCss  String? @map("custom_css") @db.Text
 
-  emailFooterText String? @db.Text @map("email_footer_text")
+  emailFooterText String? @map("email_footer_text") @db.Text
 
-  footerText   String? @db.VarChar(500) @map("footer_text")
-  supportEmail String? @db.VarChar(255) @map("support_email")
-  supportPhone String? @db.VarChar(30)  @map("support_phone")
+  footerText   String? @map("footer_text") @db.VarChar(500)
+  supportEmail String? @map("support_email") @db.VarChar(255)
+  supportPhone String? @map("support_phone") @db.VarChar(30)
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
@@ -351,24 +398,24 @@ model TenantBranding {
 
 model TenantDomain {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @unique @db.Uuid @map("tenant_id")
+  tenantId String @unique @map("tenant_id") @db.Uuid
 
-  domain    String  @unique @db.VarChar(253) @map("domain")
-  subdomain String? @unique @db.VarChar(100) @map("subdomain")
+  domain    String  @unique @map("domain") @db.VarChar(253)
+  subdomain String? @unique @map("subdomain") @db.VarChar(100)
 
-  verificationToken String    @db.VarChar(255) @map("verification_token")
-  isVerified        Boolean   @default(false)  @map("is_verified")
-  verifiedAt        DateTime? @db.Timestamptz  @map("verified_at")
+  verificationToken String    @map("verification_token") @db.VarChar(255)
+  isVerified        Boolean   @default(false) @map("is_verified")
+  verifiedAt        DateTime? @map("verified_at") @db.Timestamptz
 
   sslStatus    DomainSslStatus @default(PENDING) @map("ssl_status")
-  sslExpiresAt DateTime?       @db.Timestamptz   @map("ssl_expires_at")
+  sslExpiresAt DateTime?       @map("ssl_expires_at") @db.Timestamptz
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
-  @@index([domain],    name: "idx_tenant_domains_domain")
+  @@index([domain], name: "idx_tenant_domains_domain")
   @@index([subdomain], name: "idx_tenant_domains_subdomain")
   @@index([isVerified, sslStatus], name: "idx_tenant_domains_ssl_status")
   @@map("tenant_domains")
@@ -380,34 +427,38 @@ model TenantDomain {
 
 model User {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
+  tenantId String @map("tenant_id") @db.Uuid
 
-  email        String @db.VarChar(255) @map("email")
-  passwordHash String? @db.Text        @map("password_hash")
-  firstName    String @db.VarChar(100) @map("first_name")
-  lastName     String @db.VarChar(100) @map("last_name")
-  phone        String? @db.VarChar(30) @map("phone")
+  email        String  @map("email") @db.VarChar(255)
+  passwordHash String? @map("password_hash") @db.Text
+  firstName    String  @map("first_name") @db.VarChar(100)
+  lastName     String  @map("last_name") @db.VarChar(100)
+  phone        String? @map("phone") @db.VarChar(30)
 
   status           UserStatus @default(INVITED) @map("status")
-  isOwner          Boolean    @default(false)   @map("is_owner")
-  failedLoginCount Int        @default(0)       @map("failed_login_count")
-  lockedUntil      DateTime?  @db.Timestamptz   @map("locked_until")
+  isOwner          Boolean    @default(false) @map("is_owner")
+  /// PRD §14.5 — marks a non-owner user as a coarse-role `MANAGER` (unrestricted tenant-wide
+  /// data visibility, same as `TENANT_ADMIN`, without also being the tenant owner). Mirrors
+  /// `isOwner`'s shape; resolved into `UserRole.MANAGER` by `AuthService.resolveRole()`.
+  isManager        Boolean    @default(false) @map("is_manager")
+  failedLoginCount Int        @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz
 
-  avatarStorageKey String? @db.VarChar(500) @map("avatar_storage_key")
-  jobTitle         String? @db.VarChar(100) @map("job_title")
-  bio              String? @db.Text         @map("bio")
+  avatarStorageKey String? @map("avatar_storage_key") @db.VarChar(500)
+  jobTitle         String? @map("job_title") @db.VarChar(100)
+  bio              String? @map("bio") @db.Text
 
-  emailVerifiedAt DateTime? @db.Timestamptz @map("email_verified_at")
-  phoneVerifiedAt DateTime? @db.Timestamptz @map("phone_verified_at")
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz
+  phoneVerifiedAt DateTime? @map("phone_verified_at") @db.Timestamptz
 
-  lastLoginAt       DateTime? @db.Timestamptz @map("last_login_at")
-  passwordChangedAt DateTime? @db.Timestamptz @map("password_changed_at")
+  lastLoginAt       DateTime? @map("last_login_at") @db.Timestamptz
+  passwordChangedAt DateTime? @map("password_changed_at") @db.Timestamptz
 
-  createdBy String?   @db.Uuid        @map("created_by")
-  createdAt DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt DateTime?                 @db.Timestamptz @map("deleted_at")
-  deletedBy String?   @db.Uuid        @map("deleted_by")
+  createdBy String?   @map("created_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy String?   @map("deleted_by") @db.Uuid
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
@@ -416,11 +467,12 @@ model User {
   deletedByUser User?  @relation("UserDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
   deletedUsers  User[] @relation("UserDeletedBy")
 
-  sessions           UserSession[]
-  refreshTokens      RefreshToken[]
-  otpCodes           OtpCode[]
-  mfaConfig          MfaConfig?
-  passwordHistory    UserPasswordHistory[]
+  sessions            UserSession[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  otpCodes            OtpCode[]
+  mfaConfig           MfaConfig?
+  passwordHistory     UserPasswordHistory[]
 
   sentInvitations    UserInvitation[] @relation("InvitedByUser")
   acceptedInvitation UserInvitation?  @relation("AcceptedUser")
@@ -441,138 +493,217 @@ model User {
   assignedClients       ClientAssignment[]      @relation("ClientAssignedUser")
   performedActivities   LeadActivity[]          @relation("ActivityPerformedBy")
   authoredNotes         LeadNote[]              @relation("NoteAuthor")
+  authoredBusinessNotes BusinessNote[]          @relation("BusinessNoteAuthor")
   assignedLeads         LeadAssignment[]        @relation("LeadAssignedUser")
   leadConversions       LeadConversion[]        @relation("LeadConvertedBy")
+  deletedLeads          Lead[]                  @relation("LeadDeletedBy")
+
+  // ── Relations: Projects ───────────────────────────────────────────────
+  createdProjects Project[] @relation("ProjectCreatedBy")
+  deletedProjects Project[] @relation("ProjectDeletedBy")
+  managedProjects Project[] @relation("ProjectManager")
+
+  // ── Relations: Tasks ───────────────────────────────────────────────────
+  assignedTasks        Task[]         @relation("TaskAssignee")
+  createdTasks         Task[]         @relation("TaskCreatedBy")
+  deletedTasks         Task[]         @relation("TaskDeletedBy")
+  completedTasks       Task[]         @relation("TaskCompletedBy")
+  approvedTasks        Task[]         @relation("TaskApprovedBy")
+  rejectedTasks        Task[]         @relation("TaskRejectedBy")
+  taskReminders        TaskReminder[] @relation("TaskReminderRecipient")
+  createdTaskTemplates TaskTemplate[] @relation("TaskTemplateCreatedBy")
+  deletedTaskTemplates TaskTemplate[] @relation("TaskTemplateDeletedBy")
+
+  // ── Relations: Documents ───────────────────────────────────────────────
+  uploadedDocuments      Document[]       @relation("DocumentUploadedBy")
+  deletedDocuments       Document[]       @relation("DocumentDeletedBy")
+  reviewedDocuments      Document[]       @relation("DocumentReviewer")
+  createdDocumentFolders DocumentFolder[] @relation("DocumentFolderCreatedBy")
+
+  // ── Relations: Notifications ──────────────────────────────────────────
+  notifications                Notification[]
+  notificationPreference       NotificationPreference?   @relation("NotificationPreferenceUser")
+  createdNotificationTemplates NotificationTemplate[]    @relation("NotificationTemplateCreatedBy")
+  deletedNotificationTemplates NotificationTemplate[]    @relation("NotificationTemplateDeletedBy")
+  invoiceReminders             InvoiceReminder[]         @relation("InvoiceReminderRecipient")
+  complianceReminders          ComplianceReminder[]      @relation("ComplianceReminderRecipient")
+  documentRequestReminders     DocumentRequestReminder[] @relation("DocumentRequestReminderRecipient")
+  requestedDocumentRequests    DocumentRequest[]         @relation("DocumentRequestRequestedBy")
+
+  // ── Relations: Dashboard ───────────────────────────────────────────────
+  dashboardPreference      DashboardPreference?
+  updatedDashboardDefaults DashboardTenantDefault[] @relation("DashboardTenantDefaultUpdatedBy")
+
+  // ── Relations: Work Calendar ────────────────────────────────────────────
+  createdCalendarEvents    CalendarEvent[]         @relation("CalendarEventCreatedBy")
+  deletedCalendarEvents    CalendarEvent[]         @relation("CalendarEventDeletedBy")
+  calendarEventAttendances CalendarEventAttendee[] @relation("CalendarEventAttendee")
+
+  // ── Relations: Client Billing Payment Gateway ───────────────────────────
+  createdPaymentGatewaySettings FirmPaymentGatewaySettings[] @relation("PaymentGatewaySettingsCreatedBy")
+  updatedPaymentGatewaySettings FirmPaymentGatewaySettings[] @relation("PaymentGatewaySettingsUpdatedBy")
+  createdPaymentGatewayLinks    PaymentGatewayLink[]         @relation("PaymentGatewayLinkCreatedBy")
 
   @@unique([tenantId, email], name: "uq_users_tenant_email")
-  @@index([tenantId, status],    name: "idx_users_tenant_status")
+  @@index([tenantId, status], name: "idx_users_tenant_status")
   @@index([tenantId, deletedAt], name: "idx_users_soft_delete")
-  @@index([tenantId, isOwner],   name: "idx_users_tenant_owner")
-  @@index([tenantId, email],     name: "idx_users_email_lookup")
-  @@index([lastLoginAt],         name: "idx_users_last_login")
+  @@index([tenantId, isOwner], name: "idx_users_tenant_owner")
+  @@index([tenantId, email], name: "idx_users_email_lookup")
+  @@index([lastLoginAt], name: "idx_users_last_login")
   @@map("users")
 }
 
 model UserSession {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
-  userId   String @db.Uuid @map("user_id")
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
 
-  tokenHash String @unique @db.VarChar(64) @map("token_hash")
+  tokenHash String @unique @map("token_hash") @db.VarChar(64)
 
-  deviceType        SessionDeviceType @default(WEB)    @map("device_type")
-  deviceName        String?           @db.VarChar(255) @map("device_name")
-  deviceFingerprint String?           @db.VarChar(255) @map("device_fingerprint")
-  browser           String?           @db.VarChar(100) @map("browser")
-  os                String?           @db.VarChar(100) @map("os")
+  deviceType        SessionDeviceType @default(WEB) @map("device_type")
+  deviceName        String?           @map("device_name") @db.VarChar(255)
+  deviceFingerprint String?           @map("device_fingerprint") @db.VarChar(255)
+  browser           String?           @map("browser") @db.VarChar(100)
+  os                String?           @map("os") @db.VarChar(100)
 
-  ipAddress String? @db.VarChar(45) @map("ip_address")
-  userAgent String? @db.Text        @map("user_agent")
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.Text
 
-  locationCity    String? @db.VarChar(100) @map("location_city")
-  locationCountry String? @db.Char(2)     @map("location_country")
+  locationCity    String? @map("location_city") @db.VarChar(100)
+  locationCountry String? @map("location_country") @db.Char(2)
 
   status       SessionStatus        @default(ACTIVE) @map("status")
-  expiresAt    DateTime             @db.Timestamptz @map("expires_at")
-  lastActiveAt DateTime             @default(now()) @db.Timestamptz @map("last_active_at")
-  revokedAt    DateTime?            @db.Timestamptz @map("revoked_at")
+  expiresAt    DateTime             @map("expires_at") @db.Timestamptz
+  lastActiveAt DateTime             @default(now()) @map("last_active_at") @db.Timestamptz
+  revokedAt    DateTime?            @map("revoked_at") @db.Timestamptz
   revokeReason SessionRevokeReason? @map("revoke_reason")
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokens RefreshToken[]
 
-  @@index([userId, status],          name: "idx_sessions_user_active")
-  @@index([tenantId, userId],        name: "idx_sessions_tenant_user")
-  @@index([expiresAt, status],       name: "idx_sessions_cleanup_job")
+  @@index([userId, status], name: "idx_sessions_user_active")
+  @@index([tenantId, userId], name: "idx_sessions_tenant_user")
+  @@index([expiresAt, status], name: "idx_sessions_cleanup_job")
   @@map("user_sessions")
 }
 
 model RefreshToken {
   id        String @id @default(uuid()) @db.Uuid
-  tenantId  String @db.Uuid @map("tenant_id")
-  userId    String @db.Uuid @map("user_id")
-  sessionId String @db.Uuid @map("session_id")
+  tenantId  String @map("tenant_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+  sessionId String @map("session_id") @db.Uuid
 
-  tokenHash String @unique @db.VarChar(64) @map("token_hash")
+  tokenHash String @unique @map("token_hash") @db.VarChar(64)
 
-  familyId    String    @db.Uuid       @map("family_id")
-  sequence    Int       @default(1)    @map("sequence")
+  familyId    String    @map("family_id") @db.Uuid
+  sequence    Int       @default(1) @map("sequence")
   isUsed      Boolean   @default(false) @map("is_used")
-  usedAt      DateTime? @db.Timestamptz @map("used_at")
-  rotatedToId String?   @unique @db.Uuid @map("rotated_to_id")
+  usedAt      DateTime? @map("used_at") @db.Timestamptz
+  rotatedToId String?   @unique @map("rotated_to_id") @db.Uuid
 
-  expiresAt    DateTime                  @db.Timestamptz @map("expires_at")
-  revokedAt    DateTime?                 @db.Timestamptz @map("revoked_at")
+  expiresAt    DateTime                  @map("expires_at") @db.Timestamptz
+  revokedAt    DateTime?                 @map("revoked_at") @db.Timestamptz
   revokeReason RefreshTokenRevokeReason? @map("revoke_reason")
 
-  ipAddress String? @db.VarChar(45) @map("ip_address")
-  userAgent String? @db.Text        @map("user_agent")
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.Text
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   session UserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  rotatedTo   RefreshToken?  @relation("TokenRotationChain", fields: [rotatedToId], references: [id])
-  rotatedFrom RefreshToken?  @relation("TokenRotationChain")
+  rotatedTo   RefreshToken? @relation("TokenRotationChain", fields: [rotatedToId], references: [id])
+  rotatedFrom RefreshToken? @relation("TokenRotationChain")
 
-  @@index([familyId, isUsed],   name: "idx_refresh_tokens_family")
-  @@index([userId, expiresAt],  name: "idx_refresh_tokens_user_expiry")
-  @@index([tenantId, userId],   name: "idx_refresh_tokens_tenant_user")
+  @@index([familyId, isUsed], name: "idx_refresh_tokens_family")
+  @@index([userId, expiresAt], name: "idx_refresh_tokens_user_expiry")
+  @@index([tenantId, userId], name: "idx_refresh_tokens_tenant_user")
   @@map("refresh_tokens")
+}
+
+/// Self-service "forgot password" reset token — mirrors `RefreshToken`'s
+/// hash-then-lookup shape exactly (never store the raw token; `tokenHash` is
+/// the unique lookup key). One-time use (`isUsed`/`usedAt`), tenant-scoped,
+/// and superseded (not deleted) on every new forgot-password request so a
+/// stale link from an earlier request can never succeed once a newer one
+/// exists — see `AuthRepository.invalidatePasswordResetTokens()`.
+model PasswordResetToken {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  tokenHash String @unique @map("token_hash") @db.VarChar(64)
+
+  isUsed    Boolean   @default(false) @map("is_used")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+
+  expiresAt DateTime @map("expires_at") @db.Timestamptz
+
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt], name: "idx_password_reset_tokens_user_expiry")
+  @@index([tenantId, userId], name: "idx_password_reset_tokens_tenant_user")
+  @@map("password_reset_tokens")
 }
 
 model OtpCode {
   id       String  @id @default(uuid()) @db.Uuid
-  tenantId String  @db.Uuid @map("tenant_id")
-  userId   String? @db.Uuid @map("user_id")
-  email    String? @db.VarChar(255) @map("email")
+  tenantId String  @map("tenant_id") @db.Uuid
+  userId   String? @map("user_id") @db.Uuid
+  email    String? @map("email") @db.VarChar(255)
 
   purpose  OtpPurpose @map("purpose")
   type     OtpType    @default(EMAIL) @map("type")
-  codeHash String     @db.VarChar(255) @map("code_hash")
+  codeHash String     @map("code_hash") @db.VarChar(255)
 
   attemptCount Int @default(0) @map("attempt_count")
   maxAttempts  Int @default(5) @map("max_attempts")
 
   isUsed    Boolean   @default(false) @map("is_used")
-  usedAt    DateTime? @db.Timestamptz @map("used_at")
-  expiresAt DateTime  @db.Timestamptz @map("expires_at")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, purpose, expiresAt], name: "idx_otp_active_user")
-  @@index([email, purpose, expiresAt],  name: "idx_otp_active_email")
+  @@index([email, purpose, expiresAt], name: "idx_otp_active_email")
   @@map("otp_codes")
 }
 
 model MfaConfig {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
-  userId   String @unique @db.Uuid @map("user_id")
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @unique @map("user_id") @db.Uuid
 
-  totpSecretEncrypted String?   @db.Text        @map("totp_secret_encrypted")
+  totpSecretEncrypted String?   @map("totp_secret_encrypted") @db.Text
   totpEnabled         Boolean   @default(false) @map("totp_enabled")
-  totpVerifiedAt      DateTime? @db.Timestamptz @map("totp_verified_at")
+  totpVerifiedAt      DateTime? @map("totp_verified_at") @db.Timestamptz
 
   smsEnabled Boolean @default(false) @map("sms_enabled")
-  smsPhone   String? @db.VarChar(30) @map("sms_phone")
+  smsPhone   String? @map("sms_phone") @db.VarChar(30)
 
   backupCodes            String[]  @default([]) @map("backup_codes")
-  backupCodesGeneratedAt DateTime? @db.Timestamptz @map("backup_codes_generated_at")
-  backupCodesUsedCount   Int       @default(0)     @map("backup_codes_used_count")
+  backupCodesGeneratedAt DateTime? @map("backup_codes_generated_at") @db.Timestamptz
+  backupCodesUsedCount   Int       @default(0) @map("backup_codes_used_count")
 
-  lastUsedAt DateTime? @db.Timestamptz @map("last_used_at")
-  lastMethod String?   @db.VarChar(20) @map("last_method")
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz
+  lastMethod String?   @map("last_method") @db.VarChar(20)
 
-  encryptionKeyVersion String? @db.VarChar(100) @map("encryption_key_version")
+  encryptionKeyVersion String? @map("encryption_key_version") @db.VarChar(100)
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -582,74 +713,93 @@ model MfaConfig {
 
 model UserInvitation {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
+  tenantId String @map("tenant_id") @db.Uuid
 
-  email     String  @db.VarChar(255) @map("email")
-  firstName String? @db.VarChar(100) @map("first_name")
-  lastName  String? @db.VarChar(100) @map("last_name")
+  email     String  @map("email") @db.VarChar(255)
+  firstName String? @map("first_name") @db.VarChar(100)
+  lastName  String? @map("last_name") @db.VarChar(100)
 
-  invitedById String @db.Uuid @map("invited_by_id")
-  roleIds     String[] @map("role_ids")
+  /// Exactly one of `invitedById`/`invitedByMasterAdminId` is set — enforced by the
+  /// `chk_invitation_single_inviter` CHECK constraint (hand-added to the migration SQL, since
+  /// Prisma's schema language can't express a cross-column constraint). A tenant owner's very
+  /// first invitation has no inviting `User` (the tenant doesn't exist yet, and `MasterAdmin` is a
+  /// deliberately separate entity/ID space — see that model's header comment) so `invitedById`
+  /// must be nullable for that one case; every staff invitation still sets it as before.
+  invitedById            String?  @map("invited_by_id") @db.Uuid
+  invitedByMasterAdminId String?  @map("invited_by_master_admin_id") @db.Uuid
+  /// Set only for the tenant-owner bootstrap invitation issued by `TenantService.createTenant()` —
+  /// tells `AuthService.acceptInvite()` to set `User.isOwner = true`. Staff invitations
+  /// (`UserService.inviteUser()`) never set this.
+  isOwner                Boolean  @default(false) @map("is_owner")
+  roleIds                String[] @map("role_ids")
 
-  tokenHash String @unique @db.VarChar(64) @map("token_hash")
+  /// Set only when a Tenant Admin invites a CLIENT-portal user via `UserService.inviteUser()`
+  /// with `contactId` in the request — links this invitation to a pre-existing `Contact` so
+  /// `AuthService.acceptInvite()` can stamp `Contact.portalUserId` onto the newly created `User`
+  /// inside the same transaction that creates it. Null for every ordinary staff invitation.
+  contactId String? @map("contact_id") @db.Uuid
+
+  tokenHash String @unique @map("token_hash") @db.VarChar(64)
 
   status    InvitationStatus @default(PENDING) @map("status")
-  expiresAt DateTime         @db.Timestamptz   @map("expires_at")
+  expiresAt DateTime         @map("expires_at") @db.Timestamptz
 
-  acceptedAt   DateTime? @db.Timestamptz @map("accepted_at")
-  acceptedById String?   @unique @db.Uuid        @map("accepted_by_id")
+  acceptedAt   DateTime? @map("accepted_at") @db.Timestamptz
+  acceptedById String?   @unique @map("accepted_by_id") @db.Uuid
 
-  message String? @db.Text @map("message")
+  message String? @map("message") @db.Text
 
-  createdAt DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  revokedAt DateTime?                 @db.Timestamptz @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
 
-  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  invitedBy  User   @relation("InvitedByUser", fields: [invitedById], references: [id], onDelete: Restrict)
-  acceptedBy User?  @relation("AcceptedUser",  fields: [acceptedById], references: [id], onDelete: SetNull)
+  tenant               Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy            User?        @relation("InvitedByUser", fields: [invitedById], references: [id], onDelete: Restrict)
+  invitedByMasterAdmin MasterAdmin? @relation(fields: [invitedByMasterAdminId], references: [id], onDelete: Restrict)
+  acceptedBy           User?        @relation("AcceptedUser", fields: [acceptedById], references: [id], onDelete: SetNull)
+  contact              Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
-  @@index([tenantId, email],   name: "idx_invitations_tenant_email")
+  @@index([tenantId, email], name: "idx_invitations_tenant_email")
   @@index([expiresAt, status], name: "idx_invitations_expiry_status")
   @@map("user_invitations")
 }
 
 model LoginHistory {
   id       String  @id @default(uuid()) @db.Uuid
-  tenantId String? @db.Uuid @map("tenant_id")
-  userId   String? @db.Uuid @map("user_id")
+  tenantId String? @map("tenant_id") @db.Uuid
+  userId   String? @map("user_id") @db.Uuid
 
-  email String @db.VarChar(255) @map("email")
+  email String @map("email") @db.VarChar(255)
 
   eventType LoginEventType   @map("event_type")
   status    LoginEventStatus @map("status")
 
-  ipAddress String? @db.VarChar(45) @map("ip_address")
-  userAgent String? @db.Text        @map("user_agent")
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.Text
 
-  country String? @db.Char(2)      @map("country")
-  city    String? @db.VarChar(100) @map("city")
+  country String? @map("country") @db.Char(2)
+  city    String? @map("city") @db.VarChar(100)
 
-  sessionId String? @db.Uuid @map("session_id")
-  failureReason String? @db.VarChar(500) @map("failure_reason")
+  sessionId     String? @map("session_id") @db.Uuid
+  failureReason String? @map("failure_reason") @db.VarChar(500)
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  @@index([tenantId, userId, createdAt(sort: Desc)],    name: "idx_login_history_user_timeline")
+  @@index([tenantId, userId, createdAt(sort: Desc)], name: "idx_login_history_user_timeline")
   @@index([tenantId, eventType, createdAt(sort: Desc)], name: "idx_login_history_events")
-  @@index([email, createdAt(sort: Desc)],               name: "idx_login_history_email")
-  @@index([tenantId, createdAt(sort: Desc)],            name: "idx_login_history_tenant")
-  @@index([ipAddress, createdAt(sort: Desc)],           name: "idx_login_history_ip")
+  @@index([email, createdAt(sort: Desc)], name: "idx_login_history_email")
+  @@index([tenantId, createdAt(sort: Desc)], name: "idx_login_history_tenant")
+  @@index([ipAddress, createdAt(sort: Desc)], name: "idx_login_history_ip")
   @@map("login_history")
 }
 
 model UserPasswordHistory {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
-  userId   String @db.Uuid @map("user_id")
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
 
-  passwordHash String   @db.Text @map("password_hash")
-  createdAt    DateTime @default(now()) @db.Timestamptz @map("created_at")
+  passwordHash String   @map("password_hash") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -663,61 +813,61 @@ model UserPasswordHistory {
 
 model Permission {
   id      String  @id @default(uuid()) @db.Uuid
-  groupId String? @db.Uuid @map("group_id")
+  groupId String? @map("group_id") @db.Uuid
 
-  code        String  @unique @db.VarChar(100) @map("code")
-  name        String  @db.VarChar(255)          @map("name")
-  description String? @db.Text                  @map("description")
+  code        String  @unique @map("code") @db.VarChar(100)
+  name        String  @map("name") @db.VarChar(255)
+  description String? @map("description") @db.Text
 
-  module   String           @db.VarChar(100) @map("module")
+  module   String           @map("module") @db.VarChar(100)
   action   PermissionAction @map("action")
-  resource String           @db.VarChar(100) @map("resource")
+  resource String           @map("resource") @db.VarChar(100)
 
   isSensitive Boolean @default(false) @map("is_sensitive")
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   group           PermissionGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   rolePermissions RolePermission[]
 
-  @@index([module],         name: "idx_permissions_module")
+  @@index([module], name: "idx_permissions_module")
   @@index([module, action], name: "idx_permissions_module_action")
-  @@index([isSensitive],    name: "idx_permissions_sensitive")
+  @@index([isSensitive], name: "idx_permissions_sensitive")
   @@map("permissions")
 }
 
 model PermissionGroup {
-  id          String  @id @default(uuid()) @db.Uuid
-  name        String  @unique @db.VarChar(255) @map("name")
-  description String? @db.Text                 @map("description")
-  module      String  @db.VarChar(100)          @map("module")
-  displayOrder Int    @default(0)               @map("display_order")
+  id           String  @id @default(uuid()) @db.Uuid
+  name         String  @unique @map("name") @db.VarChar(255)
+  description  String? @map("description") @db.Text
+  module       String  @map("module") @db.VarChar(100)
+  displayOrder Int     @default(0) @map("display_order")
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   permissions Permission[]
 
-  @@index([module],       name: "idx_permission_groups_module")
+  @@index([module], name: "idx_permission_groups_module")
   @@index([displayOrder], name: "idx_permission_groups_order")
   @@map("permission_groups")
 }
 
 model Role {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
+  tenantId String @map("tenant_id") @db.Uuid
 
-  name        String  @db.VarChar(100) @map("name")
-  description String? @db.Text         @map("description")
-  color       String? @db.Char(7)      @map("color")
+  name        String  @map("name") @db.VarChar(100)
+  description String? @map("description") @db.Text
+  color       String? @map("color") @db.Char(7)
 
   type     RoleType @default(CUSTOM) @map("type")
-  isActive Boolean  @default(true)   @map("is_active")
+  isActive Boolean  @default(true) @map("is_active")
 
-  createdById String?   @db.Uuid        @map("created_by_id")
-  createdAt   DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt   DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt   DateTime?                 @db.Timestamptz @map("deleted_at")
+  createdById String?   @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz
 
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   createdBy       User?            @relation("RoleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -726,75 +876,75 @@ model Role {
 
   @@unique([tenantId, name], name: "uq_roles_tenant_name")
   @@index([tenantId, isActive], name: "idx_roles_tenant_active")
-  @@index([tenantId, type],     name: "idx_roles_type")
+  @@index([tenantId, type], name: "idx_roles_type")
   @@index([tenantId, deletedAt], name: "idx_roles_soft_delete")
   @@map("roles")
 }
 
 model RolePermission {
   id           String @id @default(uuid()) @db.Uuid
-  roleId       String @db.Uuid @map("role_id")
-  permissionId String @db.Uuid @map("permission_id")
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
 
-  grantedById String?   @db.Uuid        @map("granted_by_id")
-  grantedAt   DateTime  @default(now()) @db.Timestamptz @map("granted_at")
+  grantedById String?  @map("granted_by_id") @db.Uuid
+  grantedAt   DateTime @default(now()) @map("granted_at") @db.Timestamptz
 
   role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
   grantedBy  User?      @relation("RolePermissionGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
 
   @@unique([roleId, permissionId], name: "uq_role_permission")
-  @@index([roleId],       name: "idx_role_permissions_by_role")
+  @@index([roleId], name: "idx_role_permissions_by_role")
   @@index([permissionId], name: "idx_role_permissions_by_permission")
   @@map("role_permissions")
 }
 
 model UserRole {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
-  userId   String @db.Uuid @map("user_id")
-  roleId   String @db.Uuid @map("role_id")
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+  roleId   String @map("role_id") @db.Uuid
 
-  assignedById String    @db.Uuid        @map("assigned_by_id")
-  assignedAt   DateTime  @default(now()) @db.Timestamptz @map("assigned_at")
-  expiresAt    DateTime? @db.Timestamptz @map("expires_at")
+  assignedById String    @map("assigned_by_id") @db.Uuid
+  assignedAt   DateTime  @default(now()) @map("assigned_at") @db.Timestamptz
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz
 
-  user       User @relation("UserRoleUser",       fields: [userId],       references: [id], onDelete: Cascade)
-  role       Role @relation(                      fields: [roleId],       references: [id], onDelete: Restrict)
+  user       User @relation("UserRoleUser", fields: [userId], references: [id], onDelete: Cascade)
+  role       Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
   assignedBy User @relation("UserRoleAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, userId, roleId], name: "uq_user_role")
-  @@index([tenantId, userId],          name: "idx_user_roles_resolution")
-  @@index([roleId],                    name: "idx_user_roles_by_role")
-  @@index([expiresAt],                 name: "idx_user_roles_expiry")
+  @@index([tenantId, userId], name: "idx_user_roles_resolution")
+  @@index([roleId], name: "idx_user_roles_by_role")
+  @@index([expiresAt], name: "idx_user_roles_expiry")
   @@map("user_roles")
 }
 
 model ResourceAccessPolicy {
   id       String @id @default(uuid()) @db.Uuid
-  tenantId String @db.Uuid @map("tenant_id")
-  userId   String @db.Uuid @map("user_id")
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
 
-  resourceType String @db.VarChar(100) @map("resource_type")
-  resourceId   String @db.Uuid         @map("resource_id")
+  resourceType String @map("resource_type") @db.VarChar(100)
+  resourceId   String @map("resource_id") @db.Uuid
 
   accessLevel ResourceAccessLevel @map("access_level")
 
-  grantedById String    @db.Uuid        @map("granted_by_id")
-  grantedAt   DateTime  @default(now()) @db.Timestamptz @map("granted_at")
-  expiresAt   DateTime? @db.Timestamptz @map("expires_at")
-  reason      String?   @db.Text        @map("reason")
+  grantedById String    @map("granted_by_id") @db.Uuid
+  grantedAt   DateTime  @default(now()) @map("granted_at") @db.Timestamptz
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz
+  reason      String?   @map("reason") @db.Text
 
-  createdAt DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  user      User @relation("PolicyUser",      fields: [userId],      references: [id], onDelete: Cascade)
+  user      User @relation("PolicyUser", fields: [userId], references: [id], onDelete: Cascade)
   grantedBy User @relation("PolicyGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, userId, resourceType, resourceId], name: "uq_resource_policy")
-  @@index([tenantId, userId, resourceType],              name: "idx_resource_policy_user_type")
-  @@index([tenantId, resourceType, resourceId],          name: "idx_resource_policy_by_resource")
-  @@index([expiresAt],                                   name: "idx_resource_policy_expiry")
+  @@index([tenantId, userId, resourceType], name: "idx_resource_policy_user_type")
+  @@index([tenantId, resourceType, resourceId], name: "idx_resource_policy_by_resource")
+  @@index([expiresAt], name: "idx_resource_policy_expiry")
   @@map("resource_access_policies")
 }
 
@@ -808,93 +958,125 @@ model BusinessType {
   name        String   @db.VarChar(100)
   description String?  @db.Text
   isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @db.Timestamptz @map("created_at")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  businesses  Business[]
+  businesses Business[]
+
   @@map("business_types")
 }
 
 model Business {
-  id                 String    @id @default(uuid()) @db.Uuid
-  tenantId           String    @db.Uuid @map("tenant_id")
-  typeId             String    @db.Uuid @map("type_id")
-  
-  name               String    @db.VarChar(255)
-  legalName          String?   @db.VarChar(255) @map("legal_name")
-  status             BusinessStatus @default(ACTIVE)
-  
-  pan                String?   @db.VarChar(10)
-  gstin              String?   @db.VarChar(15)
-  cin                String?   @db.VarChar(21)
-  
-  incorporationDate  DateTime? @db.Date @map("incorporation_date")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  typeId   String @map("type_id") @db.Uuid
+
+  name      String         @db.VarChar(255)
+  legalName String?        @map("legal_name") @db.VarChar(255)
+  /// PRD §8.3 — the name the business trades/operates under, when different from `legalName`.
+  tradeName String?        @map("trade_name") @db.VarChar(255)
+  status    BusinessStatus @default(ACTIVE)
+
+  pan   String? @db.VarChar(10)
+  gstin String? @db.VarChar(15)
+  cin   String? @db.VarChar(21)
+  /// PRD §8.3 — Director Identification Number, when the business itself is tracked by one
+  /// (e.g. a one-person/director-run entity) rather than only at the individual Contact level.
+  din   String? @db.VarChar(20)
+  /// PRD §8.3 — Tax Deduction and Collection Account Number.
+  tan   String? @db.VarChar(10)
+
+  incorporationDate  DateTime? @map("incorporation_date") @db.Date
   financialYearStart Int       @default(4) @map("financial_year_start")
   industry           String?   @db.VarChar(100)
-  
-  createdAt          DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt          DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt          DateTime?                 @db.Timestamptz @map("deleted_at")
-  createdBy          String?   @db.Uuid @map("created_by")
-  deletedBy          String?   @db.Uuid @map("deleted_by")
+  website            String?   @db.VarChar(255)
+  /// PRD §8.3 — primary business phone/email, distinct from any individual Contact's own.
+  phone              String?   @db.VarChar(30)
+  email              String?   @db.VarChar(255)
 
-  type               BusinessType @relation(fields: [typeId], references: [id], onDelete: Restrict)
-  createdByUser      User?        @relation("BusinessCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
-  deletedByUser      User?        @relation("BusinessDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
-  
-  addresses          BusinessAddress[]
-  registrations      BusinessRegistration[]
-  assignments        BusinessAssignment[]
-  statusHistory      BusinessStatusHistory[]
-  contactRoles       ContactRole[]
-  client             Client?
-  leads              Lead[]
+  /// PRD §7.4 — per-business storage quota override in MB. Null = fall back to the tenant's
+  /// `TenantSettings.defaultBusinessStorageQuotaMb`, which itself falls back to
+  /// `UPLOAD.DEFAULT_BUSINESS_STORAGE_QUOTA_BYTES` (500 MB). Enforced by `StorageQuotaService`,
+  /// never against a maintained counter — usage is always a live `SUM(Document.sizeBytes)`.
+  storageQuotaMb Int? @map("storage_quota_mb")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdBy String?   @map("created_by") @db.Uuid
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  type          BusinessType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  createdByUser User?        @relation("BusinessCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  deletedByUser User?        @relation("BusinessDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  addresses         BusinessAddress[]
+  registrations     BusinessRegistration[]
+  assignments       BusinessAssignment[]
+  statusHistory     BusinessStatusHistory[]
+  contactRoles      ContactRole[]
+  client            Client?
+  leads             Lead[]
+  documents         Document[]
+  documentFolders   DocumentFolder[]
+  invoices          Invoice[]
+  tasks             Task[]
+  calendarEvents    CalendarEvent[]
+  /// PRD §8.6 — internal notes on the Business itself (post-conversion / always-was-a-client),
+  /// distinct from `LeadNote` (pre-conversion only). Never visible to the Client portal.
+  notes             BusinessNote[]
+  complianceFilings ComplianceFiling[]
+  documentRequests  DocumentRequest[]
 
   @@index([tenantId, status])
   @@index([tenantId, pan])
   @@index([tenantId, gstin])
   @@index([tenantId, cin])
+  /// PRD §13.1 — Global Search's DIN field, `startsWith` lookups, mirrors [tenantId, pan]/[tenantId, gstin] above.
+  @@index([tenantId, din])
   @@index([tenantId, deletedAt])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  /// PRD §13.1 — Global Search's Trade Name field, `contains` lookups.
+  @@index([tradeName(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("businesses")
 }
 
 model BusinessAddress {
-  id           String      @id @default(uuid()) @db.Uuid
-  tenantId     String      @db.Uuid @map("tenant_id")
-  businessId   String      @db.Uuid @map("business_id")
-  
-  type         AddressType @map("type")
-  isPrimary    Boolean     @default(false) @map("is_primary")
-  
-  addressLine1 String      @db.VarChar(255) @map("address_line_1")
-  addressLine2 String?     @db.VarChar(255) @map("address_line_2")
-  city         String      @db.VarChar(100)
-  state        String      @db.VarChar(100)
-  pincode      String      @db.VarChar(20)
-  country      String      @default("IN") @db.Char(2)
-  
-  createdAt    DateTime    @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt    DateTime    @updatedAt      @db.Timestamptz @map("updated_at")
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
 
-  business     Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  type      AddressType @map("type")
+  isPrimary Boolean     @default(false) @map("is_primary")
+
+  addressLine1 String  @map("address_line_1") @db.VarChar(255)
+  addressLine2 String? @map("address_line_2") @db.VarChar(255)
+  city         String  @db.VarChar(100)
+  state        String  @db.VarChar(100)
+  pincode      String  @db.VarChar(20)
+  country      String  @default("IN") @db.Char(2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId, isPrimary])
   @@map("business_addresses")
 }
 
 model BusinessRegistration {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @db.Uuid @map("tenant_id")
-  businessId       String   @db.Uuid @map("business_id")
-  
-  registrationType String   @db.VarChar(50) @map("registration_type")
-  registrationNum  String   @db.VarChar(100) @map("registration_num")
-  issueDate        DateTime? @db.Date @map("issue_date")
-  documentId       String?  @db.Uuid @map("document_id")
-  
-  createdAt        DateTime @default(now()) @db.Timestamptz @map("created_at")
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
 
-  business         Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  registrationType String    @map("registration_type") @db.VarChar(50)
+  registrationNum  String    @map("registration_num") @db.VarChar(100)
+  issueDate        DateTime? @map("issue_date") @db.Date
+  documentId       String?   @map("document_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, registrationType])
   @@index([tenantId, registrationNum])
@@ -902,16 +1084,16 @@ model BusinessRegistration {
 }
 
 model BusinessAssignment {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @db.Uuid @map("tenant_id")
-  businessId String   @db.Uuid @map("business_id")
-  userId     String   @db.Uuid @map("user_id")
-  
-  role       String   @db.VarChar(50)
-  assignedAt DateTime @default(now()) @db.Timestamptz @map("assigned_at")
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
+  userId     String @map("user_id") @db.Uuid
 
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  user       User     @relation("BusinessAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
+  role       String   @db.VarChar(50)
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation("BusinessAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, userId])
   @@index([tenantId, userId])
@@ -919,22 +1101,46 @@ model BusinessAssignment {
 }
 
 model BusinessStatusHistory {
-  id           String         @id @default(uuid()) @db.Uuid
-  tenantId     String         @db.Uuid @map("tenant_id")
-  businessId   String         @db.Uuid @map("business_id")
-  
-  oldStatus    BusinessStatus? @map("old_status")
-  newStatus    BusinessStatus  @map("new_status")
-  reason       String?        @db.Text
-  changedById  String         @db.Uuid @map("changed_by_id")
-  
-  createdAt    DateTime       @default(now()) @db.Timestamptz @map("created_at")
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
 
-  business     Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  changedBy    User           @relation("BusinessStatusChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+  oldStatus   BusinessStatus? @map("old_status")
+  newStatus   BusinessStatus  @map("new_status")
+  reason      String?         @db.Text
+  changedById String          @map("changed_by_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  changedBy User     @relation("BusinessStatusChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
 
   @@index([businessId, createdAt(sort: Desc)])
   @@map("business_status_history")
+}
+
+/// PRD §8.6 — internal note on a `Business`, exact mirror of `LeadNote` (Section 8) but scoped to
+/// businesses that are already clients (or never went through the Lead pipeline at all) rather than
+/// pre-conversion leads. Only firm users can read these — never exposed to the Client portal.
+model BusinessNote {
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
+
+  content    String   @db.Text
+  authorId   String   @map("author_id") @db.Uuid
+  /// Optional attachment reference — reuses the existing Document model, mirrors `LeadNote.documentId`.
+  documentId String?  @map("document_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  author   User      @relation("BusinessNoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt(sort: Desc)])
+  @@index([tenantId, documentId])
+  @@map("business_notes")
 }
 
 // =============================================================================
@@ -942,31 +1148,34 @@ model BusinessStatusHistory {
 // =============================================================================
 
 model Contact {
-  id           String    @id @default(uuid()) @db.Uuid
-  tenantId     String    @db.Uuid @map("tenant_id")
-  
-  firstName    String    @db.VarChar(100) @map("first_name")
-  lastName     String?   @db.VarChar(100) @map("last_name")
-  email        String?   @db.VarChar(255)
-  phone        String?   @db.VarChar(30)
-  
-  pan          String?   @db.VarChar(10)
-  aadhaarHash  String?   @db.VarChar(64) @map("aadhaar_hash")
-  
-  portalUserId String?   @unique @db.Uuid @map("portal_user_id")
-  
-  createdAt    DateTime  @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt    DateTime  @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt    DateTime?                 @db.Timestamptz @map("deleted_at")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
 
-  portalUser   User?     @relation("UserPortalContact", fields: [portalUserId], references: [id], onDelete: SetNull)
+  firstName String  @map("first_name") @db.VarChar(100)
+  lastName  String? @map("last_name") @db.VarChar(100)
+  email     String? @db.VarChar(255)
+  phone     String? @db.VarChar(30)
 
-  roles        ContactRole[]
-  addresses    ContactAddress[]
-  comms        ContactCommunication?
-  relMain      ContactRelationship[] @relation("MainContact")
-  relRelated   ContactRelationship[] @relation("RelatedContact")
-  leads        Lead[]
+  pan         String? @db.VarChar(10)
+  aadhaarHash String? @map("aadhaar_hash") @db.VarChar(64)
+
+  portalUserId String? @unique @map("portal_user_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  portalUser User? @relation("UserPortalContact", fields: [portalUserId], references: [id], onDelete: SetNull)
+
+  roles       ContactRole[]
+  addresses   ContactAddress[]
+  comms       ContactCommunication?
+  relMain     ContactRelationship[] @relation("MainContact")
+  relRelated  ContactRelationship[] @relation("RelatedContact")
+  leads       Lead[]
+  documents   Document[]
+  tasks       Task[]
+  invitations UserInvitation[]
 
   @@index([tenantId, email])
   @@index([tenantId, phone])
@@ -977,21 +1186,21 @@ model Contact {
 }
 
 model ContactRole {
-  id           String          @id @default(uuid()) @db.Uuid
-  tenantId     String          @db.Uuid @map("tenant_id")
-  businessId   String          @db.Uuid @map("business_id")
-  contactId    String          @db.Uuid @map("contact_id")
-  
-  roleType     ContactRoleType @map("role_type")
-  customTitle  String?         @db.VarChar(100) @map("custom_title")
-  
-  isPrimary    Boolean         @default(false) @map("is_primary")
-  sharePercent Decimal?        @db.Decimal(5, 2) @map("share_percent")
-  
-  createdAt    DateTime        @default(now()) @db.Timestamptz @map("created_at")
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
+  contactId  String @map("contact_id") @db.Uuid
 
-  business     Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contact      Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  roleType    ContactRoleType @map("role_type")
+  customTitle String?         @map("custom_title") @db.VarChar(100)
+
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  sharePercent Decimal? @map("share_percent") @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, contactId, roleType])
   @@index([businessId, isPrimary])
@@ -999,56 +1208,56 @@ model ContactRole {
 }
 
 model ContactAddress {
-  id           String      @id @default(uuid()) @db.Uuid
-  tenantId     String      @db.Uuid @map("tenant_id")
-  contactId    String      @db.Uuid @map("contact_id")
-  
-  type         AddressType @map("type")
-  isPrimary    Boolean     @default(false) @map("is_primary")
-  
-  addressLine1 String      @db.VarChar(255) @map("address_line_1")
-  addressLine2 String?     @db.VarChar(255) @map("address_line_2")
-  city         String      @db.VarChar(100)
-  state        String      @db.VarChar(100)
-  pincode      String      @db.VarChar(20)
-  country      String      @default("IN") @db.Char(2)
-  
-  createdAt    DateTime    @default(now()) @db.Timestamptz @map("created_at")
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @map("tenant_id") @db.Uuid
+  contactId String @map("contact_id") @db.Uuid
 
-  contact      Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  type      AddressType @map("type")
+  isPrimary Boolean     @default(false) @map("is_primary")
+
+  addressLine1 String  @map("address_line_1") @db.VarChar(255)
+  addressLine2 String? @map("address_line_2") @db.VarChar(255)
+  city         String  @db.VarChar(100)
+  state        String  @db.VarChar(100)
+  pincode      String  @db.VarChar(20)
+  country      String  @default("IN") @db.Char(2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@index([contactId, isPrimary])
   @@map("contact_addresses")
 }
 
 model ContactCommunication {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @db.Uuid @map("tenant_id")
-  contactId    String   @unique @db.Uuid @map("contact_id")
-  
-  optInEmail   Boolean  @default(true) @map("opt_in_email")
-  optInSms     Boolean  @default(true) @map("opt_in_sms")
-  optInWhatsapp Boolean @default(true) @map("opt_in_whatsapp")
-  
-  updatedAt    DateTime @updatedAt @db.Timestamptz @map("updated_at")
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @map("tenant_id") @db.Uuid
+  contactId String @unique @map("contact_id") @db.Uuid
 
-  contact      Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  optInEmail    Boolean @default(true) @map("opt_in_email")
+  optInSms      Boolean @default(true) @map("opt_in_sms")
+  optInWhatsapp Boolean @default(true) @map("opt_in_whatsapp")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@map("contact_communications")
 }
 
 model ContactRelationship {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @db.Uuid @map("tenant_id")
-  mainContactId    String   @db.Uuid @map("main_contact_id")
-  relatedContactId String   @db.Uuid @map("related_contact_id")
-  
-  relationshipType String   @db.VarChar(50) @map("relationship_type")
-  
-  createdAt        DateTime @default(now()) @db.Timestamptz @map("created_at")
+  id               String @id @default(uuid()) @db.Uuid
+  tenantId         String @map("tenant_id") @db.Uuid
+  mainContactId    String @map("main_contact_id") @db.Uuid
+  relatedContactId String @map("related_contact_id") @db.Uuid
 
-  mainContact      Contact  @relation("MainContact", fields: [mainContactId], references: [id], onDelete: Cascade)
-  relatedContact   Contact  @relation("RelatedContact", fields: [relatedContactId], references: [id], onDelete: Cascade)
+  relationshipType String @map("relationship_type") @db.VarChar(50)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  mainContact    Contact @relation("MainContact", fields: [mainContactId], references: [id], onDelete: Cascade)
+  relatedContact Contact @relation("RelatedContact", fields: [relatedContactId], references: [id], onDelete: Cascade)
 
   @@unique([mainContactId, relatedContactId])
   @@map("contact_relationships")
@@ -1059,24 +1268,27 @@ model ContactRelationship {
 // =============================================================================
 
 model Client {
-  id             String       @id @default(uuid()) @db.Uuid
-  tenantId       String       @db.Uuid @map("tenant_id")
-  businessId     String       @unique @db.Uuid @map("business_id")
-  
-  status         ClientStatus @default(ACTIVE)
-  onboardedAt    DateTime?    @db.Timestamptz @map("onboarded_at")
-  categoryId     String?      @db.Uuid @map("category_id")
-  
-  createdAt      DateTime     @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt      DateTime     @updatedAt      @db.Timestamptz @map("updated_at")
-  deletedAt      DateTime?                    @db.Timestamptz @map("deleted_at")
-  
-  business       Business     @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  category       ClientCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  
-  assignments    ClientAssignment[]
-  tags           ClientTagAssignment[]
-  conversion     LeadConversion?
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @unique @map("business_id") @db.Uuid
+
+  status      ClientStatus @default(ACTIVE)
+  onboardedAt DateTime?    @map("onboarded_at") @db.Timestamptz
+  categoryId  String?      @map("category_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  category ClientCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  assignments ClientAssignment[]
+  tags        ClientTagAssignment[]
+  conversion  LeadConversion?
+  projects    Project[]
+  invoices    Invoice[]
+  tasks       Task[]
 
   @@index([tenantId, status])
   @@index([tenantId, categoryId])
@@ -1084,16 +1296,16 @@ model Client {
 }
 
 model ClientAssignment {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @db.Uuid @map("tenant_id")
-  clientId   String   @db.Uuid @map("client_id")
-  userId     String   @db.Uuid @map("user_id")
-  
-  role       String   @db.VarChar(50)
-  assignedAt DateTime @default(now()) @db.Timestamptz @map("assigned_at")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  clientId String @map("client_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
 
-  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  user       User     @relation("ClientAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
+  role       String   @db.VarChar(50)
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User   @relation("ClientAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, userId])
   @@index([tenantId, userId])
@@ -1101,24 +1313,24 @@ model ClientAssignment {
 }
 
 model ClientCategory {
-  id          String   @id @default(uuid()) @db.Uuid
-  tenantId    String   @db.Uuid @map("tenant_id")
-  name        String   @db.VarChar(100)
-  color       String?  @db.Char(7)
-  
-  createdAt   DateTime @default(now()) @db.Timestamptz @map("created_at")
-  
-  clients     Client[]
+  id       String  @id @default(uuid()) @db.Uuid
+  tenantId String  @map("tenant_id") @db.Uuid
+  name     String  @db.VarChar(100)
+  color    String? @db.Char(7)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  clients Client[]
 
   @@unique([tenantId, name])
   @@map("client_categories")
 }
 
 model ClientTag {
-  id          String   @id @default(uuid()) @db.Uuid
-  tenantId    String   @db.Uuid @map("tenant_id")
-  name        String   @db.VarChar(50)
-  
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String @db.VarChar(50)
+
   assignments ClientTagAssignment[]
 
   @@unique([tenantId, name])
@@ -1126,12 +1338,12 @@ model ClientTag {
 }
 
 model ClientTagAssignment {
-  id         String    @id @default(uuid()) @db.Uuid
-  clientId   String    @db.Uuid @map("client_id")
-  tagId      String    @db.Uuid @map("tag_id")
+  id       String @id @default(uuid()) @db.Uuid
+  clientId String @map("client_id") @db.Uuid
+  tagId    String @map("tag_id") @db.Uuid
 
-  client     Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  tag        ClientTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  client Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tag    ClientTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, tagId])
   @@map("client_tag_assignments")
@@ -1141,126 +1353,2135 @@ model ClientTagAssignment {
 // SECTION 8 — CRM MODULE
 // =============================================================================
 
-model Lead {
-  id               String     @id @default(uuid()) @db.Uuid
-  tenantId         String     @db.Uuid @map("tenant_id")
-  
-  businessId       String?    @db.Uuid @map("business_id")
-  contactId        String?    @db.Uuid @map("contact_id")
-  
-  title            String     @db.VarChar(255)
-  sourceId         String     @db.Uuid @map("source_id")
-  stageId          String     @db.Uuid @map("stage_id")
-  
-  expectedRevenue  Decimal?   @db.Decimal(12, 2) @map("expected_revenue")
-  probability      Int?       @map("probability") // 0-100
-  expectedCloseDate DateTime? @db.Date @map("expected_close_date")
-  
-  createdAt        DateTime   @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt        DateTime   @updatedAt      @db.Timestamptz @map("updated_at")
+/// PRD §8.4 — free-text triage priority a staff member sets on a Lead. Deliberately a
+/// fixed 4-value enum (not a tenant-configurable table like LeadStage/LeadSource) — no
+/// signal that firms need custom priority levels, mirrors DocumentCategory's identical
+/// "fixed enum, not a lookup table" reasoning.
+enum LeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
 
-  business         Business?  @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  contact          Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  source           LeadSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
-  stage            LeadStage  @relation(fields: [stageId], references: [id], onDelete: Restrict)
-  
-  activities       LeadActivity[]
-  notes            LeadNote[]
-  assignments      LeadAssignment[]
-  conversion       LeadConversion?
+  @@map("lead_priority")
+}
+
+model Lead {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  businessId String? @map("business_id") @db.Uuid
+  contactId  String? @map("contact_id") @db.Uuid
+
+  title    String @db.VarChar(255)
+  sourceId String @map("source_id") @db.Uuid
+  stageId  String @map("stage_id") @db.Uuid
+
+  /// PRD §8.4 — nullable so existing leads default to "unset" rather than a fabricated MEDIUM.
+  priority LeadPriority? @map("priority")
+
+  expectedRevenue   Decimal?  @map("expected_revenue") @db.Decimal(12, 2)
+  probability       Int?      @map("probability") // 0-100
+  expectedCloseDate DateTime? @map("expected_close_date") @db.Date
+
+  /// PRD §8.4 — services the lead has expressed interest in. Free-text list, not a
+  /// tenant-configurable lookup table — mirrors `LeadPriority`'s "no signal firms need to manage
+  /// a custom catalog" reasoning; reconsider if that changes.
+  interestedServices String[] @default([]) @map("interested_services")
+
+  /// PRD §8.2 — proposal stage fields. A lead is "in proposal" once `proposalSentAt` is set and
+  /// neither `proposalAcceptedAt` nor `proposalRejectedAt` is — set/cleared via the dedicated
+  /// `POST /crm/:id/proposal/*` actions (`LeadService.sendProposal/acceptProposal/rejectProposal`),
+  /// not a raw PATCH, so the three timestamps can never be set out of order by a client.
+  proposalSentAt     DateTime? @map("proposal_sent_at") @db.Timestamptz
+  proposalAcceptedAt DateTime? @map("proposal_accepted_at") @db.Timestamptz
+  proposalRejectedAt DateTime? @map("proposal_rejected_at") @db.Timestamptz
+  proposalValue      Decimal?  @map("proposal_value") @db.Decimal(12, 2)
+  proposalRemarks    String?   @map("proposal_remarks") @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  business      Business?  @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  contact       Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  source        LeadSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  stage         LeadStage  @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  deletedByUser User?      @relation("LeadDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  activities    LeadActivity[]
+  notes         LeadNote[]
+  assignments   LeadAssignment[]
+  conversion    LeadConversion?
+  followUpTasks Task[]
 
   @@index([tenantId, stageId])
   @@index([tenantId, expectedCloseDate])
+  @@index([tenantId, deletedAt])
+  @@index([tenantId, priority])
+  /// PRD §13.1 — Global Search's Lead Name field, `contains` lookups.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("leads")
 }
 
 model LeadSource {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @db.Uuid @map("tenant_id")
-  name      String   @db.VarChar(100)
-  
-  leads     Lead[]
-  
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String @db.VarChar(100)
+
+  leads Lead[]
+
   @@unique([tenantId, name])
   @@map("lead_sources")
 }
 
 model LeadStage {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @db.Uuid @map("tenant_id")
-  name      String   @db.VarChar(100)
-  order     Int      @default(0)
-  
-  leads     Lead[]
-  
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String @db.VarChar(100)
+  order    Int    @default(0)
+
+  leads Lead[]
+
   @@unique([tenantId, name])
   @@index([tenantId, order])
   @@map("lead_stages")
 }
 
 model LeadActivity {
-  id           String       @id @default(uuid()) @db.Uuid
-  tenantId     String       @db.Uuid @map("tenant_id")
-  leadId       String       @db.Uuid @map("lead_id")
-  
-  type         ActivityType @map("type")
-  description  String       @db.Text
-  activityDate DateTime     @default(now()) @db.Timestamptz @map("activity_date")
-  performedById String      @db.Uuid @map("performed_by_id")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  leadId   String @map("lead_id") @db.Uuid
 
-  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  performedBy  User         @relation("ActivityPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+  type          ActivityType @map("type")
+  description   String       @db.Text
+  activityDate  DateTime     @default(now()) @map("activity_date") @db.Timestamptz
+  performedById String       @map("performed_by_id") @db.Uuid
+
+  lead        Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  performedBy User @relation("ActivityPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
 
   @@index([leadId, activityDate(sort: Desc)])
   @@map("lead_activities")
 }
 
 model LeadNote {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @db.Uuid @map("tenant_id")
-  leadId     String   @db.Uuid @map("lead_id")
-  
-  content    String   @db.Text
-  authorId   String   @db.Uuid @map("author_id")
-  createdAt  DateTime @default(now()) @db.Timestamptz @map("created_at")
-  updatedAt  DateTime @updatedAt      @db.Timestamptz @map("updated_at")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  leadId   String @map("lead_id") @db.Uuid
 
-  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  author     User     @relation("NoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  content    String   @db.Text
+  authorId   String   @map("author_id") @db.Uuid
+  /// PRD §8.6 — optional attachment reference. Reuses the existing Document model rather than a
+  /// new upload mechanism; the document must already exist (uploaded via the Documents module)
+  /// before it can be referenced here.
+  documentId String?  @map("document_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  lead     Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  author   User      @relation("NoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
 
   @@index([leadId, createdAt(sort: Desc)])
+  @@index([tenantId, documentId])
   @@map("lead_notes")
 }
 
 model LeadAssignment {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @db.Uuid @map("tenant_id")
-  leadId     String   @db.Uuid @map("lead_id")
-  userId     String   @db.Uuid @map("user_id")
-  
-  assignedAt DateTime @default(now()) @db.Timestamptz @map("assigned_at")
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  leadId   String @map("lead_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
 
-  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  user       User     @relation("LeadAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
+  /// PRD §8.4 — "lead owner": at most one assignment per lead is primary, enforced in
+  /// `LeadService`/`LeadAssignmentRepository.clearPrimaryForLead()`, not a DB constraint — mirrors
+  /// `ContactRole.isPrimary`/`BusinessAddress.isPrimary`'s identical pattern rather than a
+  /// separate `Lead.ownerId` field.
+  isPrimary  Boolean  @default(false) @map("is_primary")
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation("LeadAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([leadId, userId])
   @@index([tenantId, userId])
+  @@index([leadId, isPrimary])
   @@map("lead_assignments")
 }
 
 model LeadConversion {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @db.Uuid @map("tenant_id")
-  leadId       String   @unique @db.Uuid @map("lead_id")
-  clientId     String   @unique @db.Uuid @map("client_id")
-  
-  convertedById String   @db.Uuid @map("converted_by_id")
-  convertedAt  DateTime @default(now()) @db.Timestamptz @map("converted_at")
-  notes        String?  @db.Text
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  leadId   String @unique @map("lead_id") @db.Uuid
+  clientId String @unique @map("client_id") @db.Uuid
 
-  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Restrict)
-  client       Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  convertedBy  User     @relation("LeadConvertedBy", fields: [convertedById], references: [id], onDelete: Restrict)
+  convertedById String   @map("converted_by_id") @db.Uuid
+  convertedAt   DateTime @default(now()) @map("converted_at") @db.Timestamptz
+  notes         String?  @db.Text
+
+  lead        Lead   @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  client      Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  convertedBy User   @relation("LeadConvertedBy", fields: [convertedById], references: [id], onDelete: Restrict)
 
   @@map("lead_conversions")
+}
+
+// =============================================================================
+// SECTION 9 — PROJECTS MODULE
+// =============================================================================
+
+model Project {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @map("tenant_id") @db.Uuid
+  clientId  String  @map("client_id") @db.Uuid
+  managerId String? @map("manager_id") @db.Uuid
+
+  code   String        @db.VarChar(50)
+  name   String        @db.VarChar(255)
+  status ProjectStatus @default(DRAFT)
+
+  startDate   DateTime? @map("start_date") @db.Date
+  dueDate     DateTime? @map("due_date") @db.Date
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdBy String?   @map("created_by") @db.Uuid
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  client        Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  manager       User?  @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
+  createdByUser User?  @relation("ProjectCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  deletedByUser User?  @relation("ProjectDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+  tasks         Task[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@index([tenantId, clientId])
+  @@index([tenantId, dueDate])
+  @@index([tenantId, deletedAt])
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  DRAFT
+  PLANNED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+  CANCELLED
+
+  @@map("project_status")
+}
+
+// =============================================================================
+// SECTION 10 — TASKS MODULE
+// =============================================================================
+//
+// Deliberately minimal, matching the same scope discipline used for Project:
+// no TaskAssignment/TaskDependency/TaskLabel satellite tables, and per explicit
+// instruction, no milestones, comments, activities, or time tracking.
+// `assigneeId` is a single nullable FK (mirrors Project.managerId) rather than
+// a many-to-many assignment join table. `TaskReminder` (below) is the one
+// exception carved out of that "no notifications" scope, per PRD §4.2 —
+// see its own header comment for why it's a separate table rather than reusing
+// `Notification`.
+
+model Task {
+  id         String  @id @default(uuid()) @db.Uuid
+  tenantId   String  @map("tenant_id") @db.Uuid
+  projectId  String? @map("project_id") @db.Uuid
+  assigneeId String? @map("assignee_id") @db.Uuid
+  /// PRD §8.7 — optional link to a CRM Lead, so a pre-conversion follow-up can be a real Task
+  /// without requiring a Project (which itself requires a Client). Mirrors `projectId`'s
+  /// nullable, independent-FK shape — a Task may have neither, either, or (rarely) both set;
+  /// nothing in this schema enforces mutual exclusivity.
+  leadId     String? @map("lead_id") @db.Uuid
+
+  title       String     @db.VarChar(255)
+  description String?    @db.Text
+  status      TaskStatus @default(TODO)
+
+  /// PRD §9 — see `TaskStatus`'s own header comment: presence of `type` is what
+  /// puts a task on the approval-workflow lifecycle instead of the simple one.
+  type     TaskType?     @map("type")
+  priority TaskPriority? @map("priority")
+
+  /// PRD §9 — optional ownership/context links, all independent nullable FKs
+  /// (may have none, one, or several set — same "nothing enforces mutual
+  /// exclusivity" philosophy as `projectId`/`leadId` above).
+  businessId String? @map("business_id") @db.Uuid
+  contactId  String? @map("contact_id") @db.Uuid
+  clientId   String? @map("client_id") @db.Uuid
+  documentId String? @map("document_id") @db.Uuid
+  folderId   String? @map("folder_id") @db.Uuid
+
+  startDate   DateTime? @map("start_date") @db.Date
+  dueDate     DateTime? @map("due_date") @db.Date
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+
+  /// PRD §9 — actor stamps for the approval workflow's terminal actions.
+  /// `approvedBy`/`rejectedBy` are sticky: not cleared on reopen, they record
+  /// who last approved/rejected and are simply overwritten on a repeat cycle.
+  completedBy String? @map("completed_by") @db.Uuid
+  approvedBy  String? @map("approved_by") @db.Uuid
+  rejectedBy  String? @map("rejected_by") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdBy String?   @map("created_by") @db.Uuid
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  project       Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  lead          Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignee      User?    @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdByUser User?    @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  deletedByUser User?    @relation("TaskDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  business Business?       @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  contact  Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  client   Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  document Document?       @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  folder   DocumentFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  completedByUser User? @relation("TaskCompletedBy", fields: [completedBy], references: [id], onDelete: SetNull)
+  approvedByUser  User? @relation("TaskApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  rejectedByUser  User? @relation("TaskRejectedBy", fields: [rejectedBy], references: [id], onDelete: SetNull)
+
+  reminders TaskReminder[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, projectId])
+  @@index([tenantId, leadId])
+  @@index([tenantId, assigneeId])
+  @@index([tenantId, dueDate])
+  @@index([tenantId, deletedAt])
+  @@index([tenantId, businessId])
+  @@index([tenantId, contactId])
+  @@index([tenantId, clientId])
+  @@index([tenantId, documentId])
+  @@index([tenantId, folderId])
+  @@index([tenantId, completedBy])
+  @@index([tenantId, approvedBy])
+  @@index([tenantId, rejectedBy])
+  @@index([tenantId, type])
+  @@index([tenantId, priority])
+  /// PRD §13.1 — Global Search's Task title field, `contains` lookups.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("tasks")
+}
+
+/// PRD §9 — TODO/IN_PROGRESS/REVIEW/COMPLETED/CANCELLED are the original "simple
+/// flow" values (unchanged). REQUESTED/SUBMITTED/UNDER_REVIEW/APPROVED/REJECTED
+/// are the additive "approval workflow" values, entered only by a Task created
+/// with a non-null `Task.type` (see `TaskType` below and `TaskService.createTask`).
+/// The two families never share a transition edge — see `ALLOWED_TRANSITIONS`
+/// in `TaskService` for the full state machine.
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  CANCELLED
+
+  REQUESTED
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+
+  @@map("task_status")
+}
+
+/// PRD §9 — categorizes what kind of work a task represents. Nullable: a task
+/// created without a `type` (the pre-existing behavior) stays on the simple
+/// TODO/IN_PROGRESS/REVIEW/COMPLETED/CANCELLED lifecycle; a task created WITH a
+/// type enters the REQUESTED-based approval workflow instead — see
+/// `TaskService.createTask()`.
+enum TaskType {
+  DOCUMENT_REQUEST
+  FILING
+  COMPLIANCE
+  PAYMENT_FOLLOW_UP
+  DOCUMENT_REVIEW
+  APPROVAL
+
+  @@map("task_type")
+}
+
+/// PRD §9 — mirrors `LeadPriority` exactly (fixed 4-value enum, not a
+/// tenant-configurable table — same reasoning as `LeadPriority`'s own comment).
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+
+  @@map("task_priority")
+}
+
+/// Which due-date milestone a `TaskReminder` was sent for — the three cases
+/// PRD §4.2 asks for, no more (no "N days before" or tenant-configurable
+/// offsets).
+enum TaskReminderType {
+  DUE_TOMORROW
+  DUE_TODAY
+  OVERDUE
+
+  @@map("task_reminder_type")
+}
+
+/// One row per (task, recipient, reminder type) ever sent — the idempotency
+/// ledger for the scheduled reminder scan (`TaskReminderService`, PRD §4.2).
+/// A dedicated table rather than reusing `Notification` for the check: a
+/// `Notification` row records *that a message was delivered*, not *whether a
+/// DUE_TODAY reminder has already fired for this task* — deriving the latter
+/// from the former would mean matching on title/message text, which is
+/// fragile and not indexable the way `@@unique([taskId, userId, type])` is.
+/// That unique constraint is the actual duplicate-send guard — enforced by
+/// Postgres, not just application logic, so even a second overlapping scan
+/// run can't double-send. Never updated or soft-deleted: a permanent record
+/// of "this reminder was sent," matching `AuditLog`'s same reasoning for
+/// having no `deletedAt`.
+model TaskReminder {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  taskId   String @map("task_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  type   TaskReminderType @map("type")
+  sentAt DateTime         @default(now()) @map("sent_at") @db.Timestamptz
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation("TaskReminderRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId, type], name: "uq_task_reminder_once")
+  @@index([tenantId, taskId])
+  @@index([tenantId, userId])
+  @@map("task_reminders")
+}
+
+/// Work Calendar — a minimal appointment/meeting record. Deliberately NOT a
+/// second task system: `Task.dueDate`/`Task.status` remain the only source of
+/// truth for work items; `CalendarEvent` only models things that have no Task
+/// equivalent (a meeting has a start/end time-of-day, a Task's `dueDate` is a
+/// date-only column). No recurrence, no room/resource booking — out of scope.
+model CalendarEvent {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  title       String            @db.VarChar(255)
+  description String?           @db.Text
+  startAt     DateTime          @map("start_at") @db.Timestamptz
+  endAt       DateTime?         @map("end_at") @db.Timestamptz
+  allDay      Boolean           @default(false) @map("all_day")
+  eventType   CalendarEventType @default(OTHER) @map("event_type")
+  location    String?           @db.VarChar(255)
+  meetingUrl  String?           @map("meeting_url") @db.VarChar(500)
+
+  businessId String? @map("business_id") @db.Uuid
+  createdById String @map("created_by_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  business      Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  createdByUser User      @relation("CalendarEventCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  deletedByUser User?     @relation("CalendarEventDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  attendees CalendarEventAttendee[]
+
+  @@index([tenantId, startAt])
+  @@index([tenantId, businessId])
+  @@index([tenantId, createdById])
+  @@index([tenantId, deletedAt])
+  @@map("calendar_events")
+}
+
+/// PRD Work Calendar — who else, besides the creator, an event involves. Exists
+/// only so "My Work" can include events a staff member is invited to, not just
+/// ones they created (mirrors `TaskReminder`'s "why a join table and not a
+/// scalar column" reasoning: a `Notification` isn't the right fit here either,
+/// since this answers "who is on this event," not "who was messaged about it").
+model CalendarEventAttendee {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  eventId  String @map("event_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User          @relation("CalendarEventAttendee", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId], name: "uq_calendar_event_attendee_once")
+  @@index([tenantId, userId])
+  @@map("calendar_event_attendees")
+}
+
+enum CalendarEventType {
+  CLIENT_MEETING
+  INTERNAL_MEETING
+  CALL
+  APPOINTMENT
+  AUDIT
+  REVIEW
+  OTHER
+
+  @@map("calendar_event_type")
+}
+
+/// PRD §9 — reusable blueprints for instantiating a real `Task` (GST Filing, IT
+/// Return, TDS Return, Audit, ROC Filing, Payroll, Document Collection, Payment
+/// Follow-up, ...) via `TaskTemplateService.instantiate()`, which delegates to
+/// `TaskService.createTask()` — no parallel task-creation logic. `tenantId` is a
+/// plain scalar column with no `@relation`/FK to `Tenant`, mirroring `Task`'s own
+/// identical pattern (tenant scoping enforced at the application layer via
+/// `BaseRepository`, not a DB-level foreign key). No placeholder/interpolation
+/// engine for `titleTemplate`/`descriptionTemplate` — verbatim text, the caller
+/// overrides at instantiate time if needed.
+model TaskTemplate {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  name String   @db.VarChar(255)
+  type TaskType @map("type")
+
+  titleTemplate       String  @map("title_template") @db.VarChar(255)
+  descriptionTemplate String? @map("description_template") @db.Text
+
+  defaultPriority TaskPriority? @map("default_priority")
+  /// Offset in days from the instantiation moment, used to compute the created
+  /// Task's `dueDate` when the caller doesn't supply one explicitly.
+  dueInDays       Int?          @map("due_in_days")
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdBy String?   @map("created_by") @db.Uuid
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  createdByUser User? @relation("TaskTemplateCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  deletedByUser User? @relation("TaskTemplateDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, type])
+  @@index([tenantId, isActive])
+  @@index([tenantId, deletedAt])
+  @@map("task_templates")
+}
+
+// =============================================================================
+// SECTION 11 — DOCUMENTS MODULE
+// =============================================================================
+//
+// Deliberately minimal, matching the same scope discipline used for Project/
+// Task: a single `Document` metadata table, no DocumentShare/DocumentTemplate
+// satellite tables, and `version` tracked as a plain incrementing Int rather
+// than a full version-history table. Matches frontend/src/modules/documents/
+// types/index.ts's `DocumentFile` shape, which predates this schema and was
+// marked PROVISIONAL pending backend design. `category` is a fixed enum
+// (mirrors the frontend's DOCUMENT_CATEGORY_VALUES) rather than a
+// tenant-configurable table like BusinessType/ClientCategory — no signal
+// that firms need custom categories.
+//
+// `DocumentFolder` (PRD §7.1) is an adjacency-list hierarchy — one
+// self-referencing `parentFolderId` — layered under Business → category, not
+// a fully separate module: it reuses `DocumentCategory`, `Document.folderId`
+// is optional (a document may sit flat under its Business/category with no
+// folder, exactly as before), and it deliberately does NOT touch
+// `Document.businessId`/`contactId` nullability. Those stay optional because
+// existing, intentionally-tested behavior (see
+// `tests/integration/modules/documents/document-access-scope.routes.spec.ts`'s
+// `clientPersonalDocumentId` fixture) allows a document to be linked only to
+// a `Contact` with no `Business` yet (e.g. an individual's personal ID before
+// any formal Business exists for them) — PRD 7.1 rule 1's "never introduce
+// tenant-level orphan documents" is read as forbidding a document anchored to
+// *neither* Business nor Contact (a true orphan), not as retroactively
+// banning that pre-existing Contact-only case; `DocumentService` enforces the
+// "at least one of businessId/contactId" rule (see that file). Folders
+// themselves, however, are always Business-rooted per the PRD's tree
+// (Business → Category → Folder → Subfolder → Documents) — `businessId` is
+// required on `DocumentFolder`.
+
+model Document {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  businessId String? @map("business_id") @db.Uuid
+  contactId  String? @map("contact_id") @db.Uuid
+  folderId   String? @map("folder_id") @db.Uuid
+
+  category   DocumentCategory
+  fileName   String           @map("file_name") @db.VarChar(255)
+  storageKey String           @unique @map("storage_key") @db.VarChar(500)
+  mimeType   String           @map("mime_type") @db.VarChar(150)
+  sizeBytes  Int              @map("size_bytes")
+
+  /// This row's own position in its version chain (1 for the first upload, 2+ for
+  /// each confirmed replacement — see `rootDocumentId`/`previousVersionId` below).
+  version           Int     @default(1)
+  /// True only for the newest row in the chain — the one every read (list/search/
+  /// download) should resolve to. Flipped to `false` on the prior latest row in the
+  /// same DB transaction that creates a new version (`DocumentService.createVersion`).
+  isLatestVersion   Boolean @default(true) @map("is_latest_version")
+  /// Null on the chain's first (v1) row, which *is* the root; every later version
+  /// points at that same v1 row's id, so "all versions of a document" is a single
+  /// `WHERE id = rootId OR rootDocumentId = rootId` query (`DocumentRepository.findVersionChain`).
+  rootDocumentId    String? @map("root_document_id") @db.Uuid
+  /// The version this one replaced, if any — `null` on v1. `@unique` because a given
+  /// version can only ever be superseded by exactly one next version.
+  previousVersionId String? @unique @map("previous_version_id") @db.Uuid
+
+  uploadedById String @map("uploaded_by_id") @db.Uuid
+
+  /// PRD §7.4 — retention scaffolding only, no scheduler/enforcement exists yet. `archived`
+  /// marks a document as retired from active use; `retentionUntil` records the date it must be
+  /// kept until. Both are inert today — reserved for a future retention-policy feature.
+  archived       Boolean   @default(false) @map("archived")
+  retentionUntil DateTime? @map("retention_until") @db.Timestamptz
+
+  /// PRD §14.7 — Sensitive Upload Approval. `NOT_REQUIRED` (default) covers every document
+  /// today, since approval is opt-in per upload (`DocumentService.requestApproval()`), not a
+  /// blanket requirement. `reviewerId`/`reviewedAt`/`reviewComment` are only ever set once the
+  /// document has moved past `NOT_REQUIRED`.
+  approvalStatus DocumentApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
+  reviewerId     String?                @map("reviewer_id") @db.Uuid
+  reviewedAt     DateTime?              @map("reviewed_at") @db.Timestamptz
+  reviewComment  String?                @map("review_comment") @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  business      Business?       @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  contact       Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  folder        DocumentFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  uploadedBy    User            @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  deletedByUser User?           @relation("DocumentDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+  reviewer      User?           @relation("DocumentReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  rootDocument    Document?  @relation("DocumentVersionGroup", fields: [rootDocumentId], references: [id], onDelete: SetNull)
+  versions        Document[] @relation("DocumentVersionGroup")
+  previousVersion Document?  @relation("DocumentVersionChain", fields: [previousVersionId], references: [id], onDelete: SetNull)
+  nextVersion     Document?  @relation("DocumentVersionChain")
+
+  leadNoteAttachments       LeadNote[]
+  businessNoteAttachments   BusinessNote[]
+  tasks                     Task[]
+  fulfilledDocumentRequests DocumentRequest[]
+
+  @@index([tenantId, category])
+  @@index([tenantId, businessId])
+  @@index([tenantId, contactId])
+  @@index([tenantId, folderId])
+  @@index([tenantId, deletedAt])
+  @@index([tenantId, rootDocumentId])
+  @@index([tenantId, archived])
+  @@index([tenantId, approvalStatus])
+  @@index([fileName(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("documents")
+}
+
+/// PRD §14.7 — Sensitive Upload Approval lifecycle.
+enum DocumentApprovalStatus {
+  NOT_REQUIRED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+
+  @@map("document_approval_status")
+}
+
+enum DocumentCategory {
+  PAN
+  GST
+  INCOME_TAX
+  ROC
+  AUDIT
+  BANK
+  AGREEMENTS
+  PAYROLL
+  DSC
+  IDENTITY
+  OTHER
+
+  @@map("document_category")
+}
+
+/// PRD §11.4/§11.12 — an outstanding "please provide document X" ask to a business, the
+/// minimal prerequisite `DocumentReminderService`'s "document follow-up reminder" needs to mean
+/// anything (no such concept existed anywhere before this). Deliberately minimal: no
+/// attachments UI, no bulk actions — create, optionally link the `Document` that fulfilled it,
+/// mark fulfilled/cancelled. Reuses the existing `DocumentCategory` enum rather than inventing a
+/// parallel one, since a request is always "please provide a document in category X."
+model DocumentRequest {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  businessId  String                @map("business_id") @db.Uuid
+  category    DocumentCategory
+  description String?               @db.Text
+  dueDate     DateTime?             @map("due_date") @db.Timestamptz
+  status      DocumentRequestStatus @default(PENDING)
+
+  requestedById       String    @map("requested_by_id") @db.Uuid
+  fulfilledDocumentId String?   @map("fulfilled_document_id") @db.Uuid
+  fulfilledAt         DateTime? @map("fulfilled_at") @db.Timestamptz
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  business          Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  requestedBy       User                      @relation("DocumentRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  fulfilledDocument Document?                 @relation(fields: [fulfilledDocumentId], references: [id], onDelete: SetNull)
+  reminders         DocumentRequestReminder[]
+
+  @@index([tenantId, businessId])
+  @@index([tenantId, status])
+  @@index([tenantId, deletedAt])
+  @@map("document_requests")
+}
+
+enum DocumentRequestStatus {
+  PENDING
+  FULFILLED
+  CANCELLED
+
+  @@map("document_request_status")
+}
+
+/// Adjacency-list folder hierarchy (PRD §7.1 rule 3): Business → category →
+/// Folder → Subfolder → Documents. Always rooted at one Business and one
+/// category — `parentFolder`, if set, must belong to the same
+/// `businessId`/`category` (enforced in `DocumentFolderService`, not the DB,
+/// mirroring how `Document`'s own cross-field rules are enforced at the
+/// service layer per this schema's other header comments).
+model DocumentFolder {
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
+
+  category DocumentCategory
+
+  parentFolderId String? @map("parent_folder_id") @db.Uuid
+  name           String  @db.VarChar(255)
+
+  createdById String    @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+
+  business     Business         @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  parentFolder DocumentFolder?  @relation("FolderHierarchy", fields: [parentFolderId], references: [id], onDelete: Restrict)
+  childFolders DocumentFolder[] @relation("FolderHierarchy")
+  createdBy    User             @relation("DocumentFolderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  documents    Document[]
+  tasks        Task[]
+
+  @@unique([tenantId, businessId, category, parentFolderId, name], name: "uq_folder_sibling_name")
+  @@index([tenantId, businessId, category])
+  @@index([tenantId, parentFolderId])
+  @@index([tenantId, deletedAt])
+  @@map("document_folders")
+}
+
+// =============================================================================
+// SECTION 12 — COMPLIANCE MODULE
+// =============================================================================
+//
+// One generic `ComplianceFiling` table shared by all four Compliance areas
+// (GST/ITR/TDS/MCA), discriminated by `category` — matches
+// frontend/src/modules/compliance/types/index.ts's `ComplianceFiling`
+// exactly: a deliberately generic "filing tracker" shape (reference/period/
+// status/dueDate/filedDate/notes), not four real domain-specific schemas
+// (no gstin/assessmentYear/form26Q), per that file's own header comment
+// ("this generic type should be split into four real, module-specific ones"
+// once real per-area requirements exist). `tenantId` is a plain scalar
+// column with no `@relation`/FK to `Tenant`, mirroring `Contact`'s identical
+// pattern (tenant scoping enforced at the application layer via
+// `BaseRepository`, not a DB-level foreign key). No `createdBy`/`deletedBy`
+// columns — the frontend's response type never reads a creator/deleter, and
+// nothing else in this module needs one.
+//
+// `status`/`filedDate` are stored but not exposed as user-settable in either
+// `CreateComplianceFilingPayload` or `UpdateComplianceFilingPayload` (the
+// frontend form never collects them) — every filing is created as DRAFT and
+// stays that way via this API. See the Compliance module's final report for
+// this known limitation.
+
+model ComplianceFiling {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  category ComplianceCategory @map("category")
+
+  reference String                 @map("reference") @db.VarChar(100)
+  period    String                 @map("period") @db.VarChar(50)
+  status    ComplianceFilingStatus @default(DRAFT) @map("status")
+  dueDate   DateTime?              @map("due_date") @db.Timestamptz
+  filedDate DateTime?              @map("filed_date") @db.Timestamptz
+  notes     String?                @map("notes") @db.Text
+
+  /// PRD §11.12 — nullable so existing rows are unaffected; lets
+  /// `ComplianceReminderService` resolve a recipient via the existing
+  /// `BusinessAssignmentRepository.findByBusiness()` the same way Billing/Document reminders
+  /// do. A filing with no `businessId` is simply skipped by the reminder scan (logged as a
+  /// count, not an error) — it predates this column or was never linked to a business.
+  businessId String? @map("business_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  business  Business?            @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  reminders ComplianceReminder[]
+
+  @@index([tenantId, category, status], name: "idx_compliance_tenant_category_status")
+  @@index([tenantId, category, deletedAt], name: "idx_compliance_soft_delete")
+  @@index([tenantId, businessId], name: "idx_compliance_tenant_business")
+  @@index([reference(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("compliance_filings")
+}
+
+enum ComplianceCategory {
+  GST
+  ITR
+  TDS
+  MCA
+
+  @@map("compliance_category")
+}
+
+enum ComplianceFilingStatus {
+  DRAFT
+  PENDING
+  FILED
+  OVERDUE
+
+  @@map("compliance_filing_status")
+}
+
+// =============================================================================
+// SECTION 13 — CLIENT BILLING MODULE
+// =============================================================================
+//
+// Three generic tables — `Invoice`, `Expense`, `Payment` — matching
+// frontend/src/modules/client-billing/types/index.ts exactly. This is the
+// firm's client-facing billing (invoices issued to / expenses incurred for
+// its own clients) — a completely separate domain from the tenant's own
+// SaaS-subscription billing to the ERP vendor (frontend/src/modules/billing,
+// which has no backend model at all yet and must not be touched here).
+//
+// Deliberately minimal, matching the same scope discipline as Compliance:
+// no ledger, no journal entries, no tax engine, no payment gateway, no
+// invoice-numbering engine, no PDF/email generation, no account balances.
+// `clientId`/`businessId`/`invoiceId` are real FKs (for referential
+// integrity, `onDelete: SetNull` mirrors `Document`'s identical pattern for
+// optional business/contact references) but the API never exposes a nested
+// Client/Business/Invoice object or a lookup endpoint — only the raw ID
+// string, matching the frontend's own plain-UUID-input `InvoiceForm`/
+// `PaymentForm` exactly. `status` is stored with a sensible default but not
+// user-settable via create/update — none of the three forms collect one, so
+// (like Compliance) there is no status-transition endpoint to build.
+
+model Invoice {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  invoiceNumber String  @map("invoice_number") @db.VarChar(50)
+  clientId      String? @map("client_id") @db.Uuid
+  businessId    String? @map("business_id") @db.Uuid
+
+  amount     Decimal       @db.Decimal(14, 2)
+  tax        Decimal       @default(0) @db.Decimal(14, 2)
+  issuedDate DateTime?     @map("issued_date") @db.Timestamptz
+  dueDate    DateTime?     @map("due_date") @db.Timestamptz
+  status     InvoiceStatus @default(DRAFT)
+  notes      String?       @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  client              Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  business            Business?            @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  payments            Payment[]
+  reminders           InvoiceReminder[]
+  paymentGatewayLinks PaymentGatewayLink[]
+
+  @@unique([tenantId, invoiceNumber], name: "uq_invoices_tenant_number")
+  @@index([tenantId, status], name: "idx_invoices_tenant_status")
+  @@index([tenantId, clientId], name: "idx_invoices_tenant_client")
+  @@index([tenantId, businessId], name: "idx_invoices_tenant_business")
+  @@index([tenantId, deletedAt], name: "idx_invoices_soft_delete")
+  @@index([invoiceNumber(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("invoices")
+}
+
+model Expense {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  expenseNumber String  @map("expense_number") @db.VarChar(50)
+  category      String  @db.VarChar(100)
+  vendor        String? @db.VarChar(255)
+
+  amount        Decimal       @db.Decimal(14, 2)
+  date          DateTime?     @db.Timestamptz
+  paymentMethod String?       @map("payment_method") @db.VarChar(50)
+  status        ExpenseStatus @default(DRAFT)
+  notes         String?       @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  @@unique([tenantId, expenseNumber], name: "uq_expenses_tenant_number")
+  @@index([tenantId, status], name: "idx_expenses_tenant_status")
+  @@index([tenantId, category], name: "idx_expenses_tenant_category")
+  @@index([tenantId, deletedAt], name: "idx_expenses_soft_delete")
+  @@index([expenseNumber(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("expenses")
+}
+
+model Payment {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  paymentNumber String  @map("payment_number") @db.VarChar(50)
+  invoiceId     String? @map("invoice_id") @db.Uuid
+
+  amount    Decimal       @db.Decimal(14, 2)
+  method    String?       @db.VarChar(50)
+  reference String?       @db.VarChar(100)
+  paidDate  DateTime?     @map("paid_date") @db.Timestamptz
+  status    PaymentStatus @default(PENDING)
+  notes     String?       @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  invoice            Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  paymentGatewayLink PaymentGatewayLink?
+
+  @@unique([tenantId, paymentNumber], name: "uq_payments_tenant_number")
+  @@index([tenantId, status], name: "idx_payments_tenant_status")
+  @@index([tenantId, invoiceId], name: "idx_payments_tenant_invoice")
+  @@index([tenantId, deletedAt], name: "idx_payments_soft_delete")
+  @@index([paymentNumber(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("payments")
+}
+
+// -----------------------------------------------------------------------------
+// SECTION 13B — CLIENT BILLING: PAYMENT GATEWAY (firm-owned client payment
+// collection — Client -> Firm; NOT platform billing, Section 16's Firm ->
+// Platform SaaS subscription, which this never touches).
+// -----------------------------------------------------------------------------
+//
+// Provider-based, mirroring `FirmNotificationSettings` (one-row-per-tenant
+// singleton) and `modules/notifications/providers` (a swappable interface
+// per vendor). `RAZORPAY`/`DISABLED` today; adding Paytm/Cashfree/Stripe/
+// PhonePe later means adding an enum value + a new
+// `PaymentGatewayProvider` implementation, not touching this schema's shape
+// or any of `PaymentLinkService`/`PaymentGatewayWebhookService`'s logic.
+//
+// `FirmPaymentGatewaySettings.encryptedKeySecret`/`encryptedWebhookSecret`
+// are AES-256-GCM ciphertext (`CryptoUtils.encryptSecret`/`decryptSecret`,
+// PRD §12 "Encrypted secrets") — the API layer (`PaymentGatewaySettingsMapper`)
+// never returns them, only `hasKeySecret`/`hasWebhookSecret` booleans.
+//
+// `PaymentGatewayLink.providerPaymentId` is `@unique` tenant-wide (a
+// provider-issued ID, e.g. Razorpay's `plink_...`, never client-chosen) —
+// the one field a webhook payload alone can be looked up by before the
+// tenant is known; see `PaymentGatewayLinkRepository.findByProviderPaymentId()`'s
+// comment for why that's still tenant-safe.
+
+model FirmPaymentGatewaySettings {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @unique @map("tenant_id") @db.Uuid
+
+  enabled  Boolean                    @default(false)
+  provider PaymentGatewayProviderType @default(DISABLED)
+
+  keyId                  String? @map("key_id") @db.VarChar(255)
+  encryptedKeySecret     String? @map("encrypted_key_secret") @db.Text
+  encryptedWebhookSecret String? @map("encrypted_webhook_secret") @db.Text
+
+  isTestMode Boolean @default(true) @map("is_test_mode")
+  /// True only once `enabled` is set AND the selected provider has the credentials it needs —
+  /// recomputed by `PaymentGatewaySettingsService` on every update, not user-settable directly.
+  isActive   Boolean @default(false) @map("is_active")
+
+  createdBy String? @map("created_by") @db.Uuid
+  updatedBy String? @map("updated_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  createdByUser User? @relation("PaymentGatewaySettingsCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedByUser User? @relation("PaymentGatewaySettingsUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@map("firm_payment_gateway_settings")
+}
+
+model PaymentGatewayLink {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  invoiceId String                     @map("invoice_id") @db.Uuid
+  provider  PaymentGatewayProviderType
+
+  providerPaymentId String                   @unique @map("provider_payment_id") @db.VarChar(100)
+  url               String                   @db.Text
+  amountInPaise     Int                      @map("amount_in_paise")
+  currency          String                   @default("INR") @map("currency") @db.Char(3)
+  status            PaymentGatewayLinkStatus @default(CREATED)
+  expiresAt         DateTime?                @map("expires_at") @db.Timestamptz
+  /// Provider's own response payload, stored separately from this table's normalized columns (PRD §12).
+  providerMetadata  Json?                    @map("provider_metadata") @db.JsonB
+
+  /// Set once the webhook confirms payment and creates the corresponding `Payment` row.
+  paymentId String? @unique @map("payment_id") @db.Uuid
+
+  createdBy String? @map("created_by") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  /// Not exposed via any delete endpoint today — present because `BaseRepository`'s tenant-scoped
+  /// find/update/paginate helpers unconditionally filter on `deletedAt: null`, same reasoning as
+  /// every other `BaseRepository`-backed model in this schema.
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  payment       Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  createdByUser User?    @relation("PaymentGatewayLinkCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, invoiceId], name: "idx_payment_gateway_links_tenant_invoice")
+  @@index([tenantId, status], name: "idx_payment_gateway_links_tenant_status")
+  @@index([tenantId, deletedAt], name: "idx_payment_gateway_links_soft_delete")
+  @@map("payment_gateway_links")
+}
+
+enum PaymentGatewayProviderType {
+  DISABLED
+  RAZORPAY
+
+  @@map("payment_gateway_provider_type")
+}
+
+enum PaymentGatewayLinkStatus {
+  CREATED
+  PARTIALLY_PAID
+  PAID
+  EXPIRED
+  CANCELLED
+
+  @@map("payment_gateway_link_status")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  VOID
+
+  @@map("invoice_status")
+}
+
+enum ExpenseStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+
+  @@map("expense_status")
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+
+  @@map("payment_status")
+}
+
+// =============================================================================
+// SECTION 14 — NOTIFICATIONS MODULE
+// =============================================================================
+//
+// Matches frontend/src/modules/notifications/types/index.ts exactly. Deliberately
+// minimal — no template/provider/preference/scheduling/topic/subscription tables.
+// Notifications are system-generated (some future module inserts rows directly);
+// this module only ever reads, marks-read, and deletes — there is no create
+// endpoint. `userId` is a real FK (`onDelete: Cascade` — a deleted user's
+// notifications have no reason to remain), unlike `tenantId` on most other
+// models in this schema, because ownership (not just tenant membership) is the
+// core access-control dimension here: every query is scoped by `(tenantId,
+// userId)` together, enforced in the service layer since `BaseRepository` only
+// has built-in tenant/soft-delete scoping.
+
+model Notification {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  channel NotificationChannel
+  status  NotificationStatus  @default(PENDING)
+  title   String              @db.VarChar(255)
+  message String              @db.Text
+  isRead  Boolean             @default(false) @map("is_read")
+
+  /// PRD §11.10/§11.11 — delivery/lifecycle bookkeeping, all additive to the original
+  /// (channel, status, title, message, isRead) shape above. `retryCount` mirrors what
+  /// BullMQ's own `job.attemptsMade` already tracks, kept here too because the `Notification`
+  /// row (not the transient job) is this module's durable history — see
+  /// `workers/notification.worker.ts`'s header comment.
+  retryCount        Int                  @default(0) @map("retry_count")
+  providerMessageId String?              @map("provider_message_id")
+  providerResponse  Json?                @map("provider_response") @db.JsonB
+  sentAt            DateTime?            @map("sent_at") @db.Timestamptz
+  /// Reserved, unemitted in Phase 1 — no vendor delivery webhook exists yet to confirm real
+  /// delivery for any channel (see `NotificationStatus.DELIVERED`'s own comment).
+  deliveredAt       DateTime?            @map("delivered_at") @db.Timestamptz
+  /// Complements `isRead` with a timestamp — `isRead` stays the boolean of record for queries.
+  readAt            DateTime?            @map("read_at") @db.Timestamptz
+  /// PRD §11.10 "Scheduled delivery" — set when the caller passes `scheduledFor` to
+  /// `NotificationDispatchService.send()`; mirrors the `delay` the BullMQ job was enqueued with.
+  scheduledFor      DateTime?            @map("scheduled_for") @db.Timestamptz
+  priority          NotificationPriority @default(NORMAL) @map("priority")
+  /// PRD §11.10 "Duplicate prevention" — an optional caller-supplied idempotency key; see
+  /// `NotificationRepository.findRecentByDedupeKey()`.
+  dedupeKey         String?              @map("dedupe_key")
+  cancelledAt       DateTime?            @map("cancelled_at") @db.Timestamptz
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, isRead], name: "idx_notifications_user_unread")
+  @@index([tenantId, userId, status], name: "idx_notifications_user_status")
+  @@index([tenantId, userId, createdAt], name: "idx_notifications_user_created")
+  @@index([tenantId, userId, deletedAt], name: "idx_notifications_soft_delete")
+  @@index([tenantId, userId, channel, dedupeKey], name: "idx_notifications_dedupe")
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("notifications")
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  EMAIL
+  SMS
+  IN_APP
+
+  @@map("notification_channel")
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  /// Reserved, unemitted in Phase 1 — no vendor delivery webhook exists for any configured
+  /// channel yet to distinguish "accepted by our own send() call" from "the recipient's
+  /// carrier actually delivered it." Revisit once a real vendor integration exists.
+  DELIVERED
+  FAILED
+  /// PRD §11.10 "Cancellation" — set by `NotificationDispatchService.cancel()`; only reachable
+  /// from `PENDING` (a `SENT`/`FAILED` notification has already left the queue).
+  CANCELLED
+
+  @@map("notification_status")
+}
+
+/// PRD §11.10 "Priority" — passed through to the BullMQ job's own `priority` option
+/// (lower number = higher priority in BullMQ; `priorityToBullMqNumber()` in
+/// `notification-dispatch.service.ts` does the mapping), not a separate scheduling system.
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+
+  @@map("notification_priority")
+}
+
+/// PRD §11.9 — firm-editable notification content, with a global (`tenantId: null`) fallback
+/// for every system default (invitation, password reset, task/billing/compliance/document
+/// reminders). `key` is the lookup handle callers pass (e.g. `"user-invitation"`,
+/// `"task-reminder-due-tomorrow"`) — not a Prisma enum, since new keys are added by adding a
+/// row, not a migration. `{{variable}}` substitution happens in
+/// `NotificationTemplateService.render()`; this model only stores the raw template text.
+///
+/// A plain `@@unique([tenantId, key, channel])` alone would allow unlimited duplicate GLOBAL
+/// rows (`tenantId IS NULL`) per `(key, channel)` — Postgres treats NULLs as distinct in a
+/// unique index — so the actual global-uniqueness guarantee is a hand-added partial index
+/// (see the migration this model first ships in): `CREATE UNIQUE INDEX
+/// uq_notification_template_global_key_channel ON notification_templates (key, channel)
+/// WHERE tenant_id IS NULL`.
+model NotificationTemplate {
+  id       String  @id @default(uuid()) @db.Uuid
+  /// Null = global/system default, visible to and rendered for every tenant that has no
+  /// override of its own. Non-null = one tenant's override/custom template.
+  tenantId String? @map("tenant_id") @db.Uuid
+
+  key         String              @db.VarChar(100)
+  channel     NotificationChannel
+  name        String              @db.VarChar(255)
+  description String?             @db.Text
+
+  /// EMAIL only — SMS/WhatsApp messages have no separate subject line.
+  subjectTemplate  String? @map("subject_template") @db.VarChar(255)
+  bodyTemplateText String  @map("body_template_text") @db.Text
+  /// EMAIL only.
+  bodyTemplateHtml String? @map("body_template_html") @db.Text
+
+  isActive        Boolean @default(true) @map("is_active")
+  /// True only for the built-in seeded defaults (`tenantId: null`) — lets the UI label them
+  /// distinctly ("Default", not deletable) from a firm's own custom/override rows.
+  isSystemDefault Boolean @default(false) @map("is_system_default")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdBy String?   @map("created_by") @db.Uuid
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  createdByUser User? @relation("NotificationTemplateCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  deletedByUser User? @relation("NotificationTemplateDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, key, channel], name: "uq_notification_template_tenant_key_channel")
+  @@index([key, channel])
+  @@index([tenantId, isActive])
+  @@map("notification_templates")
+}
+
+enum NotificationDigestFrequency {
+  IMMEDIATE
+  DAILY
+  WEEKLY
+  DISABLED
+
+  @@map("notification_digest_frequency")
+}
+
+/// PRD §11.7 — per-user channel/quiet-hours preferences. One-row-per-user singleton
+/// (`userId` is `@unique`), same shape as `DashboardPreference` below. Deliberately has NO
+/// `inAppEnabled` column — `IN_APP` is never preference-filtered by
+/// `NotificationDispatchService` (security-relevant system notices, e.g. an account lock, must
+/// never be silently suppressible by the affected user's own preference row).
+model NotificationPreference {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @unique @map("user_id") @db.Uuid
+
+  emailEnabled    Boolean @default(true) @map("email_enabled")
+  smsEnabled      Boolean @default(true) @map("sms_enabled")
+  whatsappEnabled Boolean @default(true) @map("whatsapp_enabled")
+
+  digestFrequency NotificationDigestFrequency @default(IMMEDIATE) @map("digest_frequency")
+  /// 0-23, local hour in `Tenant.timezone` — both null means no quiet hours configured.
+  quietHoursStart Int?                        @map("quiet_hours_start")
+  quietHoursEnd   Int?                        @map("quiet_hours_end")
+  muteUntil       DateTime?                   @map("mute_until") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation("NotificationPreferenceUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], name: "idx_notification_preferences_tenant")
+  @@map("notification_preferences")
+}
+
+/// PRD §11.8 — firm-wide notification configuration. One-row-per-tenant singleton
+/// (`tenantId` is `@unique`). `smsEnabled`/`whatsappEnabled` default `false` (opt-in, since
+/// they're paid channels the firm — never the platform — bears the cost of, per PRD §11.6);
+/// `emailEnabled` defaults `true` (free, always-configured via `@config/mail`).
+model FirmNotificationSettings {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @unique @map("tenant_id") @db.Uuid
+
+  emailEnabled    Boolean @default(true) @map("email_enabled")
+  smsEnabled      Boolean @default(false) @map("sms_enabled")
+  whatsappEnabled Boolean @default(false) @map("whatsapp_enabled")
+
+  defaultQuietHoursStart Int? @map("default_quiet_hours_start")
+  defaultQuietHoursEnd   Int? @map("default_quiet_hours_end")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("firm_notification_settings")
+}
+
+/// PRD §11.12 — the cadence label set shared by the Billing/Compliance/Document reminder scans
+/// (mirroring `TaskReminderType`'s three cases, plus the two longer lead times PRD §11.12 asks
+/// for). Shared DATA only, not shared behavior — `BillingReminderService`/
+/// `ComplianceReminderService`/`DocumentReminderService` remain three independent classes, each
+/// mirroring `TaskReminderService`'s own scan/dispatch/idempotency shape on its own idempotency
+/// table below, exactly like `TaskReminderType` stays untouched and task reminders keep using it.
+enum ReminderCadenceType {
+  DUE_IN_30_DAYS
+  DUE_IN_7_DAYS
+  DUE_TOMORROW
+  OVERDUE
+
+  @@map("reminder_cadence_type")
+}
+
+/// Idempotency ledger for `BillingReminderService`, mirroring `TaskReminder`'s exact shape.
+/// `bucket` is `""` for the three one-shot types (30-day/7-day/tomorrow can each only ever be
+/// true once per invoice) and an ISO week label (e.g. `"2026-W32"`) for the recurring `OVERDUE`
+/// case — one reminder per invoice per user per calendar week while still overdue.
+model InvoiceReminder {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @map("tenant_id") @db.Uuid
+  invoiceId String @map("invoice_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+
+  type   ReminderCadenceType
+  bucket String              @default("") @db.VarChar(20)
+  sentAt DateTime            @default(now()) @map("sent_at") @db.Timestamptz
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user    User    @relation("InvoiceReminderRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, userId, type, bucket], name: "uq_invoice_reminder_once")
+  @@index([tenantId, invoiceId])
+  @@index([tenantId, userId])
+  @@map("invoice_reminders")
+}
+
+/// Idempotency ledger for `ComplianceReminderService` — same `bucket` reasoning as
+/// `InvoiceReminder` above.
+model ComplianceReminder {
+  id                 String @id @default(uuid()) @db.Uuid
+  tenantId           String @map("tenant_id") @db.Uuid
+  complianceFilingId String @map("compliance_filing_id") @db.Uuid
+  userId             String @map("user_id") @db.Uuid
+
+  type   ReminderCadenceType
+  bucket String              @default("") @db.VarChar(20)
+  sentAt DateTime            @default(now()) @map("sent_at") @db.Timestamptz
+
+  filing ComplianceFiling @relation(fields: [complianceFilingId], references: [id], onDelete: Cascade)
+  user   User             @relation("ComplianceReminderRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([complianceFilingId, userId, type, bucket], name: "uq_compliance_reminder_once")
+  @@index([tenantId, complianceFilingId])
+  @@index([tenantId, userId])
+  @@map("compliance_reminders")
+}
+
+/// Idempotency ledger for `DocumentReminderService` — same `bucket` reasoning as
+/// `InvoiceReminder` above.
+model DocumentRequestReminder {
+  id                String @id @default(uuid()) @db.Uuid
+  tenantId          String @map("tenant_id") @db.Uuid
+  documentRequestId String @map("document_request_id") @db.Uuid
+  userId            String @map("user_id") @db.Uuid
+
+  type   ReminderCadenceType
+  bucket String              @default("") @db.VarChar(20)
+  sentAt DateTime            @default(now()) @map("sent_at") @db.Timestamptz
+
+  request DocumentRequest @relation(fields: [documentRequestId], references: [id], onDelete: Cascade)
+  user    User            @relation("DocumentRequestReminderRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([documentRequestId, userId, type, bucket], name: "uq_document_request_reminder_once")
+  @@index([tenantId, documentRequestId])
+  @@index([tenantId, userId])
+  @@map("document_request_reminders")
+}
+
+// One-row-per-user singleton (`userId` is `@unique`, not just indexed) — same
+// shape as `MfaConfig` above, not `Notification`'s many-rows-per-user shape.
+// `widgets` holds the caller's full widget layout as an ordered JSON array
+// (`[{ widgetId, visible }, ...]`); array order IS display order, so no
+// separate `order` column is needed. Widget identity, labels, and the
+// permission each widget requires live in the frontend's own registry
+// (`frontend/src/modules/dashboard/constants/index.ts`) — this table only
+// ever stores an opaque per-user ordering/visibility preference, never a
+// widget catalog, matching how this app already has no backend "dashboard"
+// module of its own (see `modules/dashboard/api/index.ts`'s header comment).
+model DashboardPreference {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @unique @map("user_id") @db.Uuid
+
+  widgets                Json @default("[]") @map("widgets") @db.JsonB
+  /// PRD §10.2 — whole-dashboard auto-refresh cadence in seconds. `null` = use the frontend's
+  /// own default interval (not persisted as a magic number here).
+  refreshIntervalSeconds Int? @map("refresh_interval_seconds")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], name: "idx_dashboard_preferences_tenant")
+  @@map("dashboard_preferences")
+}
+
+// One-row-per-(tenant,role) singleton, same reasoning as `DashboardPreference` above but keyed
+// on the coarse `UserRole` TS enum (`backend/src/shared/enums/user.enum.ts`) instead of a user —
+// PRD §10.3's tenant-admin-configurable default layout per role (Administrator/CA/Staff/...).
+// `role` is stored as a validated string, not a Postgres enum: `UserRole` has no DB-level enum
+// backing it anywhere in this schema (it's derived at login time, never persisted on `User`) and
+// this is the first table to persist it — validated against the TS enum at the Zod schema layer.
+// Falls back to `DashboardPreference.widgets`'s own empty-array/registry-default behavior when no
+// row exists for a given (tenant, role) — see `DashboardPreferenceService.getPreferences()`.
+model DashboardTenantDefault {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  role     String @map("role") @db.VarChar(20)
+
+  widgets   Json    @default("[]") @map("widgets") @db.JsonB
+  updatedBy String? @map("updated_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  updatedByUser User?  @relation("DashboardTenantDefaultUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, role], name: "uq_dashboard_tenant_defaults_tenant_role")
+  @@index([tenantId], name: "idx_dashboard_tenant_defaults_tenant")
+  @@map("dashboard_tenant_defaults")
+}
+
+// =============================================================================
+// SECTION 15 — MASTER ADMIN MODULE
+// =============================================================================
+//
+// Platform-level admin account — deliberately NOT a `User` row (a `User` is
+// always tenant-scoped via the required `tenantId` FK; a master admin manages
+// every tenant, so it can't belong to one). No self-service signup: rows are
+// created only by `prisma/seeds/master-admin.seed.ts` from the
+// `MASTER_ADMIN_EMAIL`/`MASTER_ADMIN_PASSWORD` env vars. No session/refresh-
+// token table of its own — `UserSession`/`RefreshToken` FK to `User.id`, which
+// this isn't — so master admin auth is access-token-only (see
+// `modules/master-admin/service/master-admin-auth.service.ts`'s header
+// comment); a lapsed token just means logging in again.
+
+// =============================================================================
+// SECTION 16 — PLATFORM BILLING MODULE (SaaS subscription, PRD §12)
+// =============================================================================
+//
+// Completely separate domain from SECTION 13 (Invoice/Expense/Payment) — this
+// is the tenant's payment TO the platform (Razorpay), not the firm's billing
+// of its own clients. `Plan` is a shared, cross-tenant catalog (like
+// `BusinessType`), one row per (tier, billing cycle) combination rather than
+// a tier row plus cycle-multiplier math — e.g. "Professional" has separate
+// MONTHLY/QUARTERLY/YEARLY rows, each with its own already-discounted price,
+// so there's no proration/rounding logic to get wrong.
+//
+// `Tenant.planCode`/`subscriptionStatus`/`subscriptionExpiresAt` (Section 2)
+// remain the single source of truth for "what a tenant currently has" —
+// `tenantMiddleware` reads those directly for fast per-request checks. `Plan`
+// and `PlatformInvoice` don't duplicate that; `PlatformInvoice.planId` is the
+// only real FK here (financial records benefit from referential integrity),
+// while `Tenant.planCode` <-> `Plan.code` stays a soft string association
+// (matching `Tenant.planCode`'s existing type — no migration of that column).
+
+model Plan {
+  id   String @id @default(uuid()) @db.Uuid
+  code String @unique @db.VarChar(50)
+  name String @db.VarChar(100)
+
+  billingCycle BillingCycle @map("billing_cycle")
+  priceInPaise Int          @map("price_in_paise")
+
+  maxUsers        Int? @map("max_users")
+  maxClients      Int? @map("max_clients")
+  /// Total storage quota in GB. Every plan must guarantee at least 1 GB — enforced by
+  /// `createPlanSchema`/`updatePlanSchema` (`min(1)`); NULL means unlimited, which
+  /// trivially satisfies the floor.
+  maxStorageGb    Int? @map("max_storage_gb")
+  maxDocuments    Int? @map("max_documents")
+  /// PRD §7.4 — per-file upload size ceiling in MB for tenants on this plan (e.g. Starter 100,
+  /// Professional 250, Enterprise 1024). Copied onto `Tenant.maxUploadSizeMb` by
+  /// `TenantBillingRepository.applyPlan()`, same flow as `maxStorageGb`.
+  maxUploadSizeMb Int? @map("max_upload_size_mb")
+
+  isActive     Boolean @default(true) @map("is_active")
+  displayOrder Int     @default(0) @map("display_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  invoices PlatformInvoice[]
+
+  @@index([isActive, displayOrder])
+  @@map("plans")
+}
+
+enum BillingCycle {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+
+  @@map("billing_cycle")
+}
+
+model PlatformInvoice {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  planId   String @map("plan_id") @db.Uuid
+
+  billingCycle  BillingCycle          @map("billing_cycle")
+  amountInPaise Int                   @map("amount_in_paise")
+  status        PlatformInvoiceStatus @default(PENDING)
+
+  razorpayOrderId   String  @unique @map("razorpay_order_id") @db.VarChar(100)
+  razorpayPaymentId String? @unique @map("razorpay_payment_id") @db.VarChar(100)
+  razorpaySignature String? @map("razorpay_signature") @db.VarChar(255)
+
+  periodStart DateTime? @map("period_start") @db.Timestamptz
+  periodEnd   DateTime? @map("period_end") @db.Timestamptz
+  paidAt      DateTime? @map("paid_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, status], name: "idx_platform_invoices_tenant_status")
+  @@index([tenantId, createdAt(sort: Desc)], name: "idx_platform_invoices_tenant_created")
+  @@map("platform_invoices")
+}
+
+enum PlatformInvoiceStatus {
+  PENDING
+  PAID
+  FAILED
+  VOID
+
+  @@map("platform_invoice_status")
+}
+
+model MasterAdmin {
+  id String @id @default(uuid()) @db.Uuid
+
+  email        String  @unique @db.VarChar(255)
+  passwordHash String  @map("password_hash") @db.Text
+  firstName    String  @map("first_name") @db.VarChar(100)
+  lastName     String  @map("last_name") @db.VarChar(100)
+  isActive     Boolean @default(true) @map("is_active")
+
+  lastLoginAt DateTime? @map("last_login_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  invitedTenantOwners UserInvitation[]
+
+  @@map("master_admins")
+}
+
+// =============================================================================
+// SECTION 17 — AUDIT LOG MODULE (PRD §14.1)
+// =============================================================================
+//
+// General-purpose, cross-module activity trail — separate from `LoginHistory`
+// (Section 5-ish, auth-only: failed logins/token refresh/IP-country-city
+// detail) even though the two overlap on LOGIN/LOGOUT. `LoginHistory` stays
+// the detailed security record for auth events specifically; `AuditLog` is
+// the PRD's broader "who did what" feed spanning every module (uploads,
+// downloads, role/permission changes, task updates, payment actions), so a
+// LOGIN/LOGOUT success is written to both — `LoginHistory` isn't reused here
+// because it has no `targetType`/`targetId`/`description` columns generic
+// modules can address.
+//
+// `actorName` is denormalized (captured at write-time) rather than joined
+// through `actorId` at read-time, so a later-renamed or deleted user doesn't
+// rewrite/blank out history — matches this codebase's general preference for
+// point-in-time-accurate audit/financial records over live joins (see
+// `PlatformInvoice` for the same reasoning applied to money instead of
+// identity). No `deletedAt` — audit records are compliance records
+// (`AUDIT.RETENTION_DAYS` = 8 years per Indian CA regulations) and are never
+// user-deletable; a scheduled purge job past the retention window is a
+// separate, later concern.
+
+model AuditLog {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  eventType AuditEventType @map("event_type")
+
+  actorId   String @map("actor_id") @db.Uuid
+  actorName String @map("actor_name") @db.VarChar(200)
+
+  targetType String? @map("target_type") @db.VarChar(50)
+  targetId   String? @map("target_id") @db.Uuid
+
+  description String  @db.Text
+  ipAddress   String? @map("ip_address") @db.VarChar(45)
+  userAgent   String? @map("user_agent") @db.VarChar(500)
+
+  /// PRD §14.3 — the target's relevant field(s) before the change, for events where a
+  /// meaningful "before" snapshot exists (e.g. a status/value change). Omitted (null) for
+  /// events with no natural before-state (e.g. LOGIN, UPLOAD).
+  oldValue Json? @map("old_value")
+  /// PRD §14.3 — the target's relevant field(s) after the change. Paired with `oldValue`.
+  newValue Json? @map("new_value")
+  /// PRD §14.3 — free-form structured context that doesn't fit `oldValue`/`newValue`
+  /// (e.g. a request's query params, a batch operation's affected count).
+  metadata Json? @map("metadata")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([tenantId, createdAt(sort: Desc)], name: "idx_audit_logs_tenant_timeline")
+  @@index([tenantId, eventType, createdAt(sort: Desc)], name: "idx_audit_logs_event_type")
+  @@index([tenantId, actorId, createdAt(sort: Desc)], name: "idx_audit_logs_actor")
+  @@index([tenantId, targetType, targetId], name: "idx_audit_logs_target")
+  @@map("audit_logs")
+}
+
+/// Matches frontend/src/modules/audit/types/index.ts's `AuditEventType` exactly.
+enum AuditEventType {
+  UPLOAD
+  DOWNLOAD
+  SHARE
+  /// PRD §14.1 — a previously-granted document share (`ResourceAccessPolicy`) was revoked via
+  /// `DocumentService.revokeShare()`, before it would otherwise have lapsed on its own `expiresAt`.
+  SHARE_REVOKED
+  /// PRD §14.1 — a `Document` was soft-deleted via `DocumentService.deleteDocument()`.
+  DOCUMENT_DELETE
+  /// A new `Document` version was created via the PRD §7.2 replace flow
+  /// (`DocumentService.createVersion`) — distinct from `UPLOAD`, which is only ever
+  /// the first version of a document.
+  VERSION_CREATE
+  LOGIN
+  LOGOUT
+  /// PRD §14.1 — a login attempt failed for a known (existing, matched-by-email) user, i.e.
+  /// wrong password against a real account. Mirrors `LoginHistory`'s existing `FAILED_LOGIN`
+  /// `LoginEventType`, written alongside it — see `AuthService.recordFailedLogin()`. Not written
+  /// when the email itself doesn't match any user (no tenant/actor to scope the row to).
+  FAILED_LOGIN
+  ROLE_CHANGE
+  TASK_UPDATE
+  PAYMENT_ACTION
+  PERMISSION_CHANGE
+  PASSWORD_RESET
+  INVITATION_ACCEPTED
+  /// A `TaskReminder` (DUE_TOMORROW/DUE_TODAY/OVERDUE) was dispatched by the
+  /// scheduled reminder scan — the only `AuditLog` event type ever written by
+  /// a system/cron actor rather than a real authenticated request; see
+  /// `TaskReminderService`'s header comment.
+  TASK_REMINDER_SENT
+  /// PRD §7.4 — a tenant/business/plan storage or upload-limit setting was changed
+  /// (master-admin tenant limits, firm storage settings, business quota override).
+  SETTINGS_UPDATE
+  /// PRD §7.4 — an upload was blocked by the file-size limit or a business/tenant
+  /// storage quota. Written best-effort by `DocumentService.assertUploadAllowed()`,
+  /// same swallow-errors semantics as every other `AuditLogRecorder.record()` call.
+  UPLOAD_REJECTED
+  /// PRD §14.5 — an admin (`users:manage`) force-revoked another user's specific active
+  /// session/device via `UserService.revokeUserSession()`, distinct from that user's own
+  /// self-service `AuthService.revokeSession()` (which isn't audit-logged — it's the caller
+  /// acting on themselves, not one user acting on another).
+  SESSION_REVOKED
+
+  /// PRD §8.11 — a new `Lead` was created (`LeadService.createLead`).
+  LEAD_CREATED
+  /// PRD §8.11 ("Status Changed") — `Lead.stageId` actually changed via `LeadService.updateLead`.
+  /// Covers a firm-defined "Proposal" stage transition too, since `LeadStage` is a
+  /// tenant-configurable name/order table, not a fixed enum — there is no separate
+  /// "Proposal Sent" action distinct from a generic stage change.
+  LEAD_STAGE_CHANGED
+  /// PRD §8.11 — a `Lead` was converted into a `Client` (`LeadService.convertLead`).
+  LEAD_CONVERTED
+  /// PRD §8.11 — a `LeadAssignment` was created or removed.
+  LEAD_ASSIGNMENT_CHANGED
+  /// PRD §8.11 — a `LeadNote` was added to a Lead.
+  LEAD_NOTE_ADDED
+  /// PRD §8.11 — a follow-up `Task` linked to a Lead (`Task.leadId`) was marked COMPLETED.
+  FOLLOWUP_COMPLETED
+  /// PRD §8.5/§8.11 ("Assignment Changed") — a `BusinessAssignment` was created or removed.
+  BUSINESS_ASSIGNMENT_CHANGED
+  /// PRD §8.2/§8.11 — a proposal was sent for a `Lead` (`LeadService.sendProposal`).
+  PROPOSAL_SENT
+  /// PRD §8.2/§8.11 — a proposal was accepted (`LeadService.acceptProposal`).
+  PROPOSAL_ACCEPTED
+  /// PRD §8.2/§8.11 — a proposal was rejected (`LeadService.rejectProposal`).
+  PROPOSAL_REJECTED
+  /// PRD §8.6/§8.11 — a `BusinessNote` was added to a Business.
+  BUSINESS_NOTE_ADDED
+  /// PRD §8.11 ("PAN updated") — `Business.pan` actually changed via `BusinessService.updateBusiness`.
+  BUSINESS_PAN_UPDATED
+  /// PRD §8.11 ("GST updated") — `Business.gstin` actually changed via `BusinessService.updateBusiness`.
+  BUSINESS_GST_UPDATED
+  /// PRD §8.11 — any other editable Business field (tradeName/legalName/din/tan/phone/email/
+  /// industry/website/cin/incorporationDate/financialYearStart) actually changed. One combined
+  /// event rather than one enum value per field, mirroring `SETTINGS_UPDATE`'s same restraint.
+  BUSINESS_DETAILS_UPDATED
+
+  /// PRD §9 — a `Task` was created (`TaskService.createTask`).
+  TASK_CREATED
+  /// PRD §9 — `Task.assigneeId` actually changed to a new non-null value, via
+  /// `updateTask()` reassignment or the dedicated `assignTask()` action. Not
+  /// fired at creation time even if `assigneeId` is set on create —
+  /// `TASK_CREATED` alone covers that moment.
+  TASK_ASSIGNED
+  /// PRD §9 — a Task moved REQUESTED → SUBMITTED (approval workflow only).
+  TASK_SUBMITTED
+  /// PRD §9 — a Task moved (SUBMITTED|UNDER_REVIEW) → APPROVED.
+  TASK_APPROVED
+  /// PRD §9 — a Task moved (SUBMITTED|UNDER_REVIEW) → REJECTED.
+  TASK_REJECTED
+  /// PRD §9 — a Task moved to COMPLETED, from either lifecycle. Supplements,
+  /// does not replace, `TASK_UPDATE` — see `TaskService`'s status-audit
+  /// dispatch table (`resolveStatusAuditEvent`).
+  TASK_COMPLETED
+  /// PRD §9 — a terminal/near-terminal Task was reopened: COMPLETED→IN_PROGRESS
+  /// (existing reopen path) or REJECTED→REQUESTED (approval-workflow resubmit path).
+  TASK_REOPENED
+
+  /// Work Calendar — a `CalendarEvent` was created (`CalendarEventService.createEvent`).
+  CALENDAR_EVENT_CREATED
+  /// Work Calendar — a `CalendarEvent` was updated.
+  CALENDAR_EVENT_UPDATED
+  /// Work Calendar — a `CalendarEvent` was soft-deleted.
+  CALENDAR_EVENT_DELETED
+
+  /// PRD §11.13 — a `Notification` row was created by `NotificationDispatchService.send()`,
+  /// one event per channel/row (not per `send()` call — a 3-channel send writes 3 of these).
+  NOTIFICATION_CREATED
+  /// PRD §11.13 — `workers/notification.worker.ts` successfully delivered a non-`IN_APP`
+  /// `Notification` via its provider.
+  NOTIFICATION_SENT
+  /// PRD §11.13 — reserved, unemitted in Phase 1 (see `NotificationStatus.DELIVERED`'s comment).
+  NOTIFICATION_DELIVERED
+  /// PRD §11.13 — a `Notification`'s delivery attempts were exhausted with no success.
+  NOTIFICATION_FAILED
+  /// PRD §11.13 — a `PENDING` `Notification` was cancelled via
+  /// `NotificationDispatchService.cancel()` before it was delivered.
+  NOTIFICATION_CANCELLED
+  /// PRD §11.13 — emitted only from `NotificationService.markAllAsRead()` (one row per batch
+  /// action), deliberately NOT from every individual `markAsRead(id)` call — otherwise routine
+  /// UI clicks would flood a security-relevant activity log with cosmetic events.
+  NOTIFICATION_READ
+  /// PRD §11.13 — `workers/notification.worker.ts` retried a failed delivery attempt (written
+  /// on each caught-then-rethrown attempt after the first, before the final exhaustion that
+  /// writes `NOTIFICATION_FAILED`).
+  NOTIFICATION_RETRIED
+  /// PRD §11.12 — `BillingReminderService` dispatched an invoice payment reminder, mirroring
+  /// `TASK_REMINDER_SENT`'s existing precedent.
+  BILLING_REMINDER_SENT
+  /// PRD §11.12 — `ComplianceReminderService` dispatched a GST/compliance filing reminder.
+  COMPLIANCE_REMINDER_SENT
+  /// PRD §11.12 — `DocumentReminderService` dispatched a document-request follow-up reminder.
+  DOCUMENT_REMINDER_SENT
+
+  /// PRD §14.2 — an `Invoice` was created (`InvoiceService.createInvoice`).
+  INVOICE_CREATED
+  /// PRD §14.2 — an `Invoice` was updated (`InvoiceService.updateInvoice`).
+  INVOICE_UPDATED
+  /// PRD §14.2 — an `Invoice` was deleted (`InvoiceService.deleteInvoice`).
+  INVOICE_DELETED
+  /// PRD §14.2 — a gateway webhook marked a `Payment` COMPLETED
+  /// (`PaymentGatewayWebhookService`'s paid branch).
+  PAYMENT_COMPLETED
+  /// PRD §14.2 — a `Tenant`'s subscription status/plan was updated as part of finalizing a
+  /// payment (`BillingService.finalizePayment`).
+  SUBSCRIPTION_UPDATED
+  /// PRD §14.2 — a `DocumentFolder` was created (`DocumentFolderService.createFolder`).
+  FOLDER_CREATED
+  /// PRD §14.2 — a `DocumentFolder` was renamed (`DocumentFolderService.renameFolder`).
+  FOLDER_RENAMED
+  /// PRD §14.2 — a `DocumentFolder` was deleted (`DocumentFolderService.deleteFolder`).
+  FOLDER_DELETED
+  /// PRD §14.2 — a user's dashboard widget/layout preferences were changed
+  /// (`DashboardPreferenceService.updatePreferences`).
+  DASHBOARD_PREFERENCES_CHANGED
+  /// PRD §14.2 — a user reset their dashboard layout back to tenant defaults
+  /// (`DashboardPreferenceService.resetPreferences`).
+  DASHBOARD_LAYOUT_RESET
+  /// PRD §14.2 — a tenant-wide default dashboard configuration was created, changed, or
+  /// removed (`DashboardTenantDefaultService.upsertDefault`/`deleteDefault`).
+  DASHBOARD_DEFAULTS_UPDATED
+  /// PRD §14.2 — a `NotificationTemplate` was created (`NotificationTemplateService.createTemplate`).
+  NOTIFICATION_TEMPLATE_CREATED
+  /// PRD §14.2 — a `NotificationTemplate` was updated (`NotificationTemplateService.updateTemplate`).
+  NOTIFICATION_TEMPLATE_UPDATED
+  /// PRD §14.2 — a `NotificationTemplate` was deleted (`NotificationTemplateService.deleteTemplate`).
+  NOTIFICATION_TEMPLATE_DELETED
+  /// PRD §14.7 — a `Document` pending approval was approved (`DocumentService.approve`).
+  DOCUMENT_APPROVED
+  /// PRD §14.7 — a `Document` pending approval was rejected (`DocumentService.reject`).
+  DOCUMENT_REJECTED
+
+  /// PRD §17 — a tenant connected a new `IntegrationConnection` (`IntegrationConnectionService.connect`).
+  INTEGRATION_CONNECTED
+  /// PRD §17 — a tenant disconnected an `IntegrationConnection` (`IntegrationConnectionService.disconnect`).
+  INTEGRATION_DISCONNECTED
+  /// PRD §17 — an `IntegrationConnection`'s stored credentials/config were replaced
+  /// (`IntegrationConnectionService.connect` called again on an existing connection).
+  INTEGRATION_CREDENTIAL_UPDATED
+  /// PRD §17 — an `IntegrationSync` run was started, by any trigger (`IntegrationSyncEngine.execute`).
+  INTEGRATION_SYNC_TRIGGERED
+  /// PRD §17 — an `IntegrationSync` run finished with `SUCCESS` or `PARTIAL_SUCCESS`.
+  INTEGRATION_SYNC_COMPLETED
+  /// PRD §17 — an `IntegrationSync` run finished with `FAILED`.
+  INTEGRATION_SYNC_FAILED
+  /// PRD §17 — an `IntegrationConnection`'s OAuth access token was refreshed
+  /// (`IntegrationTokenRefreshService`, scheduled system actor — mirrors `TASK_REMINDER_SENT`).
+  INTEGRATION_TOKEN_REFRESHED
+  /// PRD §17 — an inbound `IntegrationWebhookLog` row was received and its signature verified —
+  /// written by the system actor since there is no authenticated user, mirrors `PAYMENT_COMPLETED`'s
+  /// webhook-driven audit entry.
+  INTEGRATION_WEBHOOK_RECEIVED
+
+  @@map("audit_event_type")
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════
+/// PRD §17 — Integration Framework
+/// ═══════════════════════════════════════════════════════════════════════════
+///
+/// Framework-only models. NO real third-party provider (Tally/Zoho/QuickBooks/
+/// Google Drive/Gmail/DocuSign/...) is implemented against these tables yet —
+/// they exist so `modules/integrations` can provide a generic connect/sync/
+/// webhook lifecycle that future providers plug into via
+/// `IntegrationProviderRegistry.register()` (a new provider class + one
+/// registration call, in `modules/integrations` alone) without ever touching
+/// CRM/Documents/Billing/Tasks/Notifications or any other business module.
+///
+/// `providerKey` throughout is a free-form string (a registry slug, e.g.
+/// `"tally"`/`"google_drive"`), NOT a fixed Prisma enum — deliberately, so a
+/// brand new provider can be registered with zero schema migration. It has a
+/// real FK relation to `IntegrationProvider.key` below, so referential
+/// integrity is still enforced.
+/// ═══════════════════════════════════════════════════════════════════════════
+
+enum IntegrationCategory {
+  ACCOUNTING
+  STORAGE
+  COMMUNICATION
+  IDENTITY
+  DOCUMENT
+  OTHER
+
+  @@map("integration_category")
+}
+
+enum IntegrationConnectionStatus {
+  DISCONNECTED
+  PENDING
+  CONNECTED
+  ERROR
+  EXPIRED
+
+  @@map("integration_connection_status")
+}
+
+enum IntegrationSyncDirection {
+  IMPORT
+  EXPORT
+  BIDIRECTIONAL
+
+  @@map("integration_sync_direction")
+}
+
+enum IntegrationSyncTrigger {
+  MANUAL
+  SCHEDULED
+  WEBHOOK
+
+  @@map("integration_sync_trigger")
+}
+
+enum IntegrationSyncStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL_SUCCESS
+  FAILED
+  CANCELLED
+
+  @@map("integration_sync_status")
+}
+
+enum IntegrationWebhookStatus {
+  RECEIVED
+  VERIFIED
+  REJECTED
+  PROCESSED
+  FAILED
+
+  @@map("integration_webhook_status")
+}
+
+enum IntegrationJobType {
+  SYNC
+  WEBHOOK_PROCESSING
+  TOKEN_REFRESH
+  HEALTH_CHECK
+
+  @@map("integration_job_type")
+}
+
+enum IntegrationJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  RETRYING
+  DEAD_LETTER
+
+  @@map("integration_job_status")
+}
+
+/// Platform-wide catalog of registered provider keys — one row per provider
+/// registered with `IntegrationProviderRegistry`, upserted at process boot
+/// (`syncProviderCatalog()`), never hand-seeded with real vendor data. Lets
+/// `GET /integrations/providers` and the future firm-admin UI list available
+/// providers from the DB instead of a hardcoded frontend list, and gives
+/// master-admin a platform-level kill switch (`isActive`) independent of any
+/// tenant's own `IntegrationConnection.status`.
+model IntegrationProvider {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Registry slug, e.g. "tally", "google_drive" — matches
+  /// `IntegrationProvider` (TS interface)'s `key` exactly.
+  key         String              @unique @db.VarChar(100)
+  name        String              @db.VarChar(150)
+  category    IntegrationCategory
+  description String?             @db.Text
+
+  /// Platform-level kill switch (master-admin only) — independent of whether
+  /// any tenant has actually connected it. False for a key that is registered
+  /// in code but not yet rolled out.
+  isActive Boolean @default(true) @map("is_active")
+
+  /// Cached snapshot of the registered provider's `getCapabilities()`,
+  /// refreshed on every boot — read-only, never client-editable.
+  capabilities Json? @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  connections IntegrationConnection[]
+
+  @@index([category], name: "idx_integration_providers_category")
+  @@map("integration_providers")
+}
+
+/// A tenant's own connection to a provider. Multiple connections per
+/// tenant/provider are allowed (e.g. two separate Tally company files), so
+/// there is deliberately no `@@unique([tenantId, providerKey])` — `label`
+/// disambiguates them for the tenant's own admin UI.
+model IntegrationConnection {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  providerKey String  @map("provider_key") @db.VarChar(100)
+  label       String? @db.VarChar(150)
+
+  status IntegrationConnectionStatus @default(DISCONNECTED)
+
+  /// AES-256-GCM (`CryptoUtils.encryptSecret`, keyed by
+  /// `INTEGRATION_ENCRYPTION_KEY`) encrypted JSON blob holding whatever this
+  /// provider's `connect()` needs — API key/secret, OAuth access+refresh
+  /// token, basic-auth creds, a per-connection webhook secret, etc. One
+  /// generic encrypted field rather than one column per auth style, so the
+  /// schema never needs a migration to support a new provider's credential
+  /// shape (mirrors `FirmPaymentGatewaySettings.encryptedKeySecret`, widened
+  /// to an arbitrary JSON payload instead of a single string).
+  encryptedCredentials String? @map("encrypted_credentials") @db.Text
+
+  /// OAuth scopes granted, when applicable — empty for API-key-style providers.
+  scopes         String[]  @map("scopes")
+  /// Queryable expiry for the encrypted access token, so the scheduled token-refresh
+  /// scan can `WHERE tokenExpiresAt < now()` without ever decrypting a row it doesn't need to.
+  tokenExpiresAt DateTime? @map("token_expires_at") @db.Timestamptz
+
+  /// Non-secret, provider-specific settings (e.g. a selected Tally company name,
+  /// a Drive folder id) — never credentials, those always go in `encryptedCredentials`.
+  config Json @default("{}") @db.JsonB
+
+  syncDirection        IntegrationSyncDirection @default(IMPORT) @map("sync_direction")
+  autoSyncEnabled      Boolean                  @default(false) @map("auto_sync_enabled")
+  /// Null while `autoSyncEnabled` is false — required once auto-sync is turned on.
+  syncFrequencyMinutes Int?                     @map("sync_frequency_minutes")
+
+  lastSyncAt DateTime? @map("last_sync_at") @db.Timestamptz
+  /// Scanned by the scheduled-sync worker (`IntegrationSyncScanJob`); null means "never scheduled".
+  nextSyncAt DateTime? @map("next_sync_at") @db.Timestamptz
+  lastError  String?   @map("last_error") @db.Text
+
+  /// Non-secret account metadata returned by the provider's own `connect()` (e.g.
+  /// connected account email/company name) — safe to return to the frontend as-is.
+  metadata Json? @db.JsonB
+
+  createdBy String? @map("created_by") @db.Uuid
+  updatedBy String? @map("updated_by") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  provider IntegrationProvider @relation(fields: [providerKey], references: [key])
+
+  syncs       IntegrationSync[]
+  webhookLogs IntegrationWebhookLog[]
+  jobs        IntegrationJob[]
+
+  @@index([tenantId, providerKey], name: "idx_integration_connections_tenant_provider")
+  @@index([tenantId, status], name: "idx_integration_connections_tenant_status")
+  @@index([tenantId, deletedAt], name: "idx_integration_connections_soft_delete")
+  @@index([nextSyncAt], name: "idx_integration_connections_next_sync")
+  @@map("integration_connections")
+}
+
+/// One row per sync run (manual, scheduled, or webhook-triggered) — the
+/// durable history `GET /integrations/sync-history` reads from. No
+/// provider-specific fields: `resultSummary` is an opaque `Json` bag the
+/// provider's own `sync()` result populates.
+model IntegrationSync {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  connectionId String @map("connection_id") @db.Uuid
+
+  direction IntegrationSyncDirection
+  trigger   IntegrationSyncTrigger
+  status    IntegrationSyncStatus    @default(PENDING)
+
+  /// Prevents two concurrent runs for the same connection/trigger-window from
+  /// double-processing — enforced at the DB level, not just in-app.
+  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+
+  isDryRun Boolean @default(false) @map("is_dry_run")
+
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+
+  itemsProcessed Int @default(0) @map("items_processed")
+  itemsSucceeded Int @default(0) @map("items_succeeded")
+  itemsFailed    Int @default(0) @map("items_failed")
+  /// Count of records where the provider reported a conflicting local/remote change
+  /// (PRD §17 Step 6 "Conflict detection") — the framework only counts and surfaces
+  /// this; resolving a conflict is provider-specific and out of scope here.
+  conflictCount  Int @default(0) @map("conflict_count")
+
+  resultSummary Json?   @map("result_summary") @db.JsonB
+  errorMessage  String? @map("error_message") @db.Text
+
+  /// The user who triggered a MANUAL sync — plain uuid, no FK relation, deliberately
+  /// mirroring `AuditLog.actorId`'s same convention, since `SCHEDULED`/`WEBHOOK` runs
+  /// have no user at all (null) and this table doesn't need a joinable User relation.
+  triggeredBy String? @map("triggered_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  connection IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  jobs       IntegrationJob[]
+
+  @@index([tenantId, connectionId, createdAt(sort: Desc)], name: "idx_integration_syncs_tenant_connection")
+  @@index([tenantId, status], name: "idx_integration_syncs_tenant_status")
+  @@map("integration_syncs")
+}
+
+/// Every inbound webhook call to `POST /integrations/webhook/:providerKey/:connectionId`
+/// is logged here FIRST, before signature verification even runs — so a forged or
+/// malformed call is still auditable. `tenantId`/`connectionId` are nullable because a
+/// malformed `:connectionId` (or one that doesn't belong to any tenant) must still be
+/// logged as `REJECTED`, not dropped silently.
+model IntegrationWebhookLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId     String? @map("tenant_id") @db.Uuid
+  connectionId String? @map("connection_id") @db.Uuid
+  providerKey  String  @map("provider_key") @db.VarChar(100)
+
+  /// The provider's own event/delivery id, when its payload has one — paired with
+  /// `providerKey` for cross-provider idempotency (see the `@@unique` below).
+  externalEventId String? @map("external_event_id") @db.VarChar(255)
+
+  status         IntegrationWebhookStatus @default(RECEIVED)
+  signatureValid Boolean?                 @map("signature_valid")
+
+  headers Json? @db.JsonB
+  /// Parsed JSON body — the exact raw bytes are only needed transiently for HMAC
+  /// verification (done synchronously in the controller against `req.rawBody`,
+  /// never persisted), mirroring `PaymentGatewayLink.providerMetadata`'s same
+  /// "store the provider's payload as-is" convention.
+  payload Json? @db.JsonB
+
+  receivedAt   DateTime  @default(now()) @map("received_at") @db.Timestamptz
+  processedAt  DateTime? @map("processed_at") @db.Timestamptz
+  errorMessage String?   @map("error_message") @db.Text
+  retryCount   Int       @default(0) @map("retry_count")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  connection IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  jobs       IntegrationJob[]
+
+  @@unique([providerKey, externalEventId], name: "uq_integration_webhook_logs_provider_event")
+  @@index([tenantId, createdAt(sort: Desc)], name: "idx_integration_webhook_logs_tenant_timeline")
+  @@index([status], name: "idx_integration_webhook_logs_status")
+  @@map("integration_webhook_logs")
+}
+
+/// Durable, Postgres-backed job/run history — BullMQ (see `config/queue.ts`) only
+/// keeps job state in Redis, which is fine for processing but useless for the
+/// permanent audit/history trail PRD §17 Step 10/11 needs. `queueJobId` cross-references
+/// the actual BullMQ job for live-status lookups while it's still in Redis.
+model IntegrationJob {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId     String? @map("tenant_id") @db.Uuid
+  connectionId String? @map("connection_id") @db.Uuid
+
+  jobType IntegrationJobType
+  status  IntegrationJobStatus @default(QUEUED)
+
+  /// The BullMQ job id from the queue this was enqueued onto
+  /// (`integrationSyncQueue/integrationWebhookQueue`), for cross-referencing live state.
+  queueJobId String? @map("queue_job_id") @db.VarChar(255)
+
+  relatedSyncId       String? @map("related_sync_id") @db.Uuid
+  relatedWebhookLogId String? @map("related_webhook_log_id") @db.Uuid
+
+  payload Json? @db.JsonB
+
+  attempts    Int @default(0) @map("attempts")
+  maxAttempts Int @default(3) @map("max_attempts")
+
+  lastError String? @map("last_error") @db.Text
+
+  scheduledFor DateTime? @map("scheduled_for") @db.Timestamptz
+  startedAt    DateTime? @map("started_at") @db.Timestamptz
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  connection        IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  relatedSync       IntegrationSync?       @relation(fields: [relatedSyncId], references: [id], onDelete: SetNull)
+  relatedWebhookLog IntegrationWebhookLog? @relation(fields: [relatedWebhookLogId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status], name: "idx_integration_jobs_tenant_status")
+  @@index([status, scheduledFor], name: "idx_integration_jobs_status_scheduled")
+  @@map("integration_jobs")
 }

@@ -27,7 +27,7 @@ body {
   height: 100%;
   font-family: var(--font-sans);
   font-size: var(--text-body);
-  line-height: 1.5;
+  line-height: var(--body-line);
   color: var(--color-text-body);
   background-color: var(--color-bg);
   transition: background-color var(--transition-slow), color var(--transition-slow);
@@ -42,9 +42,9 @@ body {
 /* ─── Typography Defaults ───────────────────────────────── */
 h1, h2, h3, h4, h5, h6 {
   color: var(--color-text-heading);
-  font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -0.015em;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--heading-line);
+  letter-spacing: var(--heading-tracking);
 }
 
 p {
@@ -198,6 +198,21 @@ table {
 @keyframes slideInRight {
   from { transform: translateX(100%); }
   to   { transform: translateX(0); }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes slideInTop {
+  from { transform: translateY(-100%); }
+  to   { transform: translateY(0); }
+}
+
+@keyframes slideInBottom {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
 }
 
 @keyframes scaleIn {

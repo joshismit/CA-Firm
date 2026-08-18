@@ -55,6 +55,15 @@ export const tokens = {
     xs: '0.6875rem',
     '2xs': '0.625rem',
   },
+  fontWeight: {
+    normal: 400,
+    medium: 500,
+    semibold: 600,
+    bold: 700,
+  },
+  headingTracking: '-0.015em',
+  headingLine: 1.25,
+  bodyLine: 1.5,
   layout: {
     sidebarWidth: '240px',
     sidebarCollapsed: '56px',

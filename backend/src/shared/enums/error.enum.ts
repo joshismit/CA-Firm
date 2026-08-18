@@ -182,4 +182,22 @@ export enum ErrorCode {
 
   /** A required external service dependency is unavailable */
   DEPENDENCY_UNAVAILABLE = 'DEPENDENCY_UNAVAILABLE',
+
+  // ─── Integration Framework (PRD §17) ─────────────────────────────────────
+
+  /** No `IntegrationProvider` is registered under the requested provider key */
+  INTEGRATION_PROVIDER_NOT_FOUND = 'INTEGRATION_PROVIDER_NOT_FOUND',
+
+  /** No `IntegrationConnection` exists for the requested id (within this tenant) */
+  INTEGRATION_CONNECTION_NOT_FOUND = 'INTEGRATION_CONNECTION_NOT_FOUND',
+
+  /** The connection's provider has no working credentials yet — every provider method
+   *  short-circuits on this rather than attempting a network call */
+  INTEGRATION_NOT_CONFIGURED = 'INTEGRATION_NOT_CONFIGURED',
+
+  /** A sync was requested for a connection that already has one PENDING/RUNNING */
+  INTEGRATION_SYNC_IN_PROGRESS = 'INTEGRATION_SYNC_IN_PROGRESS',
+
+  /** An inbound webhook's signature failed verification against the connection's own secret */
+  INTEGRATION_WEBHOOK_INVALID_SIGNATURE = 'INTEGRATION_WEBHOOK_INVALID_SIGNATURE',
 }
